@@ -1,1 +1,8 @@
-.venv/
+﻿.venv/
+.omx/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.env
+data/app.db

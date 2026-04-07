@@ -1,0 +1,104 @@
+﻿from __future__ import annotations
+
+from decimal import Decimal
+import unittest
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from core.db import Base
+from core.exceptions import ValidationError
+from modules.customer.models import Customer
+from modules.customer.repository import CustomerRepository
+from modules.customer.service import CustomerService
+import modules.inventory.models  # noqa: F401
+import modules.returns.models  # noqa: F401
+import modules.sales.models  # noqa: F401
+
+
+class CustomerServiceTestCase(unittest.TestCase):
+    def setUp(self) -> None:
+        self.engine = create_engine("sqlite+pysqlite:///:memory:")
+        Base.metadata.create_all(self.engine)
+        self.Session = sessionmaker(bind=self.engine, expire_on_commit=False, autoflush=False)
+        self.repository = CustomerRepository(self.Session)
+        self.service = CustomerService(self.repository)
+        self.customer_id = self._create_customer("Khach A")
+
+    def tearDown(self) -> None:
+        self.repository.session.close()
+        self.engine.dispose()
+
+    def _create_customer(self, name: str) -> int:
+        customer = Customer(customer_name=name, phone=None, current_balance=Decimal("0"), total_sales=Decimal("0"))
+        self.repository.session.add(customer)
+        self.repository.session.commit()
+        return customer.id
+
+    def test_increase_balance_creates_ledger_and_updates_balance(self) -> None:
+        ledger = self.service.adjust_balance(self.customer_id, Decimal("100"), "invoice", 1, note="Cong no")
+        customer = self.service.get_customer(self.customer_id)
+
+        self.assertEqual(ledger.amount_delta, Decimal("100"))
+        self.assertEqual(ledger.balance_after, Decimal("100"))
+        self.assertEqual(customer.current_balance, Decimal("100"))
+
+    def test_decrease_balance_updates_balance(self) -> None:
+        self.service.adjust_balance(self.customer_id, Decimal("100"), "invoice", 1)
+        ledger = self.service.adjust_balance(self.customer_id, Decimal("-30"), "payment", 2)
+        customer = self.service.get_customer(self.customer_id)
+
+        self.assertEqual(ledger.amount_delta, Decimal("-30"))
+        self.assertEqual(ledger.balance_after, Decimal("70"))
+        self.assertEqual(customer.current_balance, Decimal("70"))
+
+    def test_balance_can_go_negative(self) -> None:
+        ledger = self.service.adjust_balance(self.customer_id, Decimal("-50"), "payment", 3)
+        customer = self.service.get_customer(self.customer_id)
+
+        self.assertEqual(ledger.balance_after, Decimal("-50"))
+        self.assertEqual(customer.current_balance, Decimal("-50"))
+
+    def test_rollback_balance_reverses_reference_and_creates_rollback_ledger(self) -> None:
+        self.service.adjust_balance(self.customer_id, Decimal("120"), "invoice", 10)
+        rollback_ledger = self.service.rollback_balance(self.customer_id, "invoice", 10)
+        customer = self.service.get_customer(self.customer_id)
+
+        self.assertEqual(rollback_ledger.event_type, "ROLLBACK")
+        self.assertEqual(rollback_ledger.amount_delta, Decimal("-120"))
+        self.assertEqual(rollback_ledger.balance_after, Decimal("0"))
+        self.assertEqual(customer.current_balance, Decimal("0"))
+
+    def test_rollback_twice_fails(self) -> None:
+        self.service.adjust_balance(self.customer_id, Decimal("75"), "invoice", 11)
+        self.service.rollback_balance(self.customer_id, "invoice", 11)
+        with self.assertRaises(ValidationError):
+            self.service.rollback_balance(self.customer_id, "invoice", 11)
+
+    def test_rollback_without_ledger_fails(self) -> None:
+        with self.assertRaises(ValidationError):
+            self.service.rollback_balance(self.customer_id, "invoice", 999)
+
+    def test_ledger_rows_are_created_correctly(self) -> None:
+        self.service.adjust_balance(self.customer_id, Decimal("40"), "invoice", 100, note="Nhap cong no")
+        self.service.adjust_balance(self.customer_id, Decimal("-10"), "payment", 101, note="Khach tra")
+        ledgers = list(self.repository.list_ledgers_by_ref(self.customer_id, "invoice", 100))
+        payment_ledgers = list(self.repository.list_ledgers_by_ref(self.customer_id, "payment", 101))
+
+        self.assertEqual(len(ledgers), 1)
+        self.assertEqual(ledgers[0].note, "Nhap cong no")
+        self.assertEqual(payment_ledgers[0].amount_delta, Decimal("-10"))
+
+    def test_adjust_balance_rejects_zero_amount(self) -> None:
+        with self.assertRaises(ValidationError):
+            self.service.adjust_balance(self.customer_id, Decimal("0"), "invoice", 1)
+
+    def test_increase_sales_accumulates_total_sales(self) -> None:
+        self.service.increase_sales(self.customer_id, Decimal("50"))
+        self.service.increase_sales(self.customer_id, Decimal("25"))
+        customer = self.service.get_customer(self.customer_id)
+        self.assertEqual(customer.total_sales, Decimal("75"))
+
+
+if __name__ == "__main__":
+    unittest.main()
