@@ -1,25 +1,16 @@
 ﻿from __future__ import annotations
 
-from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
+from modules.returns.controller import ReturnController
 from modules.returns.service import ReturnsService
-from modules.returns.ui.forms import ReturnsForm
-from modules.returns.ui.widgets import ReturnsWidget
+from modules.returns.ui.return_page import ReturnPage as ReturnPageView
 
 
 class ReturnsPage(QWidget):
     def __init__(self, service: ReturnsService) -> None:
         super().__init__()
-        self._service = service
+        controller = ReturnController(service._repository._session_factory)
 
         layout = QVBoxLayout(self)
-        title = QLabel("Module Tra hang")
-        subtitle = QLabel("Domain tra hang da tach thanh ReturnInvoice / ReturnInvoiceItem va lien ket nguon ve InvoiceItem.")
-        subtitle.setWordWrap(True)
-        subtitle.setProperty("class", "muted")
-
-        layout.addWidget(title)
-        layout.addWidget(subtitle)
-        layout.addWidget(ReturnsForm())
-        layout.addWidget(ReturnsWidget())
-        layout.addWidget(QLabel(f"So phieu tra hang hien tai: {len(list(self._service.list_return_invoices()))}"))
+        layout.addWidget(ReturnPageView(controller))

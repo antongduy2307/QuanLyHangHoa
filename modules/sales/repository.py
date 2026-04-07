@@ -28,6 +28,18 @@ class SalesRepository:
         statement = select(Invoice).order_by(Invoice.invoice_datetime.desc())
         return self.session.scalars(statement).all()
 
+    def search_invoices_by_code(self, query: str, limit: int = 20) -> Sequence[Invoice]:
+        needle = query.strip()
+        statement = select(Invoice).order_by(Invoice.invoice_datetime.desc()).limit(limit)
+        if needle:
+            statement = (
+                select(Invoice)
+                .where(Invoice.invoice_code.ilike(f"%{needle}%"))
+                .order_by(Invoice.invoice_datetime.desc())
+                .limit(limit)
+            )
+        return self.session.scalars(statement).all()
+
     def get_recent_invoices_by_customer(self, customer_id: int, limit: int = 3) -> Sequence[Invoice]:
         statement = (
             select(Invoice)
