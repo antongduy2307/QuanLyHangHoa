@@ -1,0 +1,50 @@
+﻿from __future__ import annotations
+
+from datetime import datetime, time
+
+from PyQt6.QtCore import QDate, pyqtSignal
+from PyQt6.QtWidgets import QComboBox, QDateEdit, QHBoxLayout, QPushButton, QWidget
+
+
+class DateRangeSelectorWidget(QWidget):
+    load_requested = pyqtSignal(str, object, object)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.preset_combo = QComboBox()
+        for preset in ["today", "yesterday", "last_7_days", "this_month", "last_month", "custom"]:
+            self.preset_combo.addItem(preset, preset)
+
+        current_date = QDate.currentDate()
+        self.start_date_edit = QDateEdit(current_date)
+        self.start_date_edit.setCalendarPopup(True)
+        self.end_date_edit = QDateEdit(current_date)
+        self.end_date_edit.setCalendarPopup(True)
+        self.load_button = QPushButton("Xem bao cao")
+
+        layout = QHBoxLayout(self)
+        layout.addWidget(self.preset_combo)
+        layout.addWidget(self.start_date_edit)
+        layout.addWidget(self.end_date_edit)
+        layout.addWidget(self.load_button)
+
+        self.preset_combo.currentIndexChanged.connect(self._sync_custom_visibility)
+        self.load_button.clicked.connect(self._emit_load_requested)
+        self._sync_custom_visibility()
+
+    def sort_preset(self) -> str:
+        return str(self.preset_combo.currentData())
+
+    def custom_range(self) -> tuple[datetime, datetime]:
+        start = self.start_date_edit.date().toPyDate()
+        end = self.end_date_edit.date().toPyDate()
+        return datetime.combine(start, time.min), datetime.combine(end, time.max)
+
+    def _sync_custom_visibility(self) -> None:
+        is_custom = self.sort_preset() == "custom"
+        self.start_date_edit.setVisible(is_custom)
+        self.end_date_edit.setVisible(is_custom)
+
+    def _emit_load_requested(self) -> None:
+        custom_start, custom_end = self.custom_range()
+        self.load_requested.emit(self.sort_preset(), custom_start, custom_end)
