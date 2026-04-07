@@ -28,6 +28,15 @@ class SalesRepository:
         statement = select(Invoice).order_by(Invoice.invoice_datetime.desc())
         return self.session.scalars(statement).all()
 
+    def get_recent_invoices_by_customer(self, customer_id: int, limit: int = 3) -> Sequence[Invoice]:
+        statement = (
+            select(Invoice)
+            .where(Invoice.customer_id == customer_id)
+            .order_by(Invoice.invoice_datetime.desc())
+            .limit(limit)
+        )
+        return self.session.scalars(statement).all()
+
     def get_invoice(self, invoice_id: int) -> Invoice:
         statement = (
             select(Invoice)
