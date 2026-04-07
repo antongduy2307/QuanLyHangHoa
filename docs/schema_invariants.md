@@ -43,8 +43,9 @@ Tai lieu nay ghi ro boundary giua DB constraint, model-local helper, va service 
   - rollback anh huong bang cach reverse current balance tu tong ledger ref hien tai
   - xoa ledger rows cu vat ly
   - apply lai ledger moi cho trang thai cuoi cung
-- Sua hoa don = rollback cu + apply lai moi tren cung invoice record
-- Tra hang la bill rieng, khong sua bill goc
+- Return invoice la bill rieng, khong sua invoice goc
+- `STORE_CREDIT` lam giam current_balance day du theo tong gia tri return
+- `REFUND_NOW` chi giam current_balance toi da den 0 trong V1; khong tao balance am chi vi refund_now
 - Logic so luong tra khong vuot qua da mua duoc enforce o service
 - Xoa hoa don la hard delete sau khi rollback day du ton kho / cong no / total_sales
 - Moi thay doi cong no phai di qua ledger o service layer; model khong tu ghi ledger

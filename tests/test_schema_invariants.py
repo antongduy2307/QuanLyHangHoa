@@ -97,7 +97,7 @@ class SchemaInvariantTestCase(unittest.TestCase):
                 return_code="RET-001",
                 source_invoice_id=invoice.id,
                 total_amount=Decimal("25000"),
-                handling_mode=ReturnHandlingMode.RESTOCK,
+                handling_mode=ReturnHandlingMode.STORE_CREDIT,
             )
             session.add(return_invoice)
             session.flush()

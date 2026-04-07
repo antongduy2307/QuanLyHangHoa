@@ -31,8 +31,8 @@ class InvoiceStatus(StrEnum):
 
 
 class ReturnHandlingMode(StrEnum):
-    RESTOCK = "RESTOCK"
-    DISCARD = "DISCARD"
+    REFUND_NOW = "REFUND_NOW"
+    STORE_CREDIT = "STORE_CREDIT"
 
 
 UNIT_TYPES_BY_MODE: dict[UnitMode, tuple[UnitType, ...]] = {

@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload, sessionmaker
 
 from core.exceptions import NotFoundError
-from modules.sales.models import Invoice
+from modules.sales.models import Invoice, InvoiceItem
 
 
 class SalesRepository:
@@ -38,6 +38,12 @@ class SalesRepository:
         if invoice is None:
             raise NotFoundError(f"Invoice {invoice_id} was not found.")
         return invoice
+
+    def get_invoice_item(self, invoice_item_id: int) -> InvoiceItem:
+        item = self.session.get(InvoiceItem, invoice_item_id)
+        if item is None:
+            raise NotFoundError(f"Invoice item {invoice_item_id} was not found.")
+        return item
 
     def generate_invoice_code(self, invoice_datetime: datetime) -> str:
         prefix = f"HD{invoice_datetime.strftime('%Y%m%d')}-"

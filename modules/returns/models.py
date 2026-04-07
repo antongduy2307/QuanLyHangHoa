@@ -22,8 +22,8 @@ class ReturnInvoice(Base):
     """Return bill header.
 
     Returns are represented as standalone bills and never mutate the source invoice row in place.
-    `handling_mode` carries the return-handling policy for later service processing.
-    Quantity ceilings and rollback behavior belong to the service layer.
+    `handling_mode` stores whether the customer is refunded immediately or receives store credit.
+    Quantity ceilings and financial allocation rules belong to service code.
     """
 
     __tablename__ = "return_invoices"
@@ -37,7 +37,11 @@ class ReturnInvoice(Base):
     source_invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id", ondelete="RESTRICT"), index=True)
     return_datetime: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     total_amount: Mapped[Decimal] = mapped_column(Numeric(AMOUNT_PRECISION, AMOUNT_SCALE), default=Decimal("0"), server_default="0")
-    handling_mode: Mapped[ReturnHandlingMode] = mapped_column(build_enum(ReturnHandlingMode, "return_handling_mode"), default=ReturnHandlingMode.RESTOCK, server_default=ReturnHandlingMode.RESTOCK.value)
+    handling_mode: Mapped[ReturnHandlingMode] = mapped_column(
+        build_enum(ReturnHandlingMode, "return_handling_mode"),
+        default=ReturnHandlingMode.STORE_CREDIT,
+        server_default=ReturnHandlingMode.STORE_CREDIT.value,
+    )
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     source_invoice: Mapped[Invoice] = relationship(back_populates="source_returns")
