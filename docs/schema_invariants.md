@@ -46,6 +46,7 @@ Tai lieu nay ghi ro boundary giua DB constraint, model-local helper, va service 
 - Return invoice la bill rieng, khong sua invoice goc
 - `STORE_CREDIT` lam giam current_balance day du theo tong gia tri return
 - `REFUND_NOW` chi giam current_balance toi da den 0 trong V1; khong tao balance am chi vi refund_now
+- Reporting tong he thong phai tinh truc tiep tu `invoices` / `invoice_items` / `return_invoices` / `return_invoice_items`, khong dung `customers.total_sales`
 - Logic so luong tra khong vuot qua da mua duoc enforce o service
 - Xoa hoa don la hard delete sau khi rollback day du ton kho / cong no / total_sales
 - Moi thay doi cong no phai di qua ledger o service layer; model khong tu ghi ledger

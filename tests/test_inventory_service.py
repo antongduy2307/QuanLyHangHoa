@@ -3,14 +3,14 @@
 from decimal import Decimal
 import unittest
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from core.db import Base
 from core.enums import UnitMode, UnitType
 from core.exceptions import ValidationError
 import modules.customer.models  # noqa: F401
-from modules.inventory.models import InventoryBalance, Product
+from modules.inventory.models import InventoryBalance, Product, ProductPrice
 from modules.inventory.repository import InventoryRepository
 from modules.inventory.service import InventoryService
 import modules.returns.models  # noqa: F401
@@ -37,6 +37,72 @@ class InventoryServiceTestCase(unittest.TestCase):
         self.repository.session.add(product)
         self.repository.session.flush()
         return product.id
+
+    def test_create_product_bao_only(self) -> None:
+        product = self.service.create_product(
+            product_code_base="NEW-BAO",
+            product_name="Bao only",
+            unit_mode=UnitMode.BAO_KG,
+            enabled_prices={UnitType.BAO: Decimal("100")},
+        )
+        self.repository.session.commit()
+        self.assertEqual(product.unit_mode, UnitMode.BAO_KG)
+        prices = self.repository.session.scalars(select(ProductPrice).where(ProductPrice.product_id == product.id)).all()
+        self.assertEqual(len(prices), 1)
+        self.assertEqual(prices[0].unit_type, UnitType.BAO)
+        balance = self.service.get_balance(product.id)
+        self.assertEqual(balance.on_hand_bao_decimal, Decimal("0"))
+
+    def test_create_product_kg_only(self) -> None:
+        product = self.service.create_product(
+            product_code_base="NEW-KG",
+            product_name="Kg only",
+            unit_mode=UnitMode.BAO_KG,
+            enabled_prices={UnitType.KG: Decimal("5")},
+        )
+        self.repository.session.commit()
+        prices = self.repository.session.scalars(select(ProductPrice).where(ProductPrice.product_id == product.id)).all()
+        self.assertEqual(len(prices), 1)
+        self.assertEqual(prices[0].unit_type, UnitType.KG)
+
+    def test_create_product_bao_and_kg(self) -> None:
+        product = self.service.create_product(
+            product_code_base="NEW-BOTH",
+            product_name="Both units",
+            unit_mode=UnitMode.BAO_KG,
+            enabled_prices={UnitType.BAO: Decimal("100"), UnitType.KG: Decimal("5")},
+        )
+        self.repository.session.commit()
+        prices = self.repository.session.scalars(select(ProductPrice).where(ProductPrice.product_id == product.id)).all()
+        self.assertEqual(len(prices), 2)
+        self.assertEqual({price.unit_type for price in prices}, {UnitType.BAO, UnitType.KG})
+
+    def test_create_product_bich(self) -> None:
+        product = self.service.create_product(
+            product_code_base="NEW-BICH",
+            product_name="Bich item",
+            unit_mode=UnitMode.BICH,
+            enabled_prices={UnitType.BICH: Decimal("20")},
+        )
+        self.repository.session.commit()
+        balance = self.service.get_balance(product.id)
+        self.assertEqual(balance.on_hand_bich_integer, 0)
+
+    def test_create_product_invalid_unit_or_price_fails(self) -> None:
+        with self.assertRaises(ValidationError):
+            self.service.create_product(
+                product_code_base="BAD1",
+                product_name="Bad",
+                unit_mode=UnitMode.BICH,
+                enabled_prices={UnitType.BAO: Decimal("100")},
+            )
+        with self.assertRaises(ValidationError):
+            self.service.create_product(
+                product_code_base="BAD2",
+                product_name="Bad",
+                unit_mode=UnitMode.BAO_KG,
+                enabled_prices={UnitType.KG: Decimal("0")},
+            )
 
     def test_bao_to_kg_conversion_is_correct(self) -> None:
         self.assertEqual(self.service.bao_to_kg(Decimal("2")), Decimal("50"))

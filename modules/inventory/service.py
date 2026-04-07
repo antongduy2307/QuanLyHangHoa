@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -19,8 +20,10 @@ from modules.inventory.models import (
     InventoryReceipt,
     InventoryReceiptItem,
     Product,
+    ProductPrice,
 )
 from modules.inventory.repository import InventoryRepository
+from modules.inventory.validators import validate_product_code_base, validate_product_name
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +50,51 @@ class InventoryService:
 
     def list_products(self) -> Sequence[InventoryProductDTO]:
         return [to_dto(product) for product in self._repository.list_products()]
+
+    def create_product(
+        self,
+        *,
+        product_code_base: str,
+        product_name: str,
+        unit_mode: UnitMode,
+        enabled_prices: Mapping[UnitType, Decimal],
+    ) -> Product:
+        session = self._repository.session
+        code = validate_product_code_base(product_code_base)
+        name = validate_product_name(product_name)
+        self._validate_create_product_payload(unit_mode, enabled_prices)
+        transaction_context = nullcontext() if session.in_transaction() else session.begin()
+
+        with transaction_context:
+            product = Product(
+                product_code_base=code,
+                product_name=name,
+                unit_mode=unit_mode,
+                is_active=True,
+            )
+            session.add(product)
+            session.flush()
+
+            for unit_type, price in enabled_prices.items():
+                session.add(
+                    ProductPrice(
+                        product_id=product.id,
+                        unit_type=unit_type,
+                        price=price,
+                        is_enabled=True,
+                    )
+                )
+
+            balance = InventoryBalance(
+                product_id=product.id,
+                on_hand_bao_decimal=Decimal("0") if unit_mode == UnitMode.BAO_KG else None,
+                on_hand_bich_integer=0 if unit_mode == UnitMode.BICH else None,
+            )
+            balance.validate_for_product(product)
+            product.inventory_balance = balance
+            session.add(balance)
+            session.flush()
+            return product
 
     def kg_to_bao(self, kg: Decimal | int | str) -> Decimal:
         return self._to_decimal(kg) / BAO_TO_KG_RATIO
@@ -80,8 +128,9 @@ class InventoryService:
     def create_receipt(self, items: list[Mapping[str, object]]) -> InventoryReceipt:
         session = self._repository.session
         normalized_items = [self._normalize_receipt_line(item) for item in items]
+        transaction_context = nullcontext() if session.in_transaction() else session.begin()
 
-        with session.begin():
+        with transaction_context:
             receipt = InventoryReceipt(receipt_code=self._generate_receipt_code())
             session.add(receipt)
             session.flush()
@@ -106,8 +155,9 @@ class InventoryService:
     def create_adjustment(self, items: list[Mapping[str, object]]) -> InventoryAdjustment:
         session = self._repository.session
         normalized_items = [self._normalize_adjustment_line(item) for item in items]
+        transaction_context = nullcontext() if session.in_transaction() else session.begin()
 
-        with session.begin():
+        with transaction_context:
             adjustment = InventoryAdjustment()
             session.add(adjustment)
             session.flush()
@@ -177,6 +227,20 @@ class InventoryService:
         product_id = self._require_int(item, "product_id")
         new_quantity = self._require_non_negative_decimal(item, "new_quantity")
         return AdjustmentLineInput(product_id=product_id, new_quantity=new_quantity)
+
+    def _validate_create_product_payload(self, unit_mode: UnitMode, enabled_prices: Mapping[UnitType, Decimal]) -> None:
+        if not enabled_prices:
+            raise ValidationError("Phai co it nhat 1 don vi duoc enable.")
+        if unit_mode not in {UnitMode.BAO_KG, UnitMode.BICH}:
+            raise ValidationError("unit_mode khong hop le.")
+
+        for unit_type, price in enabled_prices.items():
+            if price <= Decimal("0"):
+                raise ValidationError("Gia phai > 0.")
+            if unit_mode == UnitMode.BAO_KG and unit_type not in {UnitType.BAO, UnitType.KG}:
+                raise ValidationError("San pham BAO_KG chi duoc phep co gia BAO/KG.")
+            if unit_mode == UnitMode.BICH and unit_type != UnitType.BICH:
+                raise ValidationError("San pham BICH chi duoc phep co gia BICH.")
 
     def _validate_unit_type(self, product: Product, unit_type: UnitType) -> None:
         product.validate_price_unit_type(unit_type)
