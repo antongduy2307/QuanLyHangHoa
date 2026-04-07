@@ -13,6 +13,7 @@ Tai lieu nay ghi ro boundary giua DB constraint, model-local helper, va service 
 - `invoices.invoice_code` unique + indexed
 - `invoices.invoice_datetime` indexed
 - `invoices.customer_id` nullable cho khach le
+- `invoices.paid_amount` neu co gia tri thi phai >= 0, nhung co the lon hon `total_amount`
 - `invoice_items` bat buoc snapshot field co gia tri hop le o muc schema co ban
 - `return_invoices.return_code` unique + indexed
 - `return_invoice_items.source_invoice_item_id` la foreign key bat buoc
@@ -37,10 +38,15 @@ Tai lieu nay ghi ro boundary giua DB constraint, model-local helper, va service 
   - service/reporting se quy doi theo 1 bao = 25kg
 - `unit_mode` va `unit_type` hop le theo domain nhung cac rule cheo bang phuc tap duoc kiem o service
   - vi du insert dong gia hay dong hoa don cho mot product cu the
-- Sua hoa don = rollback cu + apply lai moi
+- Invoice overpayment duoc luu day du tren header `paid_amount` va ledger `INVOICE_PAYMENT`; phan du tiep tuc giam no cu
+- Update/delete invoice hien tai dung ledger strategy B:
+  - rollback anh huong bang cach reverse current balance tu tong ledger ref hien tai
+  - xoa ledger rows cu vat ly
+  - apply lai ledger moi cho trang thai cuoi cung
+- Sua hoa don = rollback cu + apply lai moi tren cung invoice record
 - Tra hang la bill rieng, khong sua bill goc
 - Logic so luong tra khong vuot qua da mua duoc enforce o service
-- Xoa hoa don se la hard delete chi sau khi service rollback day du ton kho / cong no / ledger
+- Xoa hoa don la hard delete sau khi rollback day du ton kho / cong no / total_sales
 - Moi thay doi cong no phai di qua ledger o service layer; model khong tu ghi ledger
 
 ## Dev DB Note

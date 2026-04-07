@@ -1,11 +1,11 @@
 ﻿from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
-from core.db import SessionFactory
 from core.enums import InvoiceStatus, PaymentMethod, UnitType
 from core.exceptions import ValidationError
 from modules.customer.repository import CustomerRepository
@@ -56,8 +56,9 @@ class SalesService:
         normalized_items = self._normalize_items(items)
         normalized_payment_method = self._normalize_payment_method(payment_method)
         actual_paid_amount = self._normalize_paid_amount(paid_amount)
+        transaction_context = session.begin_nested() if session.in_transaction() else session.begin()
 
-        with session.begin():
+        with transaction_context:
             customer = self._customer_service.get_customer(customer_id) if customer_id is not None else None
             snapshot_name = self._resolve_customer_snapshot_name(customer, customer_snapshot_name)
             invoice = Invoice(
@@ -74,63 +75,116 @@ class SalesService:
             session.add(invoice)
             session.flush()
 
-            total_amount = Decimal("0")
-            for line in normalized_items:
-                product = self._inventory_service.get_product(line.product_id)
-                if not product.is_active:
-                    raise ValidationError(f"Product {product.product_code_base} is inactive.")
-                product.validate_price_unit_type(line.unit_type)
-
-                price_row = next(
-                    (price for price in product.prices if price.unit_type == line.unit_type and price.is_enabled),
-                    None,
-                )
-                if price_row is None:
-                    raise ValidationError(
-                        f"No enabled price found for product {product.product_code_base} and unit {line.unit_type.value}."
-                    )
-
-                line_total = line.quantity * price_row.price
-                total_amount += line_total
-                self._inventory_service.decrease_stock(product.id, line.quantity, line.unit_type)
-
-                invoice.items.append(
-                    InvoiceItem(
-                        product_id=product.id,
-                        unit_type=line.unit_type,
-                        quantity=line.quantity,
-                        unit_price=price_row.price,
-                        line_total=line_total,
-                        product_code_snapshot=product.product_code_base,
-                        product_name_snapshot=product.product_name,
-                    )
-                )
-
-            invoice.total_amount = total_amount
-            invoice.paid_amount = self._recorded_paid_amount_for_schema(actual_paid_amount, total_amount)
-
-            if customer is not None:
-                self._customer_service.adjust_balance(
-                    customer.id,
-                    total_amount,
-                    "INVOICE",
-                    invoice.id,
-                    note=f"Invoice charge {invoice.invoice_code}",
-                    event_type="INVOICE_CHARGE",
-                )
-                if actual_paid_amount != Decimal("0"):
-                    self._customer_service.adjust_balance(
-                        customer.id,
-                        -actual_paid_amount,
-                        "INVOICE",
-                        invoice.id,
-                        note=f"Invoice payment {invoice.invoice_code}",
-                        event_type="INVOICE_PAYMENT",
-                    )
-                self._customer_service.increase_sales(customer.id, total_amount)
-
+            self._apply_invoice_state(invoice, normalized_items, actual_paid_amount, note_override=note)
             session.flush()
             return invoice
+
+    def update_invoice(
+        self,
+        invoice_id: int,
+        *,
+        items: list[Mapping[str, object]],
+        note: str | None = None,
+    ) -> Invoice:
+        session = self._repository.session
+        self._bind_shared_session(session)
+        normalized_items = self._normalize_items(items)
+        transaction_context = session.begin_nested() if session.in_transaction() else session.begin()
+
+        with transaction_context:
+            invoice = self._repository.get_invoice(invoice_id)
+            preserved_paid_amount = invoice.paid_amount or Decimal("0")
+            self._rollback_invoice_effects(invoice)
+            invoice.items.clear()
+            session.flush()
+
+            self._apply_invoice_state(invoice, normalized_items, preserved_paid_amount, note_override=note)
+            session.flush()
+            return invoice
+
+    def delete_invoice(self, invoice_id: int) -> None:
+        session = self._repository.session
+        self._bind_shared_session(session)
+        transaction_context = session.begin_nested() if session.in_transaction() else session.begin()
+
+        with transaction_context:
+            invoice = self._repository.get_invoice(invoice_id)
+            self._rollback_invoice_effects(invoice)
+            session.delete(invoice)
+            session.flush()
+
+    def _apply_invoice_state(
+        self,
+        invoice: Invoice,
+        normalized_items: list[SalesLineInput],
+        actual_paid_amount: Decimal,
+        *,
+        note_override: str | None,
+    ) -> None:
+        total_amount = Decimal("0")
+        for line in normalized_items:
+            product = self._inventory_service.get_product(line.product_id)
+            if not product.is_active:
+                raise ValidationError(f"Product {product.product_code_base} is inactive.")
+            product.validate_price_unit_type(line.unit_type)
+
+            price_row = next(
+                (price for price in product.prices if price.unit_type == line.unit_type and price.is_enabled),
+                None,
+            )
+            if price_row is None:
+                raise ValidationError(
+                    f"No enabled price found for product {product.product_code_base} and unit {line.unit_type.value}."
+                )
+
+            line_total = line.quantity * price_row.price
+            total_amount += line_total
+            self._inventory_service.decrease_stock(product.id, line.quantity, line.unit_type)
+
+            invoice.items.append(
+                InvoiceItem(
+                    product_id=product.id,
+                    unit_type=line.unit_type,
+                    quantity=line.quantity,
+                    unit_price=price_row.price,
+                    line_total=line_total,
+                    product_code_snapshot=product.product_code_base,
+                    product_name_snapshot=product.product_name,
+                )
+            )
+
+        invoice.total_amount = total_amount
+        invoice.paid_amount = actual_paid_amount
+        if note_override is not None:
+            invoice.note = note_override
+
+        if invoice.customer_id is not None:
+            self._customer_service.adjust_balance(
+                invoice.customer_id,
+                total_amount,
+                "INVOICE",
+                invoice.id,
+                note=f"Invoice charge {invoice.invoice_code}",
+                event_type="INVOICE_CHARGE",
+            )
+            if actual_paid_amount != Decimal("0"):
+                self._customer_service.adjust_balance(
+                    invoice.customer_id,
+                    -actual_paid_amount,
+                    "INVOICE",
+                    invoice.id,
+                    note=f"Invoice payment {invoice.invoice_code}",
+                    event_type="INVOICE_PAYMENT",
+                )
+            self._customer_service.increase_sales(invoice.customer_id, total_amount)
+
+    def _rollback_invoice_effects(self, invoice: Invoice) -> None:
+        for item in list(invoice.items):
+            self._inventory_service.increase_stock(item.product_id, item.quantity, item.unit_type)
+
+        if invoice.customer_id is not None:
+            self._customer_service.remove_reference_balance_effect(invoice.customer_id, "INVOICE", invoice.id)
+            self._customer_service.decrease_sales(invoice.customer_id, invoice.total_amount)
 
     def _bind_shared_session(self, session: object) -> None:
         self._repository.use_session(session)
@@ -183,11 +237,6 @@ class SalesService:
             return normalized or "Khach le"
         return normalized or customer.customer_name
 
-    def _recorded_paid_amount_for_schema(self, actual_paid_amount: Decimal, total_amount: Decimal) -> Decimal | None:
-        if actual_paid_amount == Decimal("0"):
-            return Decimal("0")
-        return min(actual_paid_amount, total_amount)
-
     def _require_int(self, item: Mapping[str, object], key: str) -> int:
         raw_value = item.get(key)
         if raw_value is None:
@@ -207,3 +256,4 @@ class SalesService:
         if isinstance(value, Decimal):
             return value
         return Decimal(str(value))
+

@@ -26,6 +26,29 @@ class CustomerService:
     def get_customer(self, customer_id: int) -> Customer:
         return self._repository.get_customer(customer_id)
 
+    def list_reference_ledgers(self, customer_id: int, ref_type: str, ref_id: int) -> Sequence[CustomerBalanceLedger]:
+        normalized_ref_type = self._require_text(ref_type, "ref_type")
+        return self._repository.list_ledgers_by_ref(customer_id, normalized_ref_type, int(ref_id))
+
+    def remove_reference_balance_effect(self, customer_id: int, ref_type: str, ref_id: int) -> Decimal:
+        session = self._repository.session
+        normalized_ref_type = self._require_text(ref_type, "ref_type")
+        normalized_ref_id = int(ref_id)
+        transaction_context = nullcontext() if session.in_transaction() else session.begin()
+
+        with transaction_context:
+            customer = self._repository.get_customer(customer_id)
+            ledgers = list(self._repository.list_ledgers_by_ref(customer_id, normalized_ref_type, normalized_ref_id))
+            if not ledgers:
+                raise ValidationError("No balance ledger found for the given reference.")
+
+            net_delta = sum((ledger.amount_delta for ledger in ledgers), start=Decimal("0"))
+            customer.current_balance = customer.current_balance - net_delta
+            for ledger in ledgers:
+                session.delete(ledger)
+            session.flush()
+            return net_delta
+
     def adjust_balance(
         self,
         customer_id: int,
@@ -67,6 +90,20 @@ class CustomerService:
         with transaction_context:
             customer = self._repository.get_customer(customer_id)
             customer.total_sales = customer.total_sales + normalized_amount
+            session.flush()
+            return customer
+
+    def decrease_sales(self, customer_id: int, amount: Decimal | int | str) -> Customer:
+        session = self._repository.session
+        normalized_amount = self._require_non_negative_decimal(amount, "amount")
+        transaction_context = nullcontext() if session.in_transaction() else session.begin()
+
+        with transaction_context:
+            customer = self._repository.get_customer(customer_id)
+            updated_total = customer.total_sales - normalized_amount
+            if updated_total < Decimal("0"):
+                raise ValidationError("total_sales cannot become negative.")
+            customer.total_sales = updated_total
             session.flush()
             return customer
 

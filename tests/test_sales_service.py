@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from core.db import Base
 from core.enums import PaymentMethod, UnitMode, UnitType
-from core.exceptions import ValidationError
+from core.exceptions import NotFoundError, ValidationError
 from modules.customer.models import Customer, CustomerBalanceLedger
 from modules.customer.repository import CustomerRepository
 from modules.customer.service import CustomerService
@@ -119,6 +119,7 @@ class SalesServiceTestCase(unittest.TestCase):
         customer = self.customer_service.get_customer(self.customer_id)
         ledgers = self._ledger_for_invoice(invoice.id)
         self.assertEqual(invoice.total_amount, Decimal("300"))
+        self.assertEqual(invoice.paid_amount, Decimal("100"))
         self.assertEqual(customer.current_balance, Decimal("200"))
         self.assertEqual(customer.total_sales, Decimal("300"))
         self.assertEqual(len(ledgers), 2)
@@ -141,7 +142,7 @@ class SalesServiceTestCase(unittest.TestCase):
         customer = self.customer_service.get_customer(self.customer_id)
         ledgers = self._ledger_for_invoice(invoice.id)
         self.assertEqual(invoice.total_amount, Decimal("400"))
-        self.assertEqual(invoice.paid_amount, Decimal("400"))
+        self.assertEqual(invoice.paid_amount, Decimal("500"))
         self.assertEqual(customer.current_balance, Decimal("-50"))
         self.assertEqual(customer.total_sales, Decimal("400"))
         self.assertEqual(len(ledgers), 2)
@@ -195,6 +196,157 @@ class SalesServiceTestCase(unittest.TestCase):
         self.assertEqual(self.inventory_service.get_available_quantity(self.bao_product_id, UnitType.BAO), Decimal("0"))
         self.assertEqual(customer_after.current_balance, starting_balance)
         self.assertEqual(customer_after.total_sales, starting_sales)
+
+    def test_update_invoice_for_walk_in_keeps_code_and_datetime_and_reapplies_items(self) -> None:
+        invoice = self.sales_service.create_invoice(
+            customer_id=None,
+            customer_snapshot_name="Khach le",
+            invoice_datetime=datetime(2026, 4, 8, 9, 0, 0),
+            items=[{"product_id": self.bao_product_id, "unit_type": UnitType.BAO, "quantity": Decimal("2")}],
+            paid_amount=Decimal("200"),
+        )
+
+        updated = self.sales_service.update_invoice(
+            invoice.id,
+            items=[{"product_id": self.bich_product_id, "unit_type": UnitType.BICH, "quantity": Decimal("3")}],
+            note="Updated walk-in",
+        )
+
+        self.assertEqual(updated.invoice_code, invoice.invoice_code)
+        self.assertEqual(updated.invoice_datetime, invoice.invoice_datetime)
+        self.assertEqual(updated.customer_id, None)
+        self.assertEqual(updated.paid_amount, Decimal("200"))
+        self.assertEqual(updated.total_amount, Decimal("60"))
+        self.assertEqual(len(updated.items), 1)
+        self.assertEqual(updated.items[0].product_id, self.bich_product_id)
+        self.assertEqual(self.inventory_service.get_available_quantity(self.bao_product_id, UnitType.BAO), Decimal("0"))
+        self.assertEqual(self.inventory_service.get_available_quantity(self.bich_product_id, UnitType.BICH), Decimal("-3"))
+        self.assertEqual(self._ledger_for_invoice(invoice.id), [])
+
+    def test_update_invoice_for_customer_rolls_back_and_applies_again(self) -> None:
+        invoice = self.sales_service.create_invoice(
+            customer_id=self.customer_id,
+            customer_snapshot_name="Khach quen",
+            invoice_datetime=datetime(2026, 4, 8, 10, 0, 0),
+            items=[{"product_id": self.bao_product_id, "unit_type": UnitType.BAO, "quantity": Decimal("3")}],
+            paid_amount=Decimal("100"),
+            payment_method=PaymentMethod.CASH,
+        )
+
+        updated = self.sales_service.update_invoice(
+            invoice.id,
+            items=[{"product_id": self.bao_product_id, "unit_type": UnitType.BAO, "quantity": Decimal("5")}],
+            note="Updated customer invoice",
+        )
+
+        customer = self.customer_service.get_customer(self.customer_id)
+        ledgers = self._ledger_for_invoice(invoice.id)
+        self.assertEqual(updated.invoice_code, invoice.invoice_code)
+        self.assertEqual(updated.invoice_datetime, invoice.invoice_datetime)
+        self.assertEqual(updated.customer_id, self.customer_id)
+        self.assertEqual(updated.payment_method, PaymentMethod.CASH)
+        self.assertEqual(updated.paid_amount, Decimal("100"))
+        self.assertEqual(updated.total_amount, Decimal("500"))
+        self.assertEqual(customer.total_sales, Decimal("500"))
+        self.assertEqual(customer.current_balance, Decimal("400"))
+        self.assertEqual(len(ledgers), 2)
+        self.assertEqual(ledgers[0].event_type, "INVOICE_CHARGE")
+        self.assertEqual(ledgers[0].amount_delta, Decimal("500"))
+        self.assertEqual(ledgers[1].event_type, "INVOICE_PAYMENT")
+        self.assertEqual(ledgers[1].amount_delta, Decimal("-100"))
+
+    def test_update_invoice_is_atomic_when_new_apply_fails(self) -> None:
+        invoice = self.sales_service.create_invoice(
+            customer_id=self.customer_id,
+            customer_snapshot_name="Khach quen",
+            invoice_datetime=datetime(2026, 4, 8, 11, 0, 0),
+            items=[{"product_id": self.bao_product_id, "unit_type": UnitType.BAO, "quantity": Decimal("2")}],
+            paid_amount=Decimal("50"),
+        )
+        original_code = invoice.invoice_code
+        original_datetime = invoice.invoice_datetime
+        original_total = invoice.total_amount
+        original_balance = self.customer_service.get_customer(self.customer_id).current_balance
+        original_sales = self.customer_service.get_customer(self.customer_id).total_sales
+        original_stock = self.inventory_service.get_available_quantity(self.bao_product_id, UnitType.BAO)
+
+        with self.assertRaises(ValidationError):
+            self.sales_service.update_invoice(
+                invoice.id,
+                items=[
+                    {"product_id": self.bao_product_id, "unit_type": UnitType.BAO, "quantity": Decimal("1")},
+                    {"product_id": self.no_price_product_id, "unit_type": UnitType.BAO, "quantity": Decimal("1")},
+                ],
+            )
+
+        reloaded = self.sales_repository.get_invoice(invoice.id)
+        customer_after = self.customer_service.get_customer(self.customer_id)
+        self.assertEqual(reloaded.invoice_code, original_code)
+        self.assertEqual(reloaded.invoice_datetime, original_datetime)
+        self.assertEqual(reloaded.total_amount, original_total)
+        self.assertEqual(len(reloaded.items), 1)
+        self.assertEqual(customer_after.current_balance, original_balance)
+        self.assertEqual(customer_after.total_sales, original_sales)
+        self.assertEqual(self.inventory_service.get_available_quantity(self.bao_product_id, UnitType.BAO), original_stock)
+
+    def test_delete_invoice_for_walk_in_hard_deletes_and_restores_stock(self) -> None:
+        invoice = self.sales_service.create_invoice(
+            customer_id=None,
+            customer_snapshot_name="Khach le",
+            invoice_datetime=datetime(2026, 4, 8, 12, 0, 0),
+            items=[{"product_id": self.bao_product_id, "unit_type": UnitType.BAO, "quantity": Decimal("2")}],
+            paid_amount=Decimal("200"),
+        )
+
+        self.sales_service.delete_invoice(invoice.id)
+
+        with self.assertRaises(NotFoundError):
+            self.sales_repository.get_invoice(invoice.id)
+        self.assertEqual(self.inventory_service.get_available_quantity(self.bao_product_id, UnitType.BAO), Decimal("0"))
+
+    def test_delete_invoice_for_customer_restores_balance_sales_and_removes_active_ledgers(self) -> None:
+        invoice = self.sales_service.create_invoice(
+            customer_id=self.customer_id,
+            customer_snapshot_name="Khach quen",
+            invoice_datetime=datetime(2026, 4, 8, 13, 0, 0),
+            items=[{"product_id": self.bao_product_id, "unit_type": UnitType.BAO, "quantity": Decimal("3")}],
+            paid_amount=Decimal("100"),
+        )
+
+        self.sales_service.delete_invoice(invoice.id)
+
+        customer = self.customer_service.get_customer(self.customer_id)
+        with self.assertRaises(NotFoundError):
+            self.sales_repository.get_invoice(invoice.id)
+        self.assertEqual(self.inventory_service.get_available_quantity(self.bao_product_id, UnitType.BAO), Decimal("0"))
+        self.assertEqual(customer.current_balance, Decimal("0"))
+        self.assertEqual(customer.total_sales, Decimal("0"))
+        self.assertEqual(self._ledger_for_invoice(invoice.id), [])
+
+    def test_delete_invoice_is_atomic_when_rollback_fails(self) -> None:
+        invoice = self.sales_service.create_invoice(
+            customer_id=None,
+            customer_snapshot_name="Khach le",
+            invoice_datetime=datetime(2026, 4, 8, 14, 0, 0),
+            items=[{"product_id": self.bao_product_id, "unit_type": UnitType.BAO, "quantity": Decimal("2")}],
+            paid_amount=Decimal("200"),
+        )
+        original_stock = self.inventory_service.get_available_quantity(self.bao_product_id, UnitType.BAO)
+        original_increase = self.sales_service._inventory_service.increase_stock
+
+        def failing_increase_stock(product_id: int, quantity: Decimal, unit_type: UnitType):
+            raise ValidationError("forced rollback failure")
+
+        self.sales_service._inventory_service.increase_stock = failing_increase_stock  # type: ignore[assignment]
+        try:
+            with self.assertRaises(ValidationError):
+                self.sales_service.delete_invoice(invoice.id)
+        finally:
+            self.sales_service._inventory_service.increase_stock = original_increase  # type: ignore[assignment]
+
+        reloaded = self.sales_repository.get_invoice(invoice.id)
+        self.assertEqual(reloaded.id, invoice.id)
+        self.assertEqual(self.inventory_service.get_available_quantity(self.bao_product_id, UnitType.BAO), original_stock)
 
 
 if __name__ == "__main__":

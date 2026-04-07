@@ -6,6 +6,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload, sessionmaker
 
+from core.exceptions import NotFoundError
 from modules.sales.models import Invoice
 
 
@@ -27,6 +28,17 @@ class SalesRepository:
         statement = select(Invoice).order_by(Invoice.invoice_datetime.desc())
         return self.session.scalars(statement).all()
 
+    def get_invoice(self, invoice_id: int) -> Invoice:
+        statement = (
+            select(Invoice)
+            .options(selectinload(Invoice.items))
+            .where(Invoice.id == invoice_id)
+        )
+        invoice = self.session.scalars(statement).one_or_none()
+        if invoice is None:
+            raise NotFoundError(f"Invoice {invoice_id} was not found.")
+        return invoice
+
     def generate_invoice_code(self, invoice_datetime: datetime) -> str:
         prefix = f"HD{invoice_datetime.strftime('%Y%m%d')}-"
         statement = (
@@ -38,11 +50,3 @@ class SalesRepository:
         last_code = self.session.scalar(statement)
         next_number = int(last_code.rsplit("-", 1)[1]) + 1 if last_code else 1
         return f"{prefix}{next_number:03d}"
-
-    def get_invoice(self, invoice_id: int) -> Invoice | None:
-        statement = (
-            select(Invoice)
-            .options(selectinload(Invoice.items))
-            .where(Invoice.id == invoice_id)
-        )
-        return self.session.scalars(statement).one_or_none()

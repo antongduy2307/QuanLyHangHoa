@@ -28,6 +28,8 @@ class Invoice(Base):
     `customer_id` stays nullable for walk-in sales.
     `customer_snapshot_name` must always be stored so the invoice can still render the original name
     even if the customer row changes later or no customer row existed at all.
+    `paid_amount` stores the actual amount received at invoice time and may exceed `total_amount`
+    when the excess is applied against older debt.
     Invoice debt updates, rollback/reapply behavior, and header-total orchestration belong to service code.
     """
 
@@ -37,7 +39,6 @@ class Invoice(Base):
         CheckConstraint("length(trim(customer_snapshot_name)) > 0", name="ck_invoices_customer_snapshot_not_blank"),
         CheckConstraint("total_amount >= 0", name="ck_invoices_total_amount_non_negative"),
         CheckConstraint("paid_amount IS NULL OR paid_amount >= 0", name="ck_invoices_paid_amount_non_negative"),
-        CheckConstraint("paid_amount IS NULL OR paid_amount <= total_amount", name="ck_invoices_paid_amount_lte_total"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
