@@ -6,7 +6,7 @@ from modules.inventory.service import InventoryService
 from modules.inventory.ui.page import InventoryPage
 
 MODULE_KEY = "inventory"
-MODULE_LABEL = "Hang hoa"
+MODULE_LABEL = "Hàng hóa"
 
 
 

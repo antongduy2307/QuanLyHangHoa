@@ -30,24 +30,24 @@ class ProductListView(QWidget):
         self._products: list[InventoryProductDTO] = []
 
         self._search_input = QLineEdit()
-        self._search_input.setPlaceholderText("Tim theo ma hoac ten hang...")
+        self._search_input.setPlaceholderText("Tìm theo mã hoặc tên hàng...")
         self._search_input.textChanged.connect(self._apply_filter)
 
         self._table = QTableWidget(0, 4)
-        self._table.setHorizontalHeaderLabels(["Ma hang", "Ten hang", "Kieu don vi", "Ton hien tai"])
+        self._table.setHorizontalHeaderLabels(["Mã hàng", "Tên hàng", "Kiểu đơn vị", "Tồn hiện tại"])
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self._table.verticalHeader().setVisible(False)
         self._table.setAlternatingRowColors(True)
 
-        create_button = QPushButton("Tao moi")
+        create_button = QPushButton("Tạo mới")
         create_button.clicked.connect(self._open_create_product)
-        receipt_button = QPushButton("Nhap kho")
+        receipt_button = QPushButton("Nhập kho")
         receipt_button.clicked.connect(self._open_receipt_dialog)
-        adjustment_button = QPushButton("Dieu chinh kho")
+        adjustment_button = QPushButton("Điều chỉnh kho")
         adjustment_button.clicked.connect(self._open_adjustment_dialog)
-        refresh_button = QPushButton("Tai lai")
+        refresh_button = QPushButton("Tải lại")
         refresh_button.clicked.connect(self.reload)
 
         top_bar = QHBoxLayout()
@@ -58,8 +58,8 @@ class ProductListView(QWidget):
         top_bar.addWidget(refresh_button)
 
         layout = QVBoxLayout(self)
-        title = QLabel("Quan ly hang hoa")
-        subtitle = QLabel("Tao hang, nhap kho va dieu chinh kho thong qua service layer hien co.")
+        title = QLabel("Quản lý hàng hóa")
+        subtitle = QLabel("Tạo hàng, nhập kho và điều chỉnh kho thông qua service layer hiện có.")
         subtitle.setProperty("class", "muted")
         subtitle.setWordWrap(True)
         layout.addWidget(title)
@@ -74,7 +74,7 @@ class ProductListView(QWidget):
             self._products = list(self._controller.list_products())
             self._apply_filter()
         except Exception as exc:
-            MessageBox.error(self, "Loi tai du lieu", str(exc))
+            MessageBox.error(self, "Lỗi tải dữ liệu", str(exc))
 
     def _apply_filter(self) -> None:
         query = self._search_input.text().strip().lower()
@@ -104,7 +104,7 @@ class ProductListView(QWidget):
                 self._controller.create_product(**payload)
                 self.reload()
             except Exception as exc:
-                MessageBox.error(self, "Khong tao duoc hang hoa", str(exc))
+                MessageBox.error(self, "Không tạo được hàng hóa", str(exc))
 
     def _open_receipt_dialog(self) -> None:
         dialog = InventoryReceiptDialog(self._controller.list_product_options(), self)
@@ -113,7 +113,7 @@ class ProductListView(QWidget):
                 self._controller.create_receipt(dialog.payload())
                 self.reload()
             except Exception as exc:
-                MessageBox.error(self, "Khong tao duoc phieu nhap", str(exc))
+                MessageBox.error(self, "Không tạo được phiếu nhập", str(exc))
 
     def _open_adjustment_dialog(self) -> None:
         dialog = InventoryAdjustmentDialog(self._controller.list_product_options(), self)
@@ -122,7 +122,7 @@ class ProductListView(QWidget):
                 self._controller.create_adjustment(dialog.payload())
                 self.reload()
             except Exception as exc:
-                MessageBox.error(self, "Khong tao duoc phieu dieu chinh", str(exc))
+                MessageBox.error(self, "Không tạo được phiếu điều chỉnh", str(exc))
 
     def _format_balance(self, raw_display: str) -> str:
         if raw_display.endswith("bao"):

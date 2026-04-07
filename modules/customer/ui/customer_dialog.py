@@ -22,8 +22,8 @@ class CustomerDialog(QDialog):
         self.phone_input = QLineEdit(phone or "")
 
         form_layout = QFormLayout()
-        form_layout.addRow("Ten khach", self.name_input)
-        form_layout.addRow("Dien thoai", self.phone_input)
+        form_layout.addRow("Tên khách", self.name_input)
+        form_layout.addRow("Điện thoại", self.phone_input)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self._handle_accept)
@@ -41,8 +41,8 @@ class CustomerDialog(QDialog):
 
     def _handle_accept(self) -> None:
         if not self.name_input.text().strip():
-            QMessageBox.critical(self, "Loi du lieu", "Ten khach hang khong duoc de trong.")
+            QMessageBox.critical(self, "Lỗi dữ liệu", "Tên khách hàng không được để trống.")
             return
         if not self.phone_input.text().strip():
-            QMessageBox.warning(self, "Canh bao", "Khach hang nay khong co so dien thoai.")
+            QMessageBox.warning(self, "Cảnh báo", "Khách hàng này không có số điện thoại.")
         self.accept()

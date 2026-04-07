@@ -6,7 +6,7 @@ from modules.returns.service import ReturnsService
 from modules.returns.ui.page import ReturnsPage
 
 MODULE_KEY = "returns"
-MODULE_LABEL = "Tra hang"
+MODULE_LABEL = "Trả hàng"
 
 
 

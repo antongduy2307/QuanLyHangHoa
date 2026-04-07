@@ -31,7 +31,7 @@ class Settings:
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings(
-        app_name=getenv("APP_NAME", "Quan Ly Hang Hoa"),
+        app_name=getenv("APP_NAME", "Quản lý Hàng hóa"),
         db_path=_resolve_path(getenv("APP_DB_PATH"), DEFAULT_DB_PATH),
         export_dir=_resolve_path(getenv("APP_EXPORT_DIR"), DEFAULT_EXPORT_DIR),
         backup_dir=_resolve_path(getenv("APP_BACKUP_DIR"), DEFAULT_BACKUP_DIR),

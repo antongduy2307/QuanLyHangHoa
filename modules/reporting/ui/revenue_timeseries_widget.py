@@ -11,7 +11,7 @@ class RevenueTimeseriesWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Ngay", "Gross", "Return", "Net"])
+        self.table.setHorizontalHeaderLabels(["Ngày", "Doanh thu gộp", "Tiền trả", "Doanh thu ròng"])
         configure_table_widget(self.table)
 
         layout = QVBoxLayout(self)

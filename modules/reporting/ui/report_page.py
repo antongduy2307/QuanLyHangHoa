@@ -49,4 +49,4 @@ class ReportPage(QWidget):
             self._top_products_widget.set_rows(top_products)
             self._timeseries_widget.set_points(timeseries)
         except Exception as exc:
-            QMessageBox.critical(self, "Loi bao cao", str(exc))
+            QMessageBox.critical(self, "Lỗi báo cáo", str(exc))

@@ -6,7 +6,7 @@ from modules.customer.service import CustomerService
 from modules.customer.ui.page import CustomerPage
 
 MODULE_KEY = "customer"
-MODULE_LABEL = "Khach hang"
+MODULE_LABEL = "Khách hàng"
 
 
 

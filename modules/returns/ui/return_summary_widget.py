@@ -14,14 +14,14 @@ class ReturnSummaryWidget(QWidget):
         super().__init__(parent)
         self.total_label = QLabel(format_money(Decimal("0")))
         self.mode_combo = QComboBox()
-        self.mode_combo.addItem("Hoan tien ngay", ReturnHandlingMode.REFUND_NOW)
-        self.mode_combo.addItem("Luu co", ReturnHandlingMode.STORE_CREDIT)
+        self.mode_combo.addItem("Hoàn tiền ngay", ReturnHandlingMode.REFUND_NOW)
+        self.mode_combo.addItem("Lưu có", ReturnHandlingMode.STORE_CREDIT)
         self.note_input = QLineEdit()
 
         layout = QFormLayout(self)
-        layout.addRow("Tong tra", self.total_label)
-        layout.addRow("Xu ly", self.mode_combo)
-        layout.addRow("Ghi chu", self.note_input)
+        layout.addRow("Tổng trả", self.total_label)
+        layout.addRow("Xử lý", self.mode_combo)
+        layout.addRow("Ghi chú", self.note_input)
 
     def set_total(self, amount: Decimal) -> None:
         self.total_label.setText(format_money(amount))

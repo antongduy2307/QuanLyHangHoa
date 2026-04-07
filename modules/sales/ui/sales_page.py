@@ -29,23 +29,23 @@ class SalesPage(QWidget):
         self._paid_amount_input.setDecimals(2)
         self._paid_amount_input.setRange(0, 999999999)
         self._payment_method_combo = QComboBox()
-        self._payment_method_combo.addItem("De trong", None)
-        self._payment_method_combo.addItem("Tien mat", PaymentMethod.CASH)
-        self._payment_method_combo.addItem("Chuyen khoan", PaymentMethod.BANK_TRANSFER)
+        self._payment_method_combo.addItem("Để trống", None)
+        self._payment_method_combo.addItem("Tiền mặt", PaymentMethod.CASH)
+        self._payment_method_combo.addItem("Chuyển khoản", PaymentMethod.BANK_TRANSFER)
 
         self._product_search.item_added.connect(self._handle_item_added)
 
         form_layout = QFormLayout()
-        form_layout.addRow("Tong tien", self._total_label)
-        form_layout.addRow("Khach tra", self._paid_amount_input)
-        form_layout.addRow("Thanh toan", self._payment_method_combo)
+        form_layout.addRow("Tổng tiền", self._total_label)
+        form_layout.addRow("Khách trả", self._paid_amount_input)
+        form_layout.addRow("Thanh toán", self._payment_method_combo)
 
-        create_button = QPushButton("Tao hoa don")
+        create_button = QPushButton("Tạo hóa đơn")
         create_button.clicked.connect(self._create_invoice)
 
         layout = QVBoxLayout(self)
-        title = QLabel("Ban hang")
-        subtitle = QLabel("Chon khach, tim hang, them item va tao hoa don thong qua SalesService.")
+        title = QLabel("Bán hàng")
+        subtitle = QLabel("Chọn khách, tìm hàng, thêm item và tạo hóa đơn thông qua SalesService.")
         subtitle.setProperty("class", "muted")
         subtitle.setWordWrap(True)
         layout.addWidget(title)
@@ -68,13 +68,13 @@ class SalesPage(QWidget):
         try:
             items = self._items_table.items_payload()
             if not items:
-                raise ValidationError("Phai co it nhat 1 dong hang hoa.")
+                raise ValidationError("Phải có ít nhất 1 dòng hàng hóa.")
             customer_id = self._customer_picker.selected_customer_id()
             if self._customer_picker.customer_radio.isChecked() and customer_id is None:
-                raise ValidationError("Phai chon khach hang.")
+                raise ValidationError("Phải chọn khách hàng.")
             paid_amount = Decimal(str(self._paid_amount_input.value()))
             if paid_amount < Decimal("0"):
-                raise ValidationError("So tien khach tra phai >= 0.")
+                raise ValidationError("Số tiền khách trả phải >= 0.")
 
             invoice = self._controller.create_invoice(
                 customer_id=customer_id,
@@ -84,10 +84,10 @@ class SalesPage(QWidget):
                 paid_amount=paid_amount,
                 payment_method=self._payment_method_combo.currentData(),
             )
-            MessageBox.info(self, "Thanh cong", f"Da tao hoa don {invoice.invoice_code}")
+            MessageBox.info(self, "Thành công", f"Đã tạo hóa đơn {invoice.invoice_code}")
             self._reset_form()
         except Exception as exc:
-            MessageBox.error(self, "Khong tao duoc hoa don", str(exc))
+            MessageBox.error(self, "Không tạo được hóa đơn", str(exc))
 
     def _reset_form(self) -> None:
         self._customer_picker.reset()

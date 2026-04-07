@@ -22,21 +22,21 @@ class CustomerListView(QWidget):
         self._customers: list[CustomerDTO] = []
 
         self._search_input = QLineEdit()
-        self._search_input.setPlaceholderText("Tim theo ten hoac so dien thoai")
+        self._search_input.setPlaceholderText("Tìm theo tên hoặc số điện thoại")
         self._search_input.textChanged.connect(self._apply_filter)
 
         self._table = QTableWidget(0, 4)
-        self._table.setHorizontalHeaderLabels(["Ten khach", "Dien thoai", "Cong no", "Tong mua"])
+        self._table.setHorizontalHeaderLabels(["Tên khách", "Điện thoại", "Công nợ", "Tổng mua"])
         configure_table_widget(self._table)
         self._table.itemDoubleClicked.connect(self._open_detail_for_selected)
 
-        create_button = QPushButton("Tao khach")
+        create_button = QPushButton("Tạo khách")
         create_button.clicked.connect(self._open_create_dialog)
-        edit_button = QPushButton("Sua")
+        edit_button = QPushButton("Sửa")
         edit_button.clicked.connect(self._open_edit_dialog)
         view_button = QPushButton("Xem")
         view_button.clicked.connect(self._open_detail_for_selected)
-        refresh_button = QPushButton("Tai lai")
+        refresh_button = QPushButton("Tải lại")
         refresh_button.clicked.connect(self.reload)
 
         actions = QHBoxLayout()
@@ -57,7 +57,7 @@ class CustomerListView(QWidget):
             self._customers = list(self._controller.list_customers())
             self._apply_filter()
         except Exception as exc:
-            MessageBox.error(self, "Loi tai du lieu", str(exc))
+            MessageBox.error(self, "Lỗi tải dữ liệu", str(exc))
 
     def _apply_filter(self) -> None:
         query = self._search_input.text().strip()
@@ -68,7 +68,7 @@ class CustomerListView(QWidget):
         self._table.setRowCount(len(customers))
         for row, customer in enumerate(customers):
             self._table.setItem(row, 0, QTableWidgetItem(customer.customer_name))
-            self._table.setItem(row, 1, QTableWidgetItem(customer.phone or "-"))
+            self._table.setItem(row, 1, QTableWidgetItem(customer.phone or "Giữ nguyên"))
             balance_item = QTableWidgetItem(format_money(customer.current_balance))
             if customer.current_balance < Decimal("0"):
                 balance_item.setForeground(QColor("#b91c1c"))
@@ -86,26 +86,26 @@ class CustomerListView(QWidget):
         return None if item is None else item.data(Qt.ItemDataRole.UserRole)
 
     def _open_create_dialog(self) -> None:
-        dialog = CustomerDialog(title="Tao khach hang", parent=self)
+        dialog = CustomerDialog(title="Tạo khách hàng", parent=self)
         if dialog.exec():
             payload = dialog.payload()
             phone = (payload["phone"] or "").strip()
             if phone and self._controller.is_phone_duplicate(phone):
-                MessageBox.warning(self, "Canh bao", "So dien thoai da ton tai, van tiep tuc tao khach hang.")
+                MessageBox.warning(self, "Cảnh báo", "Số điện thoại đã tồn tại, vẫn tiếp tục tạo khách hàng.")
             try:
                 self._controller.create_customer(**payload)
                 self.reload()
             except Exception as exc:
-                MessageBox.error(self, "Khong tao duoc khach hang", str(exc))
+                MessageBox.error(self, "Không tạo được khách hàng", str(exc))
 
     def _open_edit_dialog(self) -> None:
         customer_id = self._selected_customer_id()
         if customer_id is None:
-            MessageBox.warning(self, "Chua chon", "Hay chon mot khach hang de sua.")
+            MessageBox.warning(self, "Chưa chọn", "Hãy chọn một khách hàng để sửa.")
             return
         detail = self._controller.get_customer_with_recent_invoices(customer_id)
         dialog = CustomerDialog(
-            title="Sua khach hang",
+            title="Sửa khách hàng",
             customer_name=detail.customer.customer_name,
             phone=detail.customer.phone,
             parent=self,
@@ -114,12 +114,12 @@ class CustomerListView(QWidget):
             payload = dialog.payload()
             phone = (payload["phone"] or "").strip()
             if phone and self._controller.is_phone_duplicate(phone, excluding_customer_id=customer_id):
-                MessageBox.warning(self, "Canh bao", "So dien thoai da ton tai, van tiep tuc cap nhat.")
+                MessageBox.warning(self, "Cảnh báo", "Số điện thoại đã tồn tại, vẫn tiếp tục cập nhật.")
             try:
                 self._controller.update_customer(customer_id, **payload)
                 self.reload()
             except Exception as exc:
-                MessageBox.error(self, "Khong cap nhat duoc khach hang", str(exc))
+                MessageBox.error(self, "Không cập nhật được khách hàng", str(exc))
 
     def _open_detail_for_selected(self, *_args: object) -> None:
         customer_id = self._selected_customer_id()
@@ -129,4 +129,4 @@ class CustomerListView(QWidget):
             detail = self._controller.get_customer_with_recent_invoices(customer_id)
             CustomerDetailPopup(detail, self).exec()
         except Exception as exc:
-            MessageBox.error(self, "Khong tai duoc chi tiet", str(exc))
+            MessageBox.error(self, "Không tải được chi tiết", str(exc))

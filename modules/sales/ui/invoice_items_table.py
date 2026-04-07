@@ -11,7 +11,7 @@ from shared.widgets.table_helpers import configure_table_widget
 class InvoiceItemsTable(QTableWidget):
     def __init__(self) -> None:
         super().__init__(0, 7)
-        self.setHorizontalHeaderLabels(["Ma hang", "Ten hang", "Don vi", "So luong", "Don gia", "Thanh tien", ""])
+        self.setHorizontalHeaderLabels(["Mã hàng", "Tên hàng", "Đơn vị", "Số lượng", "Đơn giá", "Thành tiền", ""])
         configure_table_widget(self)
         self._items: list[dict[str, object]] = []
 
@@ -53,6 +53,6 @@ class InvoiceItemsTable(QTableWidget):
             self.setItem(row, 3, QTableWidgetItem(str(item["quantity"])))
             self.setItem(row, 4, QTableWidgetItem(format_money(Decimal(str(item["unit_price"])))) )
             self.setItem(row, 5, QTableWidgetItem(format_money(Decimal(str(item["line_total"])))) )
-            remove_button = QPushButton("Xoa")
+            remove_button = QPushButton("Xóa")
             remove_button.clicked.connect(lambda _checked=False, index=row: self.remove_row_at(index))
             self.setCellWidget(row, 6, remove_button)

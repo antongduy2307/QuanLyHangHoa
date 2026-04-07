@@ -26,7 +26,7 @@ def _build_on_hand_display(product: Product) -> str:
         return "0"
     if product.unit_mode == UnitMode.BAO_KG:
         return f"{_format_decimal(balance.on_hand_bao_decimal)} bao"
-    return f"{balance.on_hand_bich_integer or 0} bich"
+    return f"{balance.on_hand_bich_integer or 0} bịch"
 
 
 
@@ -34,7 +34,7 @@ def _build_price_summary(prices: list[ProductPrice]) -> str:
     enabled_prices = [price for price in prices if price.is_enabled]
     enabled_prices.sort(key=lambda item: PRICE_ORDER[item.unit_type.value])
     if not enabled_prices:
-        return "Chua co gia"
+        return "Chưa có giá"
     return ", ".join(f"{item.unit_type.value}: {item.price:,.0f}" for item in enabled_prices)
 
 

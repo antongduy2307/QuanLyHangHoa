@@ -16,19 +16,19 @@ class CustomerPickerWidget(QWidget):
         self._customers = customers
         self._selected_customer: CustomerDTO | None = None
 
-        self.walk_in_radio = QRadioButton("Khach le")
-        self.customer_radio = QRadioButton("Khach quen")
+        self.walk_in_radio = QRadioButton("Khách lẻ")
+        self.customer_radio = QRadioButton("Khách quen")
         self.walk_in_radio.setChecked(True)
 
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Tim khach theo ten hoac so dien thoai")
+        self.search_input.setPlaceholderText("Tìm khách theo tên hoặc số điện thoại")
         self.search_input.textChanged.connect(self._update_suggestions)
 
         self.suggestion_list = QListWidget()
         self.suggestion_list.itemClicked.connect(self._select_suggestion)
         self.suggestion_list.setMaximumHeight(120)
 
-        self.current_label = QLabel("Khach le")
+        self.current_label = QLabel("Khách lẻ")
         self.current_label.setProperty("class", "muted")
         self.balance_label = QLabel("")
         self.balance_label.setProperty("class", "muted")
@@ -54,7 +54,7 @@ class CustomerPickerWidget(QWidget):
 
     def snapshot_name(self) -> str:
         if self.walk_in_radio.isChecked():
-            return "Khach le"
+            return "Khách lẻ"
         return self._selected_customer.customer_name if self._selected_customer is not None else ""
 
     def reset(self) -> None:
@@ -69,7 +69,7 @@ class CustomerPickerWidget(QWidget):
         self.suggestion_list.setVisible(is_customer)
         if self.walk_in_radio.isChecked():
             self._selected_customer = None
-            self.current_label.setText("Khach le")
+            self.current_label.setText("Khách lẻ")
             self.balance_label.setText("")
         self.customer_changed.emit()
 
@@ -96,11 +96,11 @@ class CustomerPickerWidget(QWidget):
         if self._selected_customer is None:
             return
         self.current_label.setText(
-            f"Khach: {self._selected_customer.customer_name}" +
+            f"Khách: {self._selected_customer.customer_name}" +
             (f" | SDT: {self._selected_customer.phone}" if self._selected_customer.phone else "")
         )
         balance = self._selected_customer.current_balance
         color = "#b91c1c" if balance < Decimal("0") else "#14532d"
-        self.balance_label.setText(f"Cong no hien tai: <span style='color:{color}'>{balance:,.0f}</span>")
+        self.balance_label.setText(f"Công nợ hiện tại: <span style='color:{color}'>{balance:,.0f}</span>")
         self.customer_changed.emit()
 

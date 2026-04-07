@@ -17,11 +17,11 @@ class SalesSummaryWidget(QWidget):
         self._net_label.setStyleSheet("font-size: 24px; font-weight: 700;")
 
         layout = QGridLayout(self)
-        layout.addWidget(QLabel("Gross Sales"), 0, 0)
+        layout.addWidget(QLabel("Doanh thu gộp"), 0, 0)
         layout.addWidget(self._gross_label, 1, 0)
-        layout.addWidget(QLabel("Returns"), 0, 1)
+        layout.addWidget(QLabel("Hàng trả"), 0, 1)
         layout.addWidget(self._return_label, 1, 1)
-        layout.addWidget(QLabel("Net Revenue"), 0, 2)
+        layout.addWidget(QLabel("Doanh thu ròng"), 0, 2)
         layout.addWidget(self._net_label, 1, 2)
 
     def set_summary(self, summary: SalesSummaryDTO) -> None:

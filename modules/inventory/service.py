@@ -137,7 +137,7 @@ class InventoryService:
 
             for line in normalized_items:
                 if line.quantity == Decimal("0"):
-                    raise ValidationError("Receipt item quantity must be greater than 0 to be persisted.")
+                    raise ValidationError("Số lượng dòng nhập kho phải lớn hơn 0 để lưu.")
 
                 product = self._repository.get_product(line.product_id)
                 unit_type = self._canonical_unit_type(product)
@@ -201,7 +201,7 @@ class InventoryService:
             return balance
 
         if normalized_quantity != normalized_quantity.to_integral_value():
-            raise ValidationError("BICH stock only accepts whole-number quantities.")
+            raise ValidationError("Tồn kho BỊCH chỉ chấp nhận số nguyên.")
 
         balance.on_hand_bich_integer = (balance.on_hand_bich_integer or 0) + int(normalized_quantity * sign)
         return balance
@@ -230,17 +230,17 @@ class InventoryService:
 
     def _validate_create_product_payload(self, unit_mode: UnitMode, enabled_prices: Mapping[UnitType, Decimal]) -> None:
         if not enabled_prices:
-            raise ValidationError("Phai co it nhat 1 don vi duoc enable.")
+            raise ValidationError("Phải có ít nhất 1 đơn vị được bật.")
         if unit_mode not in {UnitMode.BAO_KG, UnitMode.BICH}:
-            raise ValidationError("unit_mode khong hop le.")
+            raise ValidationError("Kiểu đơn vị không hợp lệ.")
 
         for unit_type, price in enabled_prices.items():
             if price <= Decimal("0"):
-                raise ValidationError("Gia phai > 0.")
+                raise ValidationError("Giá phải > 0.")
             if unit_mode == UnitMode.BAO_KG and unit_type not in {UnitType.BAO, UnitType.KG}:
-                raise ValidationError("San pham BAO_KG chi duoc phep co gia BAO/KG.")
+                raise ValidationError("Sản phẩm BAO_KG chỉ được phép có giá BAO/KG.")
             if unit_mode == UnitMode.BICH and unit_type != UnitType.BICH:
-                raise ValidationError("San pham BICH chi duoc phep co gia BICH.")
+                raise ValidationError("Sản phẩm BỊCH chỉ được phép có giá BỊCH.")
 
     def _validate_unit_type(self, product: Product, unit_type: UnitType) -> None:
         product.validate_price_unit_type(unit_type)
@@ -259,26 +259,26 @@ class InventoryService:
             return
 
         if quantity != quantity.to_integral_value():
-            raise ValidationError("BICH stock only accepts whole-number quantities.")
+            raise ValidationError("Tồn kho BỊCH chỉ chấp nhận số nguyên.")
         balance.on_hand_bich_integer = int(quantity)
 
     def _validate_canonical_quantity(self, product: Product, quantity: Decimal) -> None:
         if product.unit_mode == UnitMode.BICH and quantity != quantity.to_integral_value():
-            raise ValidationError("BICH stock only accepts whole-number quantities.")
+            raise ValidationError("Tồn kho BỊCH chỉ chấp nhận số nguyên.")
 
     def _require_int(self, item: Mapping[str, object], key: str) -> int:
         raw_value = item.get(key)
         if raw_value is None:
-            raise ValidationError(f"{key} is required.")
+            raise ValidationError(f"{key} là bắt buộc.")
         return int(raw_value)
 
     def _require_non_negative_decimal(self, item: Mapping[str, object], key: str) -> Decimal:
         raw_value = item.get(key)
         if raw_value is None:
-            raise ValidationError(f"{key} is required.")
+            raise ValidationError(f"{key} là bắt buộc.")
         value = self._to_decimal(raw_value)
         if value < 0:
-            raise ValidationError(f"{key} must be >= 0.")
+            raise ValidationError(f"{key} phải >= 0.")
         return value
 
     @staticmethod

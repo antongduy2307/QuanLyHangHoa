@@ -45,7 +45,7 @@ class CustomerController:
         session = repository.session
         normalized_name = customer_name.strip()
         if not normalized_name:
-            raise ValidationError("Ten khach hang khong duoc de trong.")
+            raise ValidationError("Tên khách hàng không được để trống.")
         normalized_phone = (phone or "").strip() or None
         with session.begin():
             customer = Customer(
@@ -66,7 +66,7 @@ class CustomerController:
         session = repository.session
         normalized_name = customer_name.strip()
         if not normalized_name:
-            raise ValidationError("Ten khach hang khong duoc de trong.")
+            raise ValidationError("Tên khách hàng không được để trống.")
         normalized_phone = (phone or "").strip() or None
         with session.begin():
             customer = repository.get_customer(customer_id)

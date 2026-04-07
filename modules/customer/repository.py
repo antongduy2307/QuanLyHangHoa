@@ -30,7 +30,7 @@ class CustomerRepository:
     def get_customer(self, customer_id: int) -> Customer:
         customer = self.session.get(Customer, customer_id)
         if customer is None:
-            raise NotFoundError(f"Customer {customer_id} was not found.")
+            raise NotFoundError(f"Không tìm thấy khách {customer_id}.")
         return customer
 
     def list_ledgers_by_ref(self, customer_id: int, ref_type: str, ref_id: int) -> Sequence[CustomerBalanceLedger]:

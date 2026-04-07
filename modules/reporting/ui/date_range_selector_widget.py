@@ -12,15 +12,19 @@ class DateRangeSelectorWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.preset_combo = QComboBox()
-        for preset in ["today", "yesterday", "last_7_days", "this_month", "last_month", "custom"]:
-            self.preset_combo.addItem(preset, preset)
+        self.preset_combo.addItem("Hôm nay", "today")
+        self.preset_combo.addItem("Hôm qua", "yesterday")
+        self.preset_combo.addItem("7 ngày gần đây", "last_7_days")
+        self.preset_combo.addItem("Tháng này", "this_month")
+        self.preset_combo.addItem("Tháng trước", "last_month")
+        self.preset_combo.addItem("Tùy chọn", "custom")
 
         current_date = QDate.currentDate()
         self.start_date_edit = QDateEdit(current_date)
         self.start_date_edit.setCalendarPopup(True)
         self.end_date_edit = QDateEdit(current_date)
         self.end_date_edit.setCalendarPopup(True)
-        self.load_button = QPushButton("Xem bao cao")
+        self.load_button = QPushButton("Xem báo cáo")
 
         layout = QHBoxLayout(self)
         layout.addWidget(self.preset_combo)

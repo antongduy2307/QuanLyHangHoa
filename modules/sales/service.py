@@ -125,7 +125,7 @@ class SalesService:
         for line in normalized_items:
             product = self._inventory_service.get_product(line.product_id)
             if not product.is_active:
-                raise ValidationError(f"Product {product.product_code_base} is inactive.")
+                raise ValidationError(f"Hàng hóa {product.product_code_base} ngừng hoạt động.")
             product.validate_price_unit_type(line.unit_type)
 
             price_row = next(
@@ -134,7 +134,7 @@ class SalesService:
             )
             if price_row is None:
                 raise ValidationError(
-                    f"No enabled price found for product {product.product_code_base} and unit {line.unit_type.value}."
+                    f"Không tìm thấy giá đang bật cho hàng {product.product_code_base} với đơn vị {line.unit_type.value}."
                 )
 
             line_total = line.quantity * price_row.price
@@ -193,7 +193,7 @@ class SalesService:
 
     def _normalize_items(self, items: list[Mapping[str, object]]) -> list[SalesLineInput]:
         if not items:
-            raise ValidationError("items must not be empty.")
+            raise ValidationError("Danh sách hàng hóa không được để trống.")
 
         normalized: list[SalesLineInput] = []
         for item in items:
@@ -207,11 +207,11 @@ class SalesService:
         if isinstance(value, UnitType):
             return value
         if value is None:
-            raise ValidationError("unit_type is required.")
+            raise ValidationError("Đơn vị bán là bắt buộc.")
         try:
             return UnitType(str(value))
         except ValueError as exc:
-            raise ValidationError(f"Unsupported unit_type: {value}") from exc
+            raise ValidationError(f"Đơn vị bán không được hỗ trợ: {value}") from exc
 
     def _normalize_payment_method(self, value: PaymentMethod | str | None) -> PaymentMethod | None:
         if value is None:
@@ -221,34 +221,34 @@ class SalesService:
         try:
             return PaymentMethod(str(value))
         except ValueError as exc:
-            raise ValidationError(f"Unsupported payment_method: {value}") from exc
+            raise ValidationError(f"Phương thức thanh toán không được hỗ trợ: {value}") from exc
 
     def _normalize_paid_amount(self, value: Decimal | int | str | None) -> Decimal:
         if value is None:
             return Decimal("0")
         amount = self._to_decimal(value)
         if amount < Decimal("0"):
-            raise ValidationError("paid_amount must be >= 0.")
+            raise ValidationError("Số tiền khách trả phải >= 0.")
         return amount
 
     def _resolve_customer_snapshot_name(self, customer: object, raw_name: str) -> str:
         normalized = raw_name.strip()
         if customer is None:
-            return normalized or "Khach le"
+            return normalized or "Khách lẻ"
         return normalized or customer.customer_name
 
     def _require_int(self, item: Mapping[str, object], key: str) -> int:
         raw_value = item.get(key)
         if raw_value is None:
-            raise ValidationError(f"{key} is required.")
+            raise ValidationError(f"{key} là bắt buộc.")
         return int(raw_value)
 
     def _require_positive_decimal(self, value: object, field_name: str) -> Decimal:
         if value is None:
-            raise ValidationError(f"{field_name} is required.")
+            raise ValidationError(f"{field_name} là bắt buộc.")
         amount = self._to_decimal(value)
         if amount <= Decimal("0"):
-            raise ValidationError(f"{field_name} must be > 0.")
+            raise ValidationError(f"{field_name} phải > 0.")
         return amount
 
     @staticmethod

@@ -18,7 +18,7 @@ class ProductSearchWidget(QWidget):
         self._selected_product: SellableProductOption | None = None
 
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Tim theo ma hoac ten hang")
+        self.search_input.setPlaceholderText("Tìm theo mã hoặc tên hàng")
         self.search_input.textChanged.connect(self._update_suggestions)
 
         self.suggestion_list = QListWidget()
@@ -30,9 +30,9 @@ class ProductSearchWidget(QWidget):
         self.quantity_input = QDoubleSpinBox()
         self.quantity_input.setDecimals(3)
         self.quantity_input.setRange(0, 999999999)
-        self.price_label = QLabel("Gia: -")
+        self.price_label = QLabel("Giá: -")
 
-        add_button = QPushButton("Them")
+        add_button = QPushButton("Thêm")
         add_button.clicked.connect(self._emit_item)
 
         controls = QHBoxLayout()
@@ -79,7 +79,7 @@ class ProductSearchWidget(QWidget):
         if product is None:
             self.unit_combo.setEnabled(False)
             self.quantity_input.setEnabled(False)
-            self.price_label.setText("Gia: -")
+            self.price_label.setText("Giá: -")
             return
         for unit_type in product.enabled_prices:
             self.unit_combo.addItem(unit_type.value, unit_type)
@@ -89,14 +89,14 @@ class ProductSearchWidget(QWidget):
 
     def _update_price_label(self) -> None:
         if self._selected_product is None:
-            self.price_label.setText("Gia: -")
+            self.price_label.setText("Giá: -")
             return
         unit_type = self.unit_combo.currentData()
         if unit_type is None:
-            self.price_label.setText("Gia: -")
+            self.price_label.setText("Giá: -")
             return
         price = self._selected_product.enabled_prices[unit_type]
-        self.price_label.setText(f"Gia: {price:,.0f}")
+        self.price_label.setText(f"Giá: {price:,.0f}")
 
     def _emit_item(self) -> None:
         if self._selected_product is None:

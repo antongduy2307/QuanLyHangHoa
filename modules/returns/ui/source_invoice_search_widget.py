@@ -14,8 +14,8 @@ class SourceInvoiceSearchWidget(QWidget):
         self._results: list[SourceInvoiceSearchRow] = []
 
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Nhap ma hoa don nguon")
-        self.search_button = QPushButton("Tim")
+        self.search_input.setPlaceholderText("Nhập mã hóa đơn nguồn")
+        self.search_button = QPushButton("Tìm")
         self.result_list = QListWidget()
         self.result_list.setMaximumHeight(150)
         self.result_list.itemClicked.connect(self._emit_selected)

@@ -33,7 +33,7 @@ class ReceiptRowWidget(QWidget):
         self.quantity_input.setRange(0, 999999999)
         self.quantity_input.setAlignment(Qt.AlignmentFlag.AlignRight)
 
-        remove_button = QPushButton("Xoa dong")
+        remove_button = QPushButton("Xóa dòng")
         remove_button.clicked.connect(lambda: self._remove_callback(self))
 
         layout = QHBoxLayout(self)
@@ -45,7 +45,7 @@ class ReceiptRowWidget(QWidget):
 class InventoryReceiptDialog(QDialog):
     def __init__(self, product_options: list[tuple[int, str]], parent: QDialog | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Nhap kho")
+        self.setWindowTitle("Nhập kho")
         self.resize(640, 360)
         self._product_options = product_options
         self._rows: list[ReceiptRowWidget] = []
@@ -60,7 +60,7 @@ class InventoryReceiptDialog(QDialog):
         scroll.setWidgetResizable(True)
         scroll.setWidget(self._rows_container)
 
-        add_button = QPushButton("Them dong")
+        add_button = QPushButton("Thêm dòng")
         add_button.clicked.connect(self._add_row)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -68,7 +68,7 @@ class InventoryReceiptDialog(QDialog):
         buttons.rejected.connect(self.reject)
 
         layout = QVBoxLayout(self)
-        hint = QLabel("BAO_KG nhap theo BAO. BICH nhap theo BICH.")
+        hint = QLabel("BAO_KG nhập theo BAO. BỊCH nhập theo BỊCH.")
         hint.setProperty("class", "muted")
         layout.addWidget(hint)
         layout.addWidget(scroll)
@@ -104,13 +104,13 @@ class InventoryReceiptDialog(QDialog):
         try:
             items = self.payload()
             if not items:
-                raise ValidationError("Phai co it nhat 1 dong nhap kho.")
+                raise ValidationError("Phải có ít nhất 1 dòng nhập kho.")
             for item in items:
                 if item["product_id"] is None:
-                    raise ValidationError("Phai chon product.")
+                    raise ValidationError("Phải chọn hàng hóa.")
                 if Decimal(str(item["quantity"])) <= Decimal("0"):
-                    raise ValidationError("So luong phai > 0.")
+                    raise ValidationError("Số lượng phải > 0.")
         except Exception as exc:
-            MessageBox.error(self, "Loi du lieu", str(exc))
+            MessageBox.error(self, "Lỗi dữ liệu", str(exc))
             return
         self.accept()

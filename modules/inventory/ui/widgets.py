@@ -9,7 +9,7 @@ from shared.widgets.table_helpers import configure_table_widget
 class InventoryTable(QTableWidget):
     def __init__(self) -> None:
         super().__init__(0, 4)
-        self.setHorizontalHeaderLabels(["Ma hang", "Ten hang", "Ton kho", "Gia kich hoat"])
+        self.setHorizontalHeaderLabels(["Mã hàng", "Tên hàng", "Tồn kho", "Giá đang bật"])
         configure_table_widget(self)
 
     def set_items(self, items: list[InventoryProductDTO]) -> None:

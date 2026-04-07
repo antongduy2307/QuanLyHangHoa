@@ -14,7 +14,7 @@ class InfoDialog(QDialog):
         label = QLabel(message)
         label.setWordWrap(True)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        close_button = QPushButton("Dong")
+        close_button = QPushButton("Đóng")
         close_button.clicked.connect(self.accept)
 
         layout.addStretch()

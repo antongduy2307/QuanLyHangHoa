@@ -67,7 +67,7 @@ class ReturnService:
         with transaction_context:
             source_invoice = self._sales_repository.get_invoice(source_invoice_id)
             if source_invoice.customer_id is None and normalized_mode != ReturnHandlingMode.REFUND_NOW:
-                raise ValidationError("Walk-in invoice only supports REFUND_NOW.")
+                raise ValidationError("Hóa đơn khách lẻ chỉ hỗ trợ hoàn tiền ngay.")
 
             requested_by_source_item: dict[int, Decimal] = {}
             for line in normalized_items:
@@ -93,11 +93,11 @@ class ReturnService:
             for source_item_id, requested_total in requested_by_source_item.items():
                 source_item = self._sales_repository.get_invoice_item(source_item_id)
                 if source_item.invoice_id != source_invoice.id:
-                    raise ValidationError("source_invoice_item_id does not belong to source_invoice_id.")
+                    raise ValidationError("Dòng hàng trả không thuộc hóa đơn nguồn đã chọn.")
 
                 previously_returned = self._repository.get_total_returned_quantity(source_item.id)
                 if previously_returned + requested_total > source_item.quantity:
-                    raise ValidationError("Return quantity exceeds purchased quantity.")
+                    raise ValidationError("Số lượng trả vượt quá số lượng đã mua.")
                 validated_source_items[source_item_id] = source_item
 
             for line in normalized_items:
@@ -149,7 +149,7 @@ class ReturnService:
 
     def _normalize_items(self, items: list[Mapping[str, object]]) -> list[ReturnLineInput]:
         if not items:
-            raise ValidationError("items must not be empty.")
+            raise ValidationError("Danh sách trả hàng không được để trống.")
 
         normalized: list[ReturnLineInput] = []
         for item in items:
@@ -164,20 +164,20 @@ class ReturnService:
         try:
             return ReturnHandlingMode(str(value))
         except ValueError as exc:
-            raise ValidationError(f"Unsupported handling_mode: {value}") from exc
+            raise ValidationError(f"Cách xử lý trả hàng không được hỗ trợ: {value}") from exc
 
     def _require_int(self, item: Mapping[str, object], key: str) -> int:
         raw_value = item.get(key)
         if raw_value is None:
-            raise ValidationError(f"{key} is required.")
+            raise ValidationError(f"{key} là bắt buộc.")
         return int(raw_value)
 
     def _require_positive_decimal(self, value: object, field_name: str) -> Decimal:
         if value is None:
-            raise ValidationError(f"{field_name} is required.")
+            raise ValidationError(f"{field_name} là bắt buộc.")
         amount = self._to_decimal(value)
         if amount <= Decimal("0"):
-            raise ValidationError(f"{field_name} must be > 0.")
+            raise ValidationError(f"{field_name} phải > 0.")
         return amount
 
     @staticmethod

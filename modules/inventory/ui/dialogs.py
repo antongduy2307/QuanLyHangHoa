@@ -5,4 +5,4 @@ from shared.widgets.common_dialogs import InfoDialog
 
 class InventoryDialog(InfoDialog):
     def __init__(self) -> None:
-        super().__init__("Inventory", "Dialog nghiep vu cho inventory se duoc bo sung sau.")
+        super().__init__("Hàng hóa", "Hộp thoại nghiệp vụ cho hàng hóa sẽ được bổ sung sau.")

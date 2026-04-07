@@ -16,15 +16,15 @@ class SourceInvoiceItemsTable(QTableWidget):
     def __init__(self) -> None:
         super().__init__(0, 9)
         self.setHorizontalHeaderLabels([
-            "Ma hang",
-            "Ten hang",
-            "Don vi",
-            "Da mua",
-            "Da tra",
-            "Con lai",
-            "Tra lan nay",
-            "Don gia",
-            "Thanh tien",
+            "Mã hàng",
+            "Tên hàng",
+            "Đơn vị",
+            "Đã mua",
+            "Đã trả",
+            "Còn lại",
+            "Trả lần này",
+            "Đơn giá",
+            "Thành tiền",
         ])
         configure_table_widget(self)
         self._rows: list[SourceInvoiceItemRow] = []

@@ -19,22 +19,22 @@ class TopProductsTableWidget(QWidget):
 
         self.table = QTableWidget(0, 9)
         self.table.setHorizontalHeaderLabels([
-            "Ma hang",
-            "Ten hang",
-            "Don vi",
-            "Da ban",
-            "Gross",
-            "Da tra",
-            "Return",
-            "Net Qty",
-            "Net Revenue",
+            "Mã hàng",
+            "Tên hàng",
+            "Đơn vị",
+            "Đã bán",
+            "Doanh thu gộp",
+            "Đã trả",
+            "Tiền trả",
+            "Số lượng ròng",
+            "Doanh thu ròng",
         ])
         configure_table_widget(self.table)
 
         control_layout = QHBoxLayout()
-        control_layout.addWidget(QLabel("Sort by"))
+        control_layout.addWidget(QLabel("Sắp xếp theo"))
         control_layout.addWidget(self.sort_by_combo)
-        control_layout.addWidget(QLabel("Limit"))
+        control_layout.addWidget(QLabel("Giới hạn"))
         control_layout.addWidget(self.limit_input)
         control_layout.addStretch()
 

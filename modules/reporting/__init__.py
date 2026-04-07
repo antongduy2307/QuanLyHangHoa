@@ -6,7 +6,7 @@ from modules.reporting.service import ReportingService
 from modules.reporting.ui.page import ReportingPage
 
 MODULE_KEY = "reporting"
-MODULE_LABEL = "Bao cao"
+MODULE_LABEL = "Báo cáo"
 
 
 

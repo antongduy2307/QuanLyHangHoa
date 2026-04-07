@@ -7,4 +7,4 @@ class ReturnsWidget(QWidget):
     def __init__(self) -> None:
         super().__init__()
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Widgets placeholder cho module tra hang."))
+        layout.addWidget(QLabel("Widgets tạm cho module trả hàng."))

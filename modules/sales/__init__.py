@@ -6,7 +6,7 @@ from modules.sales.service import SalesService
 from modules.sales.ui.page import SalesPage
 
 MODULE_KEY = "sales"
-MODULE_LABEL = "Ban hang"
+MODULE_LABEL = "Bán hàng"
 
 
 

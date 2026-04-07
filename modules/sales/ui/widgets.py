@@ -11,7 +11,7 @@ from shared.widgets.table_helpers import configure_table_widget
 class SalesTable(QTableWidget):
     def __init__(self) -> None:
         super().__init__(0, 4)
-        self.setHorizontalHeaderLabels(["So hoa don", "Khach", "Tong tien", "Thoi diem"])
+        self.setHorizontalHeaderLabels(["Số hóa đơn", "Khách", "Tổng tiền", "Thời điểm"])
         configure_table_widget(self)
 
     def set_orders(self, invoices: list[InvoiceDTO]) -> None:
