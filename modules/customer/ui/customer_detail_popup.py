@@ -14,7 +14,7 @@ class CustomerDetailPopup(QDialog):
     def __init__(self, detail: CustomerDetailData, parent: QDialog | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Chi tiết khách hàng")
-        self.resize(520, 360)
+        self.resize(560, 400)
 
         customer = detail.customer
         balance_color = "#b91c1c" if customer.current_balance < Decimal("0") else "#14532d"
@@ -31,6 +31,7 @@ class CustomerDetailPopup(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(f"Tên: {customer.customer_name}"))
         layout.addWidget(QLabel(f"Điện thoại: {customer.phone or '-'}"))
+        layout.addWidget(QLabel(f"Địa chỉ: {customer.address or '-'}"))
         layout.addWidget(QLabel(f"<span style='color:{balance_color}; font-size:18px;'>Công nợ hiện tại: {customer.current_balance:,.0f}</span>"))
         layout.addWidget(QLabel(f"Tổng mua: {format_money(customer.total_sales)}"))
         layout.addWidget(QLabel("Hóa đơn gần nhất"))

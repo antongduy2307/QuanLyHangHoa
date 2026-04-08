@@ -7,7 +7,6 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
-    QDoubleSpinBox,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -17,11 +16,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from core.config import get_settings
 from core.db import SessionFactory
 from core.exceptions import ValidationError
 from modules.inventory.controller import InventoryController
 from shared.widgets.message_box import MessageBox
+from shared.widgets.numeric_inputs import SelectAllSpinBox
 
 
 class AdjustmentRowWidget(QWidget):
@@ -37,10 +36,8 @@ class AdjustmentRowWidget(QWidget):
 
         self.current_quantity_label = QLabel("0")
         self.current_quantity_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.new_quantity_input = QDoubleSpinBox()
-        self.new_quantity_input.setDecimals(3)
+        self.new_quantity_input = SelectAllSpinBox()
         self.new_quantity_input.setRange(0, 999999999)
-        self.new_quantity_input.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         remove_button = QPushButton("Xóa dòng")
         remove_button.clicked.connect(lambda: self._remove_callback(self))
@@ -57,7 +54,7 @@ class AdjustmentRowWidget(QWidget):
     def payload(self) -> dict[str, object]:
         return {
             "product_id": self.product_combo.currentData(),
-            "new_quantity": Decimal(str(self.new_quantity_input.value())),
+            "new_quantity": Decimal(self.new_quantity_input.value()),
         }
 
     def refresh_current_quantity(self) -> None:
@@ -72,7 +69,7 @@ class AdjustmentRowWidget(QWidget):
         self.current_quantity_label.setText(self._format_quantity(current_quantity))
         self._suspend_sync = True
         try:
-            self.new_quantity_input.setValue(float(current_quantity))
+            self.new_quantity_input.setValue(int(current_quantity))
         finally:
             self._suspend_sync = False
 
@@ -146,7 +143,7 @@ class InventoryAdjustmentDialog(QDialog):
             for item in items:
                 if item["product_id"] is None:
                     raise ValidationError("Phải chọn hàng hóa.")
-                if Decimal(str(item["new_quantity"])) < Decimal("0"):
+                if Decimal(item["new_quantity"]) < Decimal("0"):
                     raise ValidationError("Tồn mới phải >= 0.")
         except Exception as exc:
             MessageBox.error(self, "Lỗi dữ liệu", str(exc))

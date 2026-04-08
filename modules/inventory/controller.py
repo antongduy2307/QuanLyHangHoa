@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -26,9 +26,9 @@ class InventoryController:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self._session_factory = session_factory
 
-    def list_products(self) -> Sequence[InventoryProductDTO]:
+    def list_products(self, *, include_inactive: bool = False) -> Sequence[InventoryProductDTO]:
         service = InventoryService(InventoryRepository(self._session_factory))
-        return service.list_products()
+        return service.list_products(include_inactive=include_inactive)
 
     def list_product_options(self) -> list[tuple[int, str]]:
         repository = InventoryRepository(self._session_factory)
@@ -41,6 +41,13 @@ class InventoryController:
         quantity = service.get_current_quantity(product_id)
         service._repository.session.close()
         return quantity
+
+    def get_on_hand_display(self, product: InventoryProductDTO) -> str:
+        quantity = self.get_current_quantity(product.id)
+        unit_mode = product.unit_mode if isinstance(product.unit_mode, UnitMode) else UnitMode(product.unit_mode)
+        if unit_mode == UnitMode.BAO_KG:
+            return f"{quantity.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)} bao"
+        return f"{int(quantity.to_integral_value())} bịch"
 
     def get_unit_display(self, product: InventoryProductDTO) -> str:
         summary = product.enabled_price_summary.upper()
@@ -107,9 +114,17 @@ class InventoryController:
             enabled_prices=enabled_prices,
         )
 
-    def delete_product(self, product_id: int) -> None:
+    def get_delete_mode(self, product_id: int) -> str:
         service = InventoryService(InventoryRepository(self._session_factory))
-        service.delete_product(product_id)
+        mode = service.get_delete_mode(product_id)
+        service._repository.session.close()
+        return mode
+
+    def delete_product(self, product_id: int) -> object:
+        service = InventoryService(InventoryRepository(self._session_factory))
+        result = service.delete_product(product_id)
+        service._repository.session.close()
+        return result
 
     def create_receipt(self, items: list[Mapping[str, object]]) -> object:
         service = InventoryService(InventoryRepository(self._session_factory))
@@ -118,3 +133,6 @@ class InventoryController:
     def create_adjustment(self, items: list[Mapping[str, object]]) -> object:
         service = InventoryService(InventoryRepository(self._session_factory))
         return service.create_adjustment(items)
+
+
+

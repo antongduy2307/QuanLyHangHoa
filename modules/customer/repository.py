@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, selectinload, sessionmaker
 
 from core.exceptions import NotFoundError
 from modules.customer.models import Customer, CustomerBalanceLedger
@@ -33,12 +33,53 @@ class CustomerRepository:
             raise NotFoundError(f"Không tìm thấy khách {customer_id}.")
         return customer
 
+    def get_ledger(self, ledger_id: int) -> CustomerBalanceLedger:
+        statement = (
+            select(CustomerBalanceLedger)
+            .options(selectinload(CustomerBalanceLedger.customer))
+            .where(CustomerBalanceLedger.id == ledger_id)
+        )
+        ledger = self.session.scalars(statement).one_or_none()
+        if ledger is None:
+            raise NotFoundError(f"Không tìm thấy giao dịch công nợ {ledger_id}.")
+        return ledger
+
+    def list_debt_payments(self) -> Sequence[CustomerBalanceLedger]:
+        statement = (
+            select(CustomerBalanceLedger)
+            .options(selectinload(CustomerBalanceLedger.customer))
+            .where(CustomerBalanceLedger.event_type == "DEBT_PAYMENT")
+            .order_by(CustomerBalanceLedger.created_at.desc())
+        )
+        return self.session.scalars(statement).all()
+
+    def search_debt_payments(self, query: str) -> Sequence[CustomerBalanceLedger]:
+        entries = list(self.list_debt_payments())
+        needle = query.strip().lower()
+        if not needle:
+            return entries
+        return [
+            entry
+            for entry in entries
+            if needle in str(entry.ref_id).lower()
+            or (entry.customer and needle in entry.customer.customer_name.lower())
+        ]
+
     def list_ledgers_by_ref(self, customer_id: int, ref_type: str, ref_id: int) -> Sequence[CustomerBalanceLedger]:
         statement = (
             select(CustomerBalanceLedger)
             .where(CustomerBalanceLedger.customer_id == customer_id)
             .where(CustomerBalanceLedger.ref_type == ref_type)
             .where(CustomerBalanceLedger.ref_id == ref_id)
+            .order_by(CustomerBalanceLedger.id.asc())
+        )
+        return self.session.scalars(statement).all()
+
+    def list_ledgers_by_event_type(self, customer_id: int, event_type: str) -> Sequence[CustomerBalanceLedger]:
+        statement = (
+            select(CustomerBalanceLedger)
+            .where(CustomerBalanceLedger.customer_id == customer_id)
+            .where(CustomerBalanceLedger.event_type == event_type)
             .order_by(CustomerBalanceLedger.id.asc())
         )
         return self.session.scalars(statement).all()

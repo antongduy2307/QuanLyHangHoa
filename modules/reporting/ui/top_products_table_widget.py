@@ -1,9 +1,10 @@
 ﻿from __future__ import annotations
 
-from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 
 from modules.reporting.dto import TopProductReportRowDTO
 from shared.formatting.money import format_money
+from shared.widgets.numeric_inputs import SelectAllSpinBox
 from shared.widgets.table_helpers import configure_table_widget
 
 
@@ -13,7 +14,7 @@ class TopProductsTableWidget(QWidget):
         self.sort_by_combo = QComboBox()
         self.sort_by_combo.addItem("Revenue", "revenue")
         self.sort_by_combo.addItem("Quantity", "quantity")
-        self.limit_input = QSpinBox()
+        self.limit_input = SelectAllSpinBox()
         self.limit_input.setRange(1, 100)
         self.limit_input.setValue(10)
 

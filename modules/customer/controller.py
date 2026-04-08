@@ -9,8 +9,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from core.exceptions import ValidationError
 from modules.customer.dto import CustomerDTO
 from modules.customer.mappers import to_dto
-from modules.customer.models import Customer
+from modules.customer.models import CustomerBalanceLedger
 from modules.customer.repository import CustomerRepository
+from modules.customer.service import CustomerService
 from modules.sales.models import Invoice
 from modules.sales.repository import SalesRepository
 
@@ -22,60 +23,95 @@ class CustomerDetailData:
 
 
 class CustomerController:
+    VALID_SORTS = {
+        "name_asc",
+        "name_desc",
+        "balance_asc",
+        "balance_desc",
+        "sales_asc",
+        "sales_desc",
+    }
+
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self._session_factory = session_factory
 
-    def list_customers(self) -> list[CustomerDTO]:
-        repository = CustomerRepository(self._session_factory)
-        customers = repository.list_customers()
-        repository.session.close()
-        return [to_dto(customer) for customer in customers]
+    def list_customers(self, sort_option: str = "name_asc", only_positive_debt: bool = False) -> list[CustomerDTO]:
+        customers = self._load_customers()
+        customers = self._apply_debt_filter(customers, only_positive_debt)
+        return self._sort_customers(customers, sort_option)
 
-    def search_customers(self, query: str) -> list[CustomerDTO]:
-        customers = self.list_customers()
+    def search_customers(self, query: str, sort_option: str = "name_asc", only_positive_debt: bool = False) -> list[CustomerDTO]:
+        customers = self._load_customers()
         needle = query.strip().lower()
-        if not needle:
-            return customers
-        if needle.isdigit():
-            return [customer for customer in customers if customer.phone and needle in customer.phone]
-        return [customer for customer in customers if needle in customer.customer_name.lower()]
+        if needle:
+            if needle.isdigit():
+                customers = [customer for customer in customers if customer.phone and needle in customer.phone]
+            else:
+                customers = [customer for customer in customers if needle in customer.customer_name.lower()]
+        customers = self._apply_debt_filter(customers, only_positive_debt)
+        return self._sort_customers(customers, sort_option)
 
-    def create_customer(self, *, customer_name: str, phone: str | None) -> CustomerDTO:
-        repository = CustomerRepository(self._session_factory)
-        session = repository.session
-        normalized_name = customer_name.strip()
-        if not normalized_name:
-            raise ValidationError("Tên khách hàng không được để trống.")
-        normalized_phone = (phone or "").strip() or None
-        with session.begin():
-            customer = Customer(
-                customer_name=normalized_name,
-                phone=normalized_phone,
-                current_balance=Decimal("0"),
-                total_sales=Decimal("0"),
-                is_walk_in=False,
-            )
-            session.add(customer)
-            session.flush()
-            dto = to_dto(customer)
-        session.close()
+    def create_customer(
+        self,
+        *,
+        customer_name: str,
+        phone: str | None,
+        address: str | None,
+        initial_balance: Decimal,
+    ) -> CustomerDTO:
+        service = CustomerService(CustomerRepository(self._session_factory))
+        customer = service.create_customer(
+            customer_name=customer_name,
+            phone=phone,
+            address=address,
+            initial_balance=initial_balance,
+        )
+        dto = to_dto(customer)
+        service._repository.session.close()
         return dto
 
-    def update_customer(self, customer_id: int, *, customer_name: str, phone: str | None) -> CustomerDTO:
-        repository = CustomerRepository(self._session_factory)
-        session = repository.session
-        normalized_name = customer_name.strip()
-        if not normalized_name:
-            raise ValidationError("Tên khách hàng không được để trống.")
-        normalized_phone = (phone or "").strip() or None
-        with session.begin():
-            customer = repository.get_customer(customer_id)
-            customer.customer_name = normalized_name
-            customer.phone = normalized_phone
-            session.flush()
-            dto = to_dto(customer)
-        session.close()
+    def update_customer(
+        self,
+        customer_id: int,
+        *,
+        customer_name: str,
+        phone: str | None,
+        address: str | None,
+        current_balance: Decimal,
+    ) -> CustomerDTO:
+        service = CustomerService(CustomerRepository(self._session_factory))
+        customer = service.update_customer(
+            customer_id,
+            customer_name=customer_name,
+            phone=phone,
+            address=address,
+            target_balance=current_balance,
+        )
+        dto = to_dto(customer)
+        service._repository.session.close()
         return dto
+
+    def pay_debt(self, customer_id: int, amount: Decimal, note: str | None = None) -> object:
+        service = CustomerService(CustomerRepository(self._session_factory))
+        return service.pay_debt(customer_id, amount, note=note)
+
+    def list_debt_payments(self) -> Sequence[CustomerBalanceLedger]:
+        repository = CustomerRepository(self._session_factory)
+        entries = repository.list_debt_payments()
+        repository.session.close()
+        return entries
+
+    def search_debt_payments(self, query: str) -> Sequence[CustomerBalanceLedger]:
+        repository = CustomerRepository(self._session_factory)
+        entries = repository.search_debt_payments(query)
+        repository.session.close()
+        return entries
+
+    def get_debt_payment_detail(self, ledger_id: int) -> CustomerBalanceLedger:
+        repository = CustomerRepository(self._session_factory)
+        ledger = repository.get_ledger(ledger_id)
+        repository.session.close()
+        return ledger
 
     def get_customer_with_recent_invoices(self, customer_id: int, limit: int = 3) -> CustomerDetailData:
         customer_repository = CustomerRepository(self._session_factory)
@@ -97,3 +133,37 @@ class CustomerController:
             if customer.phone == normalized_phone and customer.id != excluding_customer_id:
                 return True
         return False
+
+    def _load_customers(self) -> list[CustomerDTO]:
+        repository = CustomerRepository(self._session_factory)
+        customers = repository.list_customers()
+        repository.session.close()
+        return [to_dto(customer) for customer in customers]
+
+    def _apply_debt_filter(self, customers: list[CustomerDTO], only_positive_debt: bool) -> list[CustomerDTO]:
+        if not only_positive_debt:
+            return customers
+        return [
+            customer
+            for customer in customers
+            if (customer.current_balance or Decimal("0")) > Decimal("0")
+        ]
+
+    def _sort_customers(self, customers: list[CustomerDTO], sort_option: str) -> list[CustomerDTO]:
+        if sort_option not in self.VALID_SORTS:
+            raise ValidationError("sort_option không hợp lệ.")
+
+        sorted_customers = list(customers)
+        if sort_option == "name_asc":
+            sorted_customers.sort(key=lambda customer: customer.customer_name.lower())
+        elif sort_option == "name_desc":
+            sorted_customers.sort(key=lambda customer: customer.customer_name.lower(), reverse=True)
+        elif sort_option == "balance_asc":
+            sorted_customers.sort(key=lambda customer: customer.current_balance)
+        elif sort_option == "balance_desc":
+            sorted_customers.sort(key=lambda customer: customer.current_balance, reverse=True)
+        elif sort_option == "sales_asc":
+            sorted_customers.sort(key=lambda customer: customer.total_sales)
+        elif sort_option == "sales_desc":
+            sorted_customers.sort(key=lambda customer: customer.total_sales, reverse=True)
+        return sorted_customers

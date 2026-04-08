@@ -6,17 +6,17 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QPushButton, QVBoxLayout, QWidget
 
 from core.enums import UnitType
-from modules.sales.controller import SellableProductOption
+from modules.returns.controller import QuickReturnProductOption
 from shared.widgets.numeric_inputs import SelectAllSpinBox
 
 
-class ProductSearchWidget(QWidget):
+class QuickReturnProductSearchWidget(QWidget):
     item_added = pyqtSignal(object)
 
-    def __init__(self, products: list[SellableProductOption], parent: QWidget | None = None) -> None:
+    def __init__(self, products: list[QuickReturnProductOption], parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._products = products
-        self._selected_product: SellableProductOption | None = None
+        self._selected_product: QuickReturnProductOption | None = None
 
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Tìm theo mã hoặc tên hàng")
@@ -48,7 +48,7 @@ class ProductSearchWidget(QWidget):
 
         self._sync_product(None)
 
-    def reload_data(self, products: list[SellableProductOption]) -> None:
+    def reload_data(self, products: list[QuickReturnProductOption]) -> None:
         previous_product_id = None if self._selected_product is None else self._selected_product.product_id
         self._products = products
         self._selected_product = next((product for product in products if product.product_id == previous_product_id), None)
@@ -80,7 +80,7 @@ class ProductSearchWidget(QWidget):
         product = next((candidate for candidate in self._products if candidate.product_id == product_id), None)
         self._sync_product(product)
 
-    def _sync_product(self, product: SellableProductOption | None) -> None:
+    def _sync_product(self, product: QuickReturnProductOption | None) -> None:
         self._selected_product = product
         self.unit_combo.clear()
         if product is None:

@@ -2,8 +2,6 @@
 
 from decimal import Decimal
 
-from PyQt6.QtCore import QTimer, Qt
-from PyQt6.QtGui import QFocusEvent, QMouseEvent
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -15,25 +13,13 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QRadioButton,
-    QDoubleSpinBox,
     QVBoxLayout,
 )
 
 from core.enums import UnitMode, UnitType
 from core.exceptions import ValidationError
 from shared.widgets.message_box import MessageBox
-
-
-class _SelectAllDoubleSpinBox(QDoubleSpinBox):
-    def focusInEvent(self, event: QFocusEvent) -> None:
-        super().focusInEvent(event)
-        QTimer.singleShot(0, self.lineEdit().selectAll)
-
-    def mousePressEvent(self, event: QMouseEvent) -> None:
-        should_select_all = not self.hasFocus()
-        super().mousePressEvent(event)
-        if should_select_all:
-            QTimer.singleShot(0, self.lineEdit().selectAll)
+from shared.widgets.numeric_inputs import SelectAllSpinBox
 
 
 class ProductDialog(QDialog):
@@ -125,11 +111,11 @@ class ProductDialog(QDialog):
         enabled_prices: dict[UnitType, Decimal] = {}
         if unit_mode == UnitMode.BAO_KG:
             if self._bao_check.isChecked():
-                enabled_prices[UnitType.BAO] = Decimal(str(self._price_bao.value()))
+                enabled_prices[UnitType.BAO] = Decimal(self._price_bao.value())
             if self._kg_check.isChecked():
-                enabled_prices[UnitType.KG] = Decimal(str(self._price_kg.value()))
+                enabled_prices[UnitType.KG] = Decimal(self._price_kg.value())
         else:
-            enabled_prices[UnitType.BICH] = Decimal(str(self._price_bich.value()))
+            enabled_prices[UnitType.BICH] = Decimal(self._price_bich.value())
 
         return {
             "product_code_base": self._code_input.text(),
@@ -196,10 +182,8 @@ class ProductDialog(QDialog):
             return "Chưa chọn đơn vị"
         return "Bịch"
 
-    def _build_price_input(self, initial_value: Decimal) -> QDoubleSpinBox:
-        spin = _SelectAllDoubleSpinBox()
-        spin.setDecimals(2)
+    def _build_price_input(self, initial_value: Decimal) -> SelectAllSpinBox:
+        spin = SelectAllSpinBox()
         spin.setRange(0, 999999999)
-        spin.setValue(float(initial_value))
-        spin.setAlignment(Qt.AlignmentFlag.AlignRight)
+        spin.setValue(int(initial_value))
         return spin

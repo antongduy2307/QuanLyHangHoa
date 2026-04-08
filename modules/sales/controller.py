@@ -2,17 +2,20 @@
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 
 from sqlalchemy.orm import Session, sessionmaker
 
 from core.enums import PaymentMethod, UnitType
 from modules.customer.dto import CustomerDTO
+from modules.customer.models import CustomerBalanceLedger
 from modules.customer.repository import CustomerRepository
 from modules.customer.service import CustomerService
 from modules.inventory.repository import InventoryRepository
 from modules.inventory.service import InventoryService
+from modules.returns.models import ReturnInvoice
+from modules.returns.repository import ReturnsRepository
 from modules.sales.models import Invoice
 from modules.sales.repository import SalesRepository
 from modules.sales.service import SalesService
@@ -25,6 +28,16 @@ class SellableProductOption:
     product_name: str
     unit_mode: str
     enabled_prices: dict[UnitType, Decimal]
+
+
+@dataclass(frozen=True, slots=True)
+class TransactionHistoryRow:
+    transaction_type: str
+    transaction_id: int
+    transaction_datetime: datetime
+    transaction_code: str
+    customer_name: str
+    amount: Decimal
 
 
 class SalesController:
@@ -76,6 +89,49 @@ class SalesController:
         repository.session.close()
         return invoice
 
+    def list_transaction_history(
+        self,
+        *,
+        query: str = "",
+        transaction_type: str = "ALL",
+        start_datetime: datetime | None = None,
+        end_datetime: datetime | None = None,
+        sort_option: str = "newest",
+    ) -> list[TransactionHistoryRow]:
+        sales_repository = SalesRepository(self._session_factory)
+        returns_repository = ReturnsRepository(self._session_factory)
+        customer_repository = CustomerRepository(self._session_factory)
+        invoices = list(sales_repository.list_invoices())
+        returns = list(returns_repository.list_return_invoices())
+        debt_payments = list(customer_repository.list_debt_payments())
+        sales_repository.session.close()
+        returns_repository.session.close()
+        customer_repository.session.close()
+
+        rows: list[TransactionHistoryRow] = []
+        for invoice in invoices:
+            rows.append(TransactionHistoryRow("INVOICE", invoice.id, invoice.invoice_datetime, invoice.invoice_code, invoice.customer_snapshot_name, invoice.total_amount))
+        for return_invoice in returns:
+            customer_name = return_invoice.customer_snapshot_name
+            rows.append(TransactionHistoryRow("RETURN", return_invoice.id, return_invoice.return_datetime, return_invoice.return_code, customer_name, return_invoice.total_amount))
+        for ledger in debt_payments:
+            rows.append(TransactionHistoryRow("DEBT_PAYMENT", ledger.id, ledger.created_at, str(ledger.ref_id), ledger.customer.customer_name if ledger.customer else "-", abs(ledger.amount_delta)))
+
+        if transaction_type != "ALL":
+            rows = [row for row in rows if row.transaction_type == transaction_type]
+        if start_datetime is not None:
+            rows = [row for row in rows if row.transaction_datetime >= start_datetime]
+        if end_datetime is not None:
+            rows = [row for row in rows if row.transaction_datetime <= end_datetime]
+        if query.strip():
+            needle = query.strip().lower()
+            rows = [
+                row for row in rows
+                if needle in row.customer_name.lower() or needle in row.transaction_code.lower()
+            ]
+        rows.sort(key=lambda row: row.transaction_datetime, reverse=(sort_option == "newest"))
+        return rows
+
     def create_invoice(
         self,
         *,
@@ -105,3 +161,4 @@ class SalesController:
     def delete_invoice(self, invoice_id: int) -> None:
         service = SalesService(SalesRepository(self._session_factory))
         service.delete_invoice(invoice_id)
+

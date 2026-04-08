@@ -1,10 +1,9 @@
 ﻿from __future__ import annotations
 
-from decimal import Decimal, ROUND_HALF_UP
-
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QShowEvent
+from PyQt6.QtGui import QColor, QShowEvent
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -35,8 +34,11 @@ class ProductListView(QWidget):
         self._search_input.setPlaceholderText("Tìm theo mã hoặc tên hàng...")
         self._search_input.textChanged.connect(self._apply_filter)
 
-        self._table = QTableWidget(0, 4)
-        self._table.setHorizontalHeaderLabels(["Mã hàng", "Tên hàng", "Đơn vị bán", "Tồn hiện tại"])
+        self._show_inactive_checkbox = QCheckBox("Hiện cả hàng ngừng sử dụng")
+        self._show_inactive_checkbox.toggled.connect(self.reload)
+
+        self._table = QTableWidget(0, 5)
+        self._table.setHorizontalHeaderLabels(["Mã hàng", "Tên hàng", "Đơn vị bán", "Tồn hiện tại", "Trạng thái"])
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -59,6 +61,7 @@ class ProductListView(QWidget):
 
         top_bar = QHBoxLayout()
         top_bar.addWidget(self._search_input, 1)
+        top_bar.addWidget(self._show_inactive_checkbox)
         top_bar.addWidget(create_button)
         top_bar.addWidget(edit_button)
         top_bar.addWidget(delete_button)
@@ -68,7 +71,7 @@ class ProductListView(QWidget):
 
         layout = QVBoxLayout(self)
         title = QLabel("Quản lý hàng hóa")
-        subtitle = QLabel("Tạo hàng, nhập kho và điều chỉnh kho thông qua service layer hiện có.")
+        subtitle = QLabel("Hàng ngừng sử dụng sẽ bị ẩn mặc định. Khi xóa, hàng chưa phát sinh sẽ bị xóa vĩnh viễn; hàng đã có lịch sử sẽ chuyển sang ngừng sử dụng.")
         subtitle.setProperty("class", "muted")
         subtitle.setWordWrap(True)
         layout.addWidget(title)
@@ -84,7 +87,7 @@ class ProductListView(QWidget):
 
     def reload(self) -> None:
         try:
-            self._products = list(self._controller.list_products())
+            self._products = list(self._controller.list_products(include_inactive=self._show_inactive_checkbox.isChecked()))
             self._apply_filter()
         except Exception as exc:
             MessageBox.error(self, "Lỗi tải dữ liệu", str(exc))
@@ -105,9 +108,16 @@ class ProductListView(QWidget):
         self._table.setRowCount(len(products))
         for row_index, product in enumerate(products):
             self._table.setItem(row_index, 0, QTableWidgetItem(product.product_code_base))
-            self._table.setItem(row_index, 1, QTableWidgetItem(product.product_name))
+            name_item = QTableWidgetItem(product.product_name)
+            status_item = QTableWidgetItem("Đang dùng" if product.is_active else "Ngừng sử dụng")
+            if not product.is_active:
+                muted_color = QColor("#6b7280")
+                name_item.setForeground(muted_color)
+                status_item.setForeground(muted_color)
+            self._table.setItem(row_index, 1, name_item)
             self._table.setItem(row_index, 2, QTableWidgetItem(self._controller.get_unit_display(product)))
-            self._table.setItem(row_index, 3, QTableWidgetItem(self._format_balance(product.on_hand_display)))
+            self._table.setItem(row_index, 3, QTableWidgetItem(self._controller.get_on_hand_display(product)))
+            self._table.setItem(row_index, 4, status_item)
             self._table.item(row_index, 0).setData(Qt.ItemDataRole.UserRole, product.id)
 
     def _selected_product_id(self) -> int | None:
@@ -160,16 +170,27 @@ class ProductListView(QWidget):
         if product_id is None:
             MessageBox.warning(self, "Chưa chọn", "Hãy chọn một hàng hóa để xóa.")
             return
-        confirmed = QMessageBox.question(
-            self,
-            "Xác nhận xóa",
-            "Bạn có chắc muốn xóa hàng hóa này không?",
-        )
+        try:
+            delete_mode = self._controller.get_delete_mode(product_id)
+        except Exception as exc:
+            MessageBox.error(self, "Không xác định được thao tác xóa", str(exc))
+            return
+
+        if delete_mode == "hard_delete":
+            message = "Hàng hóa chưa phát sinh giao dịch. Xóa vĩnh viễn?"
+        else:
+            message = "Hàng hóa đã phát sinh giao dịch/chứng từ kho. Sẽ chuyển sang ngừng sử dụng thay vì xóa vĩnh viễn. Tiếp tục?"
+
+        confirmed = QMessageBox.question(self, "Xác nhận xóa", message)
         if confirmed != QMessageBox.StandardButton.Yes:
             return
         try:
-            self._controller.delete_product(product_id)
+            result = self._controller.delete_product(product_id)
             self.reload()
+            if getattr(result, "action", None) == "hard_deleted":
+                MessageBox.info(self, "Thành công", "Đã xóa vĩnh viễn hàng hóa chưa phát sinh giao dịch.")
+            else:
+                MessageBox.info(self, "Thành công", "Hàng hóa đã được chuyển sang ngừng sử dụng và bị ẩn khỏi các nghiệp vụ tạo mới.")
         except Exception as exc:
             MessageBox.error(self, "Không xóa được hàng hóa", str(exc))
 
@@ -190,13 +211,3 @@ class ProductListView(QWidget):
                 self.reload()
             except Exception as exc:
                 MessageBox.error(self, "Không tạo được phiếu điều chỉnh", str(exc))
-
-    def _format_balance(self, raw_display: str) -> str:
-        if raw_display.endswith("bao"):
-            number = raw_display.removesuffix(" bao").strip()
-            try:
-                decimal_value = Decimal(number).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-                return f"{decimal_value} bao"
-            except Exception:
-                return raw_display
-        return raw_display

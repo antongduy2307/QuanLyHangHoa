@@ -10,6 +10,7 @@ class CustomerDTO:
     id: int
     customer_name: str
     phone: str | None
+    address: str | None
     current_balance: Decimal
     total_sales: Decimal
     is_walk_in: bool

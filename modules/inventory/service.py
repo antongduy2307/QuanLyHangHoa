@@ -38,6 +38,12 @@ class AdjustmentLineInput:
     new_quantity: Decimal
 
 
+@dataclass(frozen=True, slots=True)
+class ProductDeleteResult:
+    product_id: int
+    action: str
+
+
 class InventoryService:
     def __init__(self, repository: InventoryRepository) -> None:
         self._repository = repository
@@ -48,8 +54,8 @@ class InventoryService:
     def get_product(self, product_id: int) -> Product:
         return self._repository.get_product(product_id)
 
-    def list_products(self) -> Sequence[InventoryProductDTO]:
-        return [to_dto(product) for product in self._repository.list_products()]
+    def list_products(self, *, include_inactive: bool = False) -> Sequence[InventoryProductDTO]:
+        return [to_dto(product) for product in self._repository.list_products(include_inactive=include_inactive)]
 
     def create_product(
         self,
@@ -136,16 +142,23 @@ class InventoryService:
             session.flush()
             return product
 
-    def delete_product(self, product_id: int) -> None:
+    def get_delete_mode(self, product_id: int) -> str:
+        product = self._repository.get_product(product_id)
+        return "deactivate" if self._has_product_history(product.id) else "hard_delete"
+
+    def delete_product(self, product_id: int) -> ProductDeleteResult:
         session = self._repository.session
         transaction_context = nullcontext() if session.in_transaction() else session.begin()
 
         with transaction_context:
             product = self._repository.get_product(product_id)
             if self._has_product_history(product.id):
-                raise ValidationError("Không thể xóa hàng hóa đã phát sinh giao dịch hoặc chứng từ kho.")
+                product.is_active = False
+                session.flush()
+                return ProductDeleteResult(product_id=product.id, action="deactivated")
             session.delete(product)
             session.flush()
+            return ProductDeleteResult(product_id=product_id, action="hard_deleted")
 
     def kg_to_bao(self, kg: Decimal | int | str) -> Decimal:
         return self._to_decimal(kg) / BAO_TO_KG_RATIO
@@ -361,5 +374,7 @@ class InventoryService:
         if isinstance(value, Decimal):
             return value
         return Decimal(str(value))
+
+
 
 

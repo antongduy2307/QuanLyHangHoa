@@ -2,7 +2,7 @@
 
 from typing import Final
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from core.config import get_settings
@@ -33,6 +33,15 @@ def _import_models() -> None:
 
 
 
+def _ensure_customer_address_column() -> None:
+    with ENGINE.begin() as connection:
+        table_info = connection.execute(text("PRAGMA table_info(customers)")).mappings().all()
+        column_names = {str(row["name"]) for row in table_info}
+        if "address" not in column_names:
+            connection.execute(text("ALTER TABLE customers ADD COLUMN address VARCHAR(255)"))
+
+
+
 def init_db() -> None:
     settings = get_settings()
     ensure_directories(
@@ -46,3 +55,4 @@ def init_db() -> None:
     )
     _import_models()
     Base.metadata.create_all(bind=ENGINE)
+    _ensure_customer_address_column()

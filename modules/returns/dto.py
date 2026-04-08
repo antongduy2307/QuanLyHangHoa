@@ -9,7 +9,9 @@ from decimal import Decimal
 class ReturnInvoiceDTO:
     id: int
     return_code: str
-    source_invoice_id: int
+    source_invoice_id: int | None
+    customer_snapshot_name: str
+    is_quick_return: bool
     total_amount: Decimal
     handling_mode: str
     return_datetime: datetime

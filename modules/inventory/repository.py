@@ -25,12 +25,14 @@ class InventoryRepository:
     def use_session(self, session: Session) -> None:
         self._session = session
 
-    def list_products(self) -> Sequence[Product]:
+    def list_products(self, *, include_inactive: bool = False) -> Sequence[Product]:
         statement = (
             select(Product)
             .options(selectinload(Product.prices), selectinload(Product.inventory_balance))
             .order_by(Product.product_name.asc())
         )
+        if not include_inactive:
+            statement = statement.where(Product.is_active.is_(True))
         return self.session.scalars(statement).all()
 
     def get_product(self, product_id: int) -> Product:

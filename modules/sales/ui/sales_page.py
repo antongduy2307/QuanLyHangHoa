@@ -3,9 +3,8 @@
 from datetime import datetime
 from decimal import Decimal
 
-from PyQt6.QtCore import QTimer
-from PyQt6.QtGui import QFocusEvent, QMouseEvent, QShowEvent
-from PyQt6.QtWidgets import QComboBox, QDoubleSpinBox, QFormLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtGui import QShowEvent
+from PyQt6.QtWidgets import QComboBox, QFormLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from core.enums import PaymentMethod
 from core.exceptions import ValidationError
@@ -15,18 +14,7 @@ from modules.sales.ui.invoice_items_table import InvoiceItemsTable
 from modules.sales.ui.product_search_widget import ProductSearchWidget
 from shared.formatting.money import format_money
 from shared.widgets.message_box import MessageBox
-
-
-class _SelectAllDoubleSpinBox(QDoubleSpinBox):
-    def focusInEvent(self, event: QFocusEvent) -> None:
-        super().focusInEvent(event)
-        QTimer.singleShot(0, self.lineEdit().selectAll)
-
-    def mousePressEvent(self, event: QMouseEvent) -> None:
-        should_select_all = not self.hasFocus()
-        super().mousePressEvent(event)
-        if should_select_all:
-            QTimer.singleShot(0, self.lineEdit().selectAll)
+from shared.widgets.numeric_inputs import SelectAllSpinBox
 
 
 class SalesPage(QWidget):
@@ -45,8 +33,7 @@ class SalesPage(QWidget):
         self._change_label = QLabel("")
         self._change_label.setProperty("class", "muted")
 
-        self._paid_amount_input = _SelectAllDoubleSpinBox()
-        self._paid_amount_input.setDecimals(2)
+        self._paid_amount_input = SelectAllSpinBox()
         self._paid_amount_input.setRange(0, 999999999)
         self._paid_amount_input.valueChanged.connect(self._refresh_amounts)
 
@@ -104,7 +91,7 @@ class SalesPage(QWidget):
         self._total_label.setText(format_money(total_amount))
 
         if self._customer_picker.selected_customer_id() is None:
-            paid_amount = Decimal(str(self._paid_amount_input.value()))
+            paid_amount = Decimal(self._paid_amount_input.value())
             change_amount = paid_amount - total_amount
             if change_amount > Decimal("0"):
                 self._change_label.setText(format_money(change_amount))
@@ -121,7 +108,7 @@ class SalesPage(QWidget):
             customer_id = self._customer_picker.selected_customer_id()
             if self._customer_picker.customer_radio.isChecked() and customer_id is None:
                 raise ValidationError("Phải chọn khách hàng.")
-            paid_amount = Decimal(str(self._paid_amount_input.value()))
+            paid_amount = Decimal(self._paid_amount_input.value())
             if paid_amount < Decimal("0"):
                 raise ValidationError("Số tiền khách trả phải >= 0.")
 

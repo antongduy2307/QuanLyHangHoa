@@ -7,6 +7,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload, sessionmaker
 
+from core.exceptions import NotFoundError
 from modules.returns.models import ReturnInvoice, ReturnInvoiceItem
 
 
@@ -25,8 +26,57 @@ class ReturnsRepository:
         self._session = session
 
     def list_return_invoices(self) -> Sequence[ReturnInvoice]:
-        statement = select(ReturnInvoice).order_by(ReturnInvoice.return_datetime.desc())
+        statement = (
+            select(ReturnInvoice)
+            .options(
+                selectinload(ReturnInvoice.items),
+                selectinload(ReturnInvoice.source_invoice),
+                selectinload(ReturnInvoice.customer),
+            )
+            .order_by(ReturnInvoice.return_datetime.desc())
+        )
         return self.session.scalars(statement).all()
+
+    def search_return_invoices_by_code(self, query: str, limit: int = 20) -> Sequence[ReturnInvoice]:
+        needle = query.strip()
+        statement = (
+            select(ReturnInvoice)
+            .options(
+                selectinload(ReturnInvoice.items),
+                selectinload(ReturnInvoice.source_invoice),
+                selectinload(ReturnInvoice.customer),
+            )
+            .order_by(ReturnInvoice.return_datetime.desc())
+            .limit(limit)
+        )
+        if needle:
+            statement = (
+                select(ReturnInvoice)
+                .options(
+                    selectinload(ReturnInvoice.items),
+                    selectinload(ReturnInvoice.source_invoice),
+                    selectinload(ReturnInvoice.customer),
+                )
+                .where(ReturnInvoice.return_code.ilike(f"%{needle}%"))
+                .order_by(ReturnInvoice.return_datetime.desc())
+                .limit(limit)
+            )
+        return self.session.scalars(statement).all()
+
+    def get_return_invoice(self, return_invoice_id: int) -> ReturnInvoice:
+        statement = (
+            select(ReturnInvoice)
+            .options(
+                selectinload(ReturnInvoice.items),
+                selectinload(ReturnInvoice.source_invoice),
+                selectinload(ReturnInvoice.customer),
+            )
+            .where(ReturnInvoice.id == return_invoice_id)
+        )
+        return_invoice = self.session.scalars(statement).one_or_none()
+        if return_invoice is None:
+            raise NotFoundError(f"Return invoice {return_invoice_id} was not found.")
+        return return_invoice
 
     def generate_return_code(self, return_datetime: datetime) -> str:
         prefix = f"TR{return_datetime.strftime('%Y%m%d')}-"

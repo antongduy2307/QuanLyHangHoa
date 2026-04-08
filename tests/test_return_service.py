@@ -104,6 +104,51 @@ class ReturnServiceTestCase(unittest.TestCase):
         self.assertEqual(self.inventory_service.get_available_quantity(self.bao_product_id, UnitType.BAO), Decimal("-1"))
         self.assertEqual(self._ledger_for_return(return_invoice.id), [])
 
+    def test_quick_return_walk_in_does_not_require_source_invoice_or_purchase_ceiling(self) -> None:
+        return_invoice = self.return_service.create_quick_return_invoice(
+            customer_id=None,
+            customer_snapshot_name="Khach le",
+            return_datetime=datetime(2026, 4, 9, 10, 30, 0),
+            items=[{"product_id": self.bao_product_id, "unit_type": UnitType.BAO, "quantity": Decimal("5")}],
+            handling_mode=ReturnHandlingMode.REFUND_NOW,
+        )
+
+        self.assertIsNone(return_invoice.source_invoice_id)
+        self.assertTrue(return_invoice.is_quick_return)
+        self.assertEqual(return_invoice.customer_snapshot_name, "Khach le")
+        self.assertEqual(return_invoice.total_amount, Decimal("500"))
+        self.assertEqual(self.inventory_service.get_available_quantity(self.bao_product_id, UnitType.BAO), Decimal("5"))
+        self.assertEqual(self._ledger_for_return(return_invoice.id), [])
+
+    def test_quick_return_customer_store_credit_updates_sales_balance_and_history(self) -> None:
+        self.sales_service.create_invoice(
+            customer_id=self.customer_id,
+            customer_snapshot_name="Khach return",
+            invoice_datetime=datetime(2026, 4, 9, 10, 45, 0),
+            items=[{"product_id": self.bao_product_id, "unit_type": UnitType.BAO, "quantity": Decimal("4")}],
+            paid_amount=Decimal("0"),
+        )
+
+        return_invoice = self.return_service.create_quick_return_invoice(
+            customer_id=self.customer_id,
+            customer_snapshot_name="Khach return",
+            return_datetime=datetime(2026, 4, 9, 11, 0, 0),
+            items=[{"product_id": self.bao_product_id, "unit_type": UnitType.BAO, "quantity": Decimal("2")}],
+            handling_mode=ReturnHandlingMode.STORE_CREDIT,
+        )
+
+        customer = self.customer_service.get_customer(self.customer_id)
+        ledgers = self._ledger_for_return(return_invoice.id)
+        self.assertTrue(return_invoice.is_quick_return)
+        self.assertIsNone(return_invoice.source_invoice_id)
+        self.assertEqual(return_invoice.customer_snapshot_name, "Khach return")
+        self.assertEqual(return_invoice.total_amount, Decimal("200"))
+        self.assertEqual(customer.total_sales, Decimal("200"))
+        self.assertEqual(customer.current_balance, Decimal("200"))
+        self.assertEqual(len(ledgers), 1)
+        self.assertEqual(ledgers[0].event_type, "RETURN_STORE_CREDIT")
+        self.assertEqual(ledgers[0].amount_delta, Decimal("-200"))
+
     def test_customer_return_store_credit_reduces_sales_and_balance_and_can_go_negative(self) -> None:
         invoice = self.sales_service.create_invoice(
             customer_id=self.customer_id,
@@ -241,3 +286,4 @@ class ReturnServiceTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

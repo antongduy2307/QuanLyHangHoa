@@ -2,12 +2,10 @@
 
 from decimal import Decimal
 
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
-    QDoubleSpinBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -18,6 +16,7 @@ from PyQt6.QtWidgets import (
 
 from core.exceptions import ValidationError
 from shared.widgets.message_box import MessageBox
+from shared.widgets.numeric_inputs import SelectAllSpinBox
 
 
 class ReceiptRowWidget(QWidget):
@@ -28,10 +27,8 @@ class ReceiptRowWidget(QWidget):
         for product_id, label in product_options:
             self.product_combo.addItem(label, product_id)
 
-        self.quantity_input = QDoubleSpinBox()
-        self.quantity_input.setDecimals(3)
+        self.quantity_input = SelectAllSpinBox()
         self.quantity_input.setRange(0, 999999999)
-        self.quantity_input.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         remove_button = QPushButton("Xóa dòng")
         remove_button.clicked.connect(lambda: self._remove_callback(self))
@@ -83,7 +80,7 @@ class InventoryReceiptDialog(QDialog):
             items.append(
                 {
                     "product_id": row.product_combo.currentData(),
-                    "quantity": Decimal(str(row.quantity_input.value())),
+                    "quantity": Decimal(row.quantity_input.value()),
                 }
             )
         return items
@@ -108,7 +105,7 @@ class InventoryReceiptDialog(QDialog):
             for item in items:
                 if item["product_id"] is None:
                     raise ValidationError("Phải chọn hàng hóa.")
-                if Decimal(str(item["quantity"])) <= Decimal("0"):
+                if Decimal(item["quantity"]) <= Decimal("0"):
                     raise ValidationError("Số lượng phải > 0.")
         except Exception as exc:
             MessageBox.error(self, "Lỗi dữ liệu", str(exc))

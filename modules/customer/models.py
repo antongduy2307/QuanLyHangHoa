@@ -34,6 +34,7 @@ class Customer(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     customer_name: Mapped[str] = mapped_column(String(255), index=True)
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    address: Mapped[str | None] = mapped_column(String(255), nullable=True)
     current_balance: Mapped[Decimal] = mapped_column(Numeric(AMOUNT_PRECISION, AMOUNT_SCALE), default=Decimal("0"), server_default="0")
     total_sales: Mapped[Decimal] = mapped_column(Numeric(AMOUNT_PRECISION, AMOUNT_SCALE), default=Decimal("0"), server_default="0")
     is_walk_in: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")

@@ -202,7 +202,7 @@ class InventoryServiceTestCase(unittest.TestCase):
         self.assertEqual(price.price, Decimal("25"))
         self.assertEqual(price.is_enabled, True)
 
-    def test_delete_unused_product_succeeds(self) -> None:
+    def test_delete_unused_product_hard_deletes(self) -> None:
         product = self.service.create_product(
             product_code_base="DEL-OK",
             product_name="Unused",
@@ -211,11 +211,12 @@ class InventoryServiceTestCase(unittest.TestCase):
         )
         self.repository.session.commit()
 
-        self.service.delete_product(product.id)
+        result = self.service.delete_product(product.id)
         self.repository.session.commit()
+        self.assertEqual(result.action, "hard_deleted")
         self.assertEqual(self.repository.session.get(Product, product.id), None)
 
-    def test_delete_product_with_history_fails(self) -> None:
+    def test_delete_product_with_receipt_history_sets_inactive_false(self) -> None:
         receipt_product = self.service.create_product(
             product_code_base="DEL-RECEIPT",
             product_name="Receipt history",
@@ -225,9 +226,14 @@ class InventoryServiceTestCase(unittest.TestCase):
         self.repository.session.commit()
         self.service.create_receipt([{"product_id": receipt_product.id, "quantity": Decimal("2")}])
         self.repository.session.commit()
-        with self.assertRaises(ValidationError):
-            self.service.delete_product(receipt_product.id)
 
+        result = self.service.delete_product(receipt_product.id)
+        self.repository.session.commit()
+        reloaded = self.repository.get_product(receipt_product.id)
+        self.assertEqual(result.action, "deactivated")
+        self.assertFalse(reloaded.is_active)
+
+    def test_delete_product_with_invoice_history_sets_inactive_false_and_keeps_snapshot(self) -> None:
         invoice_product = self.service.create_product(
             product_code_base="DEL-INVOICE",
             product_name="Invoice history",
@@ -235,7 +241,7 @@ class InventoryServiceTestCase(unittest.TestCase):
             enabled_prices={UnitType.BAO: Decimal("15")},
         )
         self.repository.session.commit()
-        self.sales_service.create_invoice(
+        invoice = self.sales_service.create_invoice(
             customer_id=self.customer_id,
             customer_snapshot_name="",
             invoice_datetime=datetime(2026, 4, 8, 9, 0, 0),
@@ -244,9 +250,17 @@ class InventoryServiceTestCase(unittest.TestCase):
             payment_method=PaymentMethod.CASH,
         )
         self.repository.session.commit()
-        with self.assertRaises(ValidationError):
-            self.service.delete_product(invoice_product.id)
 
+        result = self.service.delete_product(invoice_product.id)
+        self.repository.session.commit()
+        reloaded = self.repository.get_product(invoice_product.id)
+        reloaded_invoice = self.sales_service._repository.get_invoice(invoice.id)
+        self.assertEqual(result.action, "deactivated")
+        self.assertFalse(reloaded.is_active)
+        self.assertEqual(reloaded_invoice.items[0].product_code_snapshot, "DEL-INVOICE")
+        self.assertEqual(reloaded_invoice.items[0].product_name_snapshot, "Invoice history")
+
+    def test_inactive_product_no_longer_appears_in_active_queries(self) -> None:
         adjustment_product = self.service.create_product(
             product_code_base="DEL-ADJ",
             product_name="Adjustment history",
@@ -256,8 +270,14 @@ class InventoryServiceTestCase(unittest.TestCase):
         self.repository.session.commit()
         self.service.create_adjustment([{"product_id": adjustment_product.id, "new_quantity": Decimal("3")}])
         self.repository.session.commit()
-        with self.assertRaises(ValidationError):
-            self.service.delete_product(adjustment_product.id)
+
+        self.service.delete_product(adjustment_product.id)
+        self.repository.session.commit()
+
+        active_products = self.service.list_products()
+        all_products = self.service.list_products(include_inactive=True)
+        self.assertFalse(any(product.id == adjustment_product.id for product in active_products))
+        self.assertTrue(any(product.id == adjustment_product.id for product in all_products))
 
     def test_bao_to_kg_conversion_is_correct(self) -> None:
         self.assertEqual(self.service.bao_to_kg(Decimal("2")), Decimal("50"))
@@ -309,3 +329,5 @@ class InventoryServiceTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+

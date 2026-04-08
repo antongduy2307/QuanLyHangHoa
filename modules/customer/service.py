@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from contextlib import nullcontext
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy.orm import Session
@@ -25,6 +26,82 @@ class CustomerService:
 
     def get_customer(self, customer_id: int) -> Customer:
         return self._repository.get_customer(customer_id)
+
+    def create_customer(
+        self,
+        *,
+        customer_name: str,
+        phone: str | None = None,
+        address: str | None = None,
+        initial_balance: Decimal | int | str = Decimal("0"),
+        note: str | None = None,
+    ) -> Customer:
+        session = self._repository.session
+        normalized_name = self._require_text(customer_name, "customer_name")
+        normalized_phone = self._normalize_optional_text(phone)
+        normalized_address = self._normalize_optional_text(address)
+        normalized_initial_balance = self._to_decimal(initial_balance)
+        transaction_context = nullcontext() if session.in_transaction() else session.begin()
+
+        with transaction_context:
+            customer = Customer(
+                customer_name=normalized_name,
+                phone=normalized_phone,
+                address=normalized_address,
+                current_balance=Decimal("0"),
+                total_sales=Decimal("0"),
+                is_walk_in=False,
+            )
+            session.add(customer)
+            session.flush()
+            if normalized_initial_balance != Decimal("0"):
+                self._append_balance_ledger(
+                    customer,
+                    amount_delta=normalized_initial_balance,
+                    ref_type="OPENING_BALANCE",
+                    ref_id=customer.id,
+                    event_type="OPENING_BALANCE",
+                    note=note or "Opening balance",
+                )
+            session.flush()
+            return customer
+
+    def update_customer(
+        self,
+        customer_id: int,
+        *,
+        customer_name: str,
+        phone: str | None = None,
+        address: str | None = None,
+        target_balance: Decimal | int | str | None = None,
+        balance_note: str | None = None,
+    ) -> Customer:
+        session = self._repository.session
+        normalized_name = self._require_text(customer_name, "customer_name")
+        normalized_phone = self._normalize_optional_text(phone)
+        normalized_address = self._normalize_optional_text(address)
+        transaction_context = nullcontext() if session.in_transaction() else session.begin()
+
+        with transaction_context:
+            customer = self._repository.get_customer(customer_id)
+            customer.customer_name = normalized_name
+            customer.phone = normalized_phone
+            customer.address = normalized_address
+
+            if target_balance is not None:
+                normalized_target_balance = self._to_decimal(target_balance)
+                delta = normalized_target_balance - customer.current_balance
+                if delta != Decimal("0"):
+                    self._append_balance_ledger(
+                        customer,
+                        amount_delta=delta,
+                        ref_type="BALANCE_ADJUSTMENT",
+                        ref_id=self._generate_ref_id(),
+                        event_type="BALANCE_ADJUSTMENT",
+                        note=balance_note or "Manual balance adjustment",
+                    )
+            session.flush()
+            return customer
 
     def list_reference_ledgers(self, customer_id: int, ref_type: str, ref_id: int) -> Sequence[CustomerBalanceLedger]:
         normalized_ref_type = self._require_text(ref_type, "ref_type")
@@ -66,21 +143,28 @@ class CustomerService:
 
         with transaction_context:
             customer = self._repository.get_customer(customer_id)
-            balance_after = customer.current_balance + normalized_delta
-            customer.current_balance = balance_after
-
-            ledger = CustomerBalanceLedger(
-                customer_id=customer.id,
-                event_type=normalized_event_type,
+            ledger = self._append_balance_ledger(
+                customer,
+                amount_delta=normalized_delta,
                 ref_type=normalized_ref_type,
                 ref_id=int(ref_id),
-                amount_delta=normalized_delta,
-                balance_after=balance_after,
+                event_type=normalized_event_type,
                 note=note,
             )
-            session.add(ledger)
             session.flush()
             return ledger
+
+    def pay_debt(self, customer_id: int, amount: Decimal | int | str, note: str | None = None) -> CustomerBalanceLedger:
+        normalized_amount = self._require_positive_decimal(amount, "amount")
+        ref_id = self._generate_ref_id()
+        return self.adjust_balance(
+            customer_id,
+            amount_delta=normalized_amount * Decimal("-1"),
+            ref_type="DEBT_PAYMENT",
+            ref_id=ref_id,
+            note=note,
+            event_type="DEBT_PAYMENT",
+        )
 
     def increase_sales(self, customer_id: int, amount: Decimal | int | str) -> Customer:
         session = self._repository.session
@@ -128,21 +212,44 @@ class CustomerService:
                 raise ValidationError("Balance ledger sum is zero; nothing to roll back.")
 
             amount_to_reverse = original_sum * Decimal("-1")
-            balance_after = customer.current_balance + amount_to_reverse
-            customer.current_balance = balance_after
-
-            rollback_ledger = CustomerBalanceLedger(
-                customer_id=customer.id,
-                event_type="ROLLBACK",
+            rollback_ledger = self._append_balance_ledger(
+                customer,
+                amount_delta=amount_to_reverse,
                 ref_type=normalized_ref_type,
                 ref_id=normalized_ref_id,
-                amount_delta=amount_to_reverse,
-                balance_after=balance_after,
+                event_type="ROLLBACK",
                 note=f"Rollback for {normalized_ref_type}:{normalized_ref_id}",
             )
-            session.add(rollback_ledger)
             session.flush()
             return rollback_ledger
+
+    def _append_balance_ledger(
+        self,
+        customer: Customer,
+        *,
+        amount_delta: Decimal,
+        ref_type: str,
+        ref_id: int,
+        event_type: str,
+        note: str | None,
+    ) -> CustomerBalanceLedger:
+        balance_after = customer.current_balance + amount_delta
+        customer.current_balance = balance_after
+        ledger = CustomerBalanceLedger(
+            customer_id=customer.id,
+            event_type=event_type,
+            ref_type=ref_type,
+            ref_id=int(ref_id),
+            amount_delta=amount_delta,
+            balance_after=balance_after,
+            note=note,
+        )
+        self._repository.session.add(ledger)
+        return ledger
+
+    @staticmethod
+    def _generate_ref_id() -> int:
+        return int(datetime.now().timestamp() * 1_000_000)
 
     @staticmethod
     def _to_decimal(value: Decimal | int | str) -> Decimal:
@@ -150,10 +257,21 @@ class CustomerService:
             return value
         return Decimal(str(value))
 
+    @staticmethod
+    def _normalize_optional_text(value: str | None) -> str | None:
+        normalized = (value or "").strip()
+        return normalized or None
+
     def _require_non_zero_decimal(self, value: Decimal | int | str, field_name: str) -> Decimal:
         normalized = self._to_decimal(value)
         if normalized == Decimal("0"):
             raise ValidationError(f"{field_name} must not be 0.")
+        return normalized
+
+    def _require_positive_decimal(self, value: Decimal | int | str, field_name: str) -> Decimal:
+        normalized = self._to_decimal(value)
+        if normalized <= Decimal("0"):
+            raise ValidationError(f"{field_name} must be > 0.")
         return normalized
 
     def _require_non_negative_decimal(self, value: Decimal | int | str, field_name: str) -> Decimal:

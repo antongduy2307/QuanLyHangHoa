@@ -4,15 +4,21 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from modules.customer.service import CustomerService
+from core.enums import UnitType
+from modules.customer.dto import CustomerDTO
 from modules.customer.repository import CustomerRepository
+from modules.customer.service import CustomerService
+from modules.inventory.repository import InventoryRepository
 from modules.returns.repository import ReturnsRepository
 from modules.returns.service import ReturnService
-from modules.sales.models import Invoice
 from modules.sales.repository import SalesRepository
+
+if TYPE_CHECKING:
+    from modules.returns.models import ReturnInvoice
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,9 +52,59 @@ class SourceInvoiceDetail:
     items: tuple[SourceInvoiceItemRow, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class QuickReturnProductOption:
+    product_id: int
+    product_code_base: str
+    product_name: str
+    enabled_prices: dict[UnitType, Decimal]
+
+
 class ReturnController:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self._session_factory = session_factory
+
+    def list_return_invoices(self) -> Sequence[ReturnInvoice]:
+        repository = ReturnsRepository(self._session_factory)
+        invoices = repository.list_return_invoices()
+        repository.session.close()
+        return invoices
+
+    def search_return_invoices(self, query: str) -> Sequence[ReturnInvoice]:
+        repository = ReturnsRepository(self._session_factory)
+        invoices = repository.search_return_invoices_by_code(query)
+        repository.session.close()
+        return invoices
+
+    def get_return_invoice_detail(self, return_invoice_id: int) -> ReturnInvoice:
+        repository = ReturnsRepository(self._session_factory)
+        invoice = repository.get_return_invoice(return_invoice_id)
+        repository.session.close()
+        return invoice
+
+    def list_quick_return_customers(self) -> Sequence[CustomerDTO]:
+        service = CustomerService(CustomerRepository(self._session_factory))
+        customers = service.list_customers()
+        service._repository.session.close()
+        return customers
+
+    def list_quick_return_products(self) -> list[QuickReturnProductOption]:
+        repository = InventoryRepository(self._session_factory)
+        products = repository.list_products()
+        options: list[QuickReturnProductOption] = []
+        for product in products:
+            enabled_prices = {price.unit_type: price.price for price in product.prices if price.is_enabled}
+            if enabled_prices:
+                options.append(
+                    QuickReturnProductOption(
+                        product_id=product.id,
+                        product_code_base=product.product_code_base,
+                        product_name=product.product_name,
+                        enabled_prices=enabled_prices,
+                    )
+                )
+        repository.session.close()
+        return options
 
     def search_source_invoices(self, query: str) -> Sequence[SourceInvoiceSearchRow]:
         repository = SalesRepository(self._session_factory)
@@ -119,3 +175,24 @@ class ReturnController:
             handling_mode=handling_mode,
             note=note,
         )
+
+    def create_quick_return_invoice(
+        self,
+        *,
+        customer_id: int | None,
+        customer_snapshot_name: str,
+        return_datetime: datetime,
+        items: list[Mapping[str, object]],
+        handling_mode: str,
+        note: str | None = None,
+    ) -> object:
+        service = ReturnService(ReturnsRepository(self._session_factory), sales_repository=SalesRepository(self._session_factory))
+        return service.create_quick_return_invoice(
+            customer_id=customer_id,
+            customer_snapshot_name=customer_snapshot_name,
+            return_datetime=return_datetime,
+            items=items,
+            handling_mode=handling_mode,
+            note=note,
+        )
+
