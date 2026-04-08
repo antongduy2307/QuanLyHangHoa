@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from core.enums import InvoiceStatus, PaymentMethod, UnitType
 from core.exceptions import ValidationError
@@ -23,6 +23,8 @@ class SalesLineInput:
     product_id: int
     unit_type: UnitType
     quantity: Decimal
+    unit_price: Decimal | None
+    line_total: Decimal | None
 
 
 class SalesService:
@@ -137,8 +139,9 @@ class SalesService:
                     f"Không tìm thấy giá đang bật cho hàng {product.product_code_base} với đơn vị {line.unit_type.value}."
                 )
 
-            line_total = line.quantity * price_row.price
-            total_amount += line_total
+            resolved_unit_price = self._resolve_unit_price(line, price_row.price)
+            resolved_line_total = self._resolve_line_total(line, resolved_unit_price)
+            total_amount += resolved_line_total
             self._inventory_service.decrease_stock(product.id, line.quantity, line.unit_type)
 
             invoice.items.append(
@@ -146,8 +149,8 @@ class SalesService:
                     product_id=product.id,
                     unit_type=line.unit_type,
                     quantity=line.quantity,
-                    unit_price=price_row.price,
-                    line_total=line_total,
+                    unit_price=resolved_unit_price,
+                    line_total=resolved_line_total,
                     product_code_snapshot=product.product_code_base,
                     product_name_snapshot=product.product_name,
                 )
@@ -203,8 +206,30 @@ class SalesService:
             product_id = self._require_int(item, "product_id")
             unit_type = self._normalize_unit_type(item.get("unit_type"))
             quantity = self._require_positive_decimal(item.get("quantity"), "quantity")
-            normalized.append(SalesLineInput(product_id=product_id, unit_type=unit_type, quantity=quantity))
+            unit_price = self._require_optional_non_negative_decimal(item.get("unit_price"), "unit_price")
+            line_total = self._require_optional_non_negative_decimal(item.get("line_total"), "line_total")
+            normalized.append(
+                SalesLineInput(
+                    product_id=product_id,
+                    unit_type=unit_type,
+                    quantity=quantity,
+                    unit_price=unit_price,
+                    line_total=line_total,
+                )
+            )
         return normalized
+
+    def _resolve_unit_price(self, line: SalesLineInput, default_price: Decimal) -> Decimal:
+        if line.unit_price is not None:
+            return line.unit_price
+        if line.line_total is not None:
+            return (line.line_total / line.quantity).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        return default_price
+
+    def _resolve_line_total(self, line: SalesLineInput, resolved_unit_price: Decimal) -> Decimal:
+        if line.line_total is not None:
+            return line.line_total
+        return line.quantity * resolved_unit_price
 
     def _normalize_unit_type(self, value: object) -> UnitType:
         if isinstance(value, UnitType):
@@ -254,11 +279,16 @@ class SalesService:
             raise ValidationError(f"{field_name} phải > 0.")
         return amount
 
+    def _require_optional_non_negative_decimal(self, value: object, field_name: str) -> Decimal | None:
+        if value is None:
+            return None
+        amount = self._to_decimal(value)
+        if amount < Decimal("0"):
+            raise ValidationError(f"{field_name} phải >= 0.")
+        return amount
+
     @staticmethod
     def _to_decimal(value: Decimal | int | str | object) -> Decimal:
         if isinstance(value, Decimal):
             return value
         return Decimal(str(value))
-
-
-

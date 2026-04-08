@@ -75,12 +75,7 @@ class ReturnService:
             source_invoice = self._sales_repository.get_invoice(source_invoice_id)
             customer_snapshot_name = source_invoice.customer_snapshot_name
             customer_id = source_invoice.customer_id
-            if customer_id is None and normalized_mode != ReturnHandlingMode.REFUND_NOW:
-                raise ValidationError("Hóa đơn khách lẻ chỉ hỗ trợ hoàn tiền ngay.")
-
-            requested_by_source_item: dict[int, Decimal] = {}
-            for line in normalized_items:
-                requested_by_source_item[line.source_invoice_item_id] = requested_by_source_item.get(line.source_invoice_item_id, Decimal("0")) + line.quantity
+            self._validate_walk_in_mode(customer_id, normalized_mode)
 
             return_invoice = ReturnInvoice(
                 return_code=self._repository.generate_return_code(return_datetime),
@@ -96,36 +91,57 @@ class ReturnService:
             session.add(return_invoice)
             session.flush()
 
-            total_amount = Decimal("0")
-            validated_source_items: dict[int, object] = {}
-            for source_item_id, requested_total in requested_by_source_item.items():
-                source_item = self._sales_repository.get_invoice_item(source_item_id)
-                if source_item.invoice_id != source_invoice.id:
-                    raise ValidationError("Dòng hàng trả không thuộc hóa đơn nguồn đã chọn.")
+            total_amount = self._populate_linked_return_items(
+                return_invoice=return_invoice,
+                source_invoice_id=source_invoice.id,
+                normalized_items=normalized_items,
+            )
+            return_invoice.total_amount = total_amount
+            self._apply_customer_effects(
+                customer_id=customer_id,
+                total_amount=total_amount,
+                handling_mode=normalized_mode,
+                return_code=return_invoice.return_code,
+                return_id=return_invoice.id,
+            )
 
-                previously_returned = self._repository.get_total_returned_quantity(source_item.id)
-                if previously_returned + requested_total > source_item.quantity:
-                    raise ValidationError("Số lượng trả vượt quá số lượng đã mua.")
-                validated_source_items[source_item_id] = source_item
+            session.flush()
+            return return_invoice
 
-            for line in normalized_items:
-                source_item = validated_source_items[line.source_invoice_item_id]
-                line_total = line.quantity * source_item.unit_price
-                total_amount += line_total
-                self._inventory_service.increase_stock(source_item.product_id, line.quantity, source_item.unit_type)
-                return_invoice.items.append(
-                    ReturnInvoiceItem(
-                        source_invoice_item_id=source_item.id,
-                        product_id=source_item.product_id,
-                        unit_type=source_item.unit_type,
-                        quantity=line.quantity,
-                        unit_price=source_item.unit_price,
-                        line_total=line_total,
-                        product_code_snapshot=source_item.product_code_snapshot,
-                        product_name_snapshot=source_item.product_name_snapshot,
-                    )
-                )
+    def update_return_invoice(
+        self,
+        return_invoice_id: int,
+        *,
+        items: list[Mapping[str, object]],
+        handling_mode: ReturnHandlingMode | str,
+        note: str | None = None,
+    ) -> ReturnInvoice:
+        session = self._repository.session
+        self.use_session(session)
+        normalized_items = self._normalize_items(items)
+        normalized_mode = self._normalize_handling_mode(handling_mode)
+        transaction_context = session.begin_nested() if session.in_transaction() else session.begin()
 
+        with transaction_context:
+            return_invoice = self._repository.get_return_invoice(return_invoice_id)
+            if return_invoice.source_invoice_id is None:
+                raise ValidationError("Chưa hỗ trợ sửa phiếu trả hàng nhanh ở bước này.")
+
+            source_invoice = self._sales_repository.get_invoice(return_invoice.source_invoice_id)
+            customer_id = return_invoice.customer_id
+            self._validate_walk_in_mode(customer_id, normalized_mode)
+
+            self._rollback_return_effects(return_invoice)
+            return_invoice.items.clear()
+            session.flush()
+
+            total_amount = self._populate_linked_return_items(
+                return_invoice=return_invoice,
+                source_invoice_id=source_invoice.id,
+                normalized_items=normalized_items,
+            )
+            return_invoice.handling_mode = normalized_mode
+            return_invoice.note = note
             return_invoice.total_amount = total_amount
             self._apply_customer_effects(
                 customer_id=customer_id,
@@ -156,8 +172,7 @@ class ReturnService:
         transaction_context = session.begin_nested() if session.in_transaction() else session.begin()
 
         with transaction_context:
-            if customer_id is None and normalized_mode != ReturnHandlingMode.REFUND_NOW:
-                raise ValidationError("Khách lẻ chỉ hỗ trợ hoàn tiền ngay.")
+            self._validate_walk_in_mode(customer_id, normalized_mode)
             if customer_id is not None:
                 customer = self._customer_service.get_customer(customer_id)
                 snapshot_name = customer.customer_name
@@ -211,6 +226,57 @@ class ReturnService:
             session.flush()
             return return_invoice
 
+    def _populate_linked_return_items(
+        self,
+        *,
+        return_invoice: ReturnInvoice,
+        source_invoice_id: int,
+        normalized_items: list[ReturnLineInput],
+    ) -> Decimal:
+        requested_by_source_item: dict[int, Decimal] = {}
+        for line in normalized_items:
+            requested_by_source_item[line.source_invoice_item_id] = requested_by_source_item.get(line.source_invoice_item_id, Decimal("0")) + line.quantity
+
+        validated_source_items: dict[int, object] = {}
+        for source_item_id, requested_total in requested_by_source_item.items():
+            source_item = self._sales_repository.get_invoice_item(source_item_id)
+            if source_item.invoice_id != source_invoice_id:
+                raise ValidationError("Dòng hàng trả không thuộc hóa đơn nguồn đã chọn.")
+
+            previously_returned = self._repository.get_total_returned_quantity(source_item.id)
+            if previously_returned + requested_total > source_item.quantity:
+                raise ValidationError("Số lượng trả vượt quá số lượng đã mua.")
+            validated_source_items[source_item_id] = source_item
+
+        total_amount = Decimal("0")
+        for line in normalized_items:
+            source_item = validated_source_items[line.source_invoice_item_id]
+            line_total = line.quantity * source_item.unit_price
+            total_amount += line_total
+            self._inventory_service.increase_stock(source_item.product_id, line.quantity, source_item.unit_type)
+            return_invoice.items.append(
+                ReturnInvoiceItem(
+                    source_invoice_item_id=source_item.id,
+                    product_id=source_item.product_id,
+                    unit_type=source_item.unit_type,
+                    quantity=line.quantity,
+                    unit_price=source_item.unit_price,
+                    line_total=line_total,
+                    product_code_snapshot=source_item.product_code_snapshot,
+                    product_name_snapshot=source_item.product_name_snapshot,
+                )
+            )
+        return total_amount
+
+    def _rollback_return_effects(self, return_invoice: ReturnInvoice) -> None:
+        for item in list(return_invoice.items):
+            self._inventory_service.decrease_stock(item.product_id, item.quantity, item.unit_type)
+        if return_invoice.customer_id is not None:
+            self._customer_service.increase_sales(return_invoice.customer_id, return_invoice.total_amount)
+            ledgers = list(self._customer_service.list_reference_ledgers(return_invoice.customer_id, "RETURN", return_invoice.id))
+            if ledgers:
+                self._customer_service.remove_reference_balance_effect(return_invoice.customer_id, "RETURN", return_invoice.id)
+
     def _apply_customer_effects(
         self,
         *,
@@ -244,6 +310,10 @@ class ReturnService:
                 note=f"Return refund now {return_code}",
                 event_type="RETURN_REFUND_NOW",
             )
+
+    def _validate_walk_in_mode(self, customer_id: int | None, handling_mode: ReturnHandlingMode) -> None:
+        if customer_id is None and handling_mode != ReturnHandlingMode.REFUND_NOW:
+            raise ValidationError("Hóa đơn khách lẻ chỉ hỗ trợ hoàn tiền ngay.")
 
     def _normalize_items(self, items: list[Mapping[str, object]]) -> list[ReturnLineInput]:
         if not items:

@@ -96,3 +96,13 @@ class ReturnsRepository:
         )
         result = self.session.scalar(statement)
         return Decimal(str(result or 0))
+
+    def get_total_returned_quantity_excluding_return(self, source_invoice_item_id: int, return_invoice_id: int) -> Decimal:
+        statement = (
+            select(func.coalesce(func.sum(ReturnInvoiceItem.quantity), 0))
+            .where(ReturnInvoiceItem.source_invoice_item_id == source_invoice_item_id)
+            .where(ReturnInvoiceItem.return_invoice_id != return_invoice_id)
+        )
+        result = self.session.scalar(statement)
+        return Decimal(str(result or 0))
+

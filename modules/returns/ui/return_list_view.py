@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import QHBoxLayout, QLineEdit, QPushButton, QTableWidget, Q
 from modules.returns.controller import ReturnController
 from modules.returns.models import ReturnInvoice
 from modules.returns.ui.return_detail_popup import ReturnDetailPopup
+from modules.returns.ui.return_edit_dialog import ReturnEditDialog
 from shared.formatting.dates import format_datetime
 from shared.formatting.money import format_money
 from shared.widgets.message_box import MessageBox
@@ -29,12 +30,15 @@ class ReturnListView(QWidget):
 
         view_button = QPushButton("Xem")
         view_button.clicked.connect(self._open_detail)
+        edit_button = QPushButton("Sửa")
+        edit_button.clicked.connect(self._open_edit)
         refresh_button = QPushButton("Làm mới")
         refresh_button.clicked.connect(self.reload)
 
         controls = QHBoxLayout()
         controls.addWidget(self._search_input, 1)
         controls.addWidget(view_button)
+        controls.addWidget(edit_button)
         controls.addWidget(refresh_button)
 
         layout = QVBoxLayout(self)
@@ -89,6 +93,24 @@ class ReturnListView(QWidget):
             return
         try:
             return_invoice = self._controller.get_return_invoice_detail(return_id)
-            ReturnDetailPopup(return_invoice, self).exec()
+            ReturnDetailPopup(return_invoice, self, controller=self._controller, on_updated=self.reload).exec()
         except Exception as exc:
             MessageBox.error(self, "Không tải được chi tiết trả hàng", str(exc))
+
+    def _open_edit(self) -> None:
+        return_id = self._selected_return_id()
+        if return_id is None:
+            MessageBox.warning(self, "Chưa chọn", "Hãy chọn một phiếu trả hàng để sửa.")
+            return
+        try:
+            return_invoice = self._controller.get_return_invoice_detail(return_id)
+            if return_invoice.source_invoice_id is None:
+                MessageBox.warning(self, "Chưa hỗ trợ", "Chưa hỗ trợ sửa phiếu trả hàng nhanh ở bước này.")
+                return
+            detail = self._controller.get_return_edit_detail(return_id)
+            dialog = ReturnEditDialog(self._controller, detail, self)
+            if dialog.exec():
+                MessageBox.info(self, "Thành công", "Đã cập nhật phiếu trả hàng.")
+                self.reload()
+        except Exception as exc:
+            MessageBox.error(self, "Không cập nhật được phiếu trả hàng", str(exc))

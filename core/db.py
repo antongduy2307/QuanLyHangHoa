@@ -6,7 +6,6 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from core.config import get_settings
-from core.paths import DATA_DIR, DEFAULT_TEMP_DIR
 from core.utils import ensure_directories
 
 
@@ -46,10 +45,10 @@ def init_db() -> None:
     settings = get_settings()
     ensure_directories(
         [
-            DATA_DIR,
-            DEFAULT_TEMP_DIR,
+            settings.app_data_dir,
             settings.export_dir,
             settings.backup_dir,
+            settings.temp_dir,
             settings.db_path.parent,
         ]
     )

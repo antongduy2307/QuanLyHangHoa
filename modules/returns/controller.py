@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from core.enums import UnitType
+from core.enums import ReturnHandlingMode, UnitType
 from modules.customer.dto import CustomerDTO
 from modules.customer.repository import CustomerRepository
 from modules.customer.service import CustomerService
@@ -53,6 +53,22 @@ class SourceInvoiceDetail:
 
 
 @dataclass(frozen=True, slots=True)
+class ReturnEditDetail:
+    return_invoice_id: int
+    return_code: str
+    return_datetime: datetime
+    source_invoice_id: int
+    source_invoice_code: str
+    customer_name: str
+    customer_id: int | None
+    current_balance: Decimal | None
+    handling_mode: ReturnHandlingMode
+    note: str | None
+    items: tuple[SourceInvoiceItemRow, ...]
+    selected_quantities: dict[int, Decimal]
+
+
+@dataclass(frozen=True, slots=True)
 class QuickReturnProductOption:
     product_id: int
     product_code_base: str
@@ -81,6 +97,57 @@ class ReturnController:
         invoice = repository.get_return_invoice(return_invoice_id)
         repository.session.close()
         return invoice
+
+    def get_return_edit_detail(self, return_invoice_id: int) -> ReturnEditDetail:
+        returns_repository = ReturnsRepository(self._session_factory)
+        sales_repository = SalesRepository(self._session_factory)
+        customer_service = CustomerService(CustomerRepository(self._session_factory))
+
+        return_invoice = returns_repository.get_return_invoice(return_invoice_id)
+        if return_invoice.source_invoice_id is None:
+            returns_repository.session.close()
+            sales_repository.session.close()
+            raise ValueError("Chưa hỗ trợ sửa phiếu trả hàng nhanh ở bước này.")
+
+        source_invoice = sales_repository.get_invoice(return_invoice.source_invoice_id)
+        current_balance = None
+        if return_invoice.customer_id is not None:
+            current_balance = customer_service.get_customer(return_invoice.customer_id).current_balance
+
+        current_quantities = {item.source_invoice_item_id: item.quantity for item in return_invoice.items if item.source_invoice_item_id is not None}
+        item_rows: list[SourceInvoiceItemRow] = []
+        for item in source_invoice.items:
+            already_returned = returns_repository.get_total_returned_quantity_excluding_return(item.id, return_invoice.id)
+            item_rows.append(
+                SourceInvoiceItemRow(
+                    source_invoice_item_id=item.id,
+                    product_code_snapshot=item.product_code_snapshot,
+                    product_name_snapshot=item.product_name_snapshot,
+                    unit_type=item.unit_type.value,
+                    purchased_quantity=item.quantity,
+                    already_returned_quantity=already_returned,
+                    remaining_returnable_quantity=item.quantity - already_returned,
+                    unit_price=item.unit_price,
+                )
+            )
+
+        returns_repository.session.close()
+        sales_repository.session.close()
+        customer_service._repository.session.close()
+        return ReturnEditDetail(
+            return_invoice_id=return_invoice.id,
+            return_code=return_invoice.return_code,
+            return_datetime=return_invoice.return_datetime,
+            source_invoice_id=source_invoice.id,
+            source_invoice_code=source_invoice.invoice_code,
+            customer_name=return_invoice.customer_snapshot_name,
+            customer_id=return_invoice.customer_id,
+            current_balance=current_balance,
+            handling_mode=return_invoice.handling_mode,
+            note=return_invoice.note,
+            items=tuple(item_rows),
+            selected_quantities=current_quantities,
+        )
 
     def list_quick_return_customers(self) -> Sequence[CustomerDTO]:
         service = CustomerService(CustomerRepository(self._session_factory))
@@ -148,6 +215,7 @@ class ReturnController:
 
         sales_repository.session.close()
         returns_repository.session.close()
+        customer_service._repository.session.close()
         return SourceInvoiceDetail(
             invoice_id=invoice.id,
             invoice_code=invoice.invoice_code,
@@ -176,6 +244,22 @@ class ReturnController:
             note=note,
         )
 
+    def update_return_invoice(
+        self,
+        return_invoice_id: int,
+        *,
+        items: list[Mapping[str, object]],
+        handling_mode: str,
+        note: str | None = None,
+    ) -> object:
+        service = ReturnService(ReturnsRepository(self._session_factory), sales_repository=SalesRepository(self._session_factory))
+        return service.update_return_invoice(
+            return_invoice_id,
+            items=items,
+            handling_mode=handling_mode,
+            note=note,
+        )
+
     def create_quick_return_invoice(
         self,
         *,
@@ -195,4 +279,3 @@ class ReturnController:
             handling_mode=handling_mode,
             note=note,
         )
-

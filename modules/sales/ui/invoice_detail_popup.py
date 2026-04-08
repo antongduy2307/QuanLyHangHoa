@@ -8,6 +8,7 @@ from modules.returns.ui.return_detail_popup import ReturnDetailPopup
 from modules.sales.models import Invoice
 from shared.formatting.dates import format_datetime
 from shared.formatting.money import format_money
+from shared.formatting.quantity import format_quantity
 from shared.widgets.message_box import MessageBox
 from shared.widgets.table_helpers import configure_table_widget
 
@@ -27,7 +28,7 @@ class InvoiceDetailPopup(QDialog):
             items_table.setItem(row_index, 0, QTableWidgetItem(item.product_code_snapshot))
             items_table.setItem(row_index, 1, QTableWidgetItem(item.product_name_snapshot))
             items_table.setItem(row_index, 2, QTableWidgetItem(item.unit_type.value))
-            items_table.setItem(row_index, 3, QTableWidgetItem(str(item.quantity)))
+            items_table.setItem(row_index, 3, QTableWidgetItem(format_quantity(item.quantity)))
             items_table.setItem(row_index, 4, QTableWidgetItem(format_money(item.unit_price)))
             items_table.setItem(row_index, 5, QTableWidgetItem(format_money(item.line_total)))
 

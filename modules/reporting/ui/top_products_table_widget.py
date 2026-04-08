@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QTableWidget, QTable
 
 from modules.reporting.dto import TopProductReportRowDTO
 from shared.formatting.money import format_money
+from shared.formatting.quantity import format_quantity
 from shared.widgets.numeric_inputs import SelectAllSpinBox
 from shared.widgets.table_helpers import configure_table_widget
 
@@ -55,9 +56,9 @@ class TopProductsTableWidget(QWidget):
             self.table.setItem(row_index, 0, QTableWidgetItem(row.product_code))
             self.table.setItem(row_index, 1, QTableWidgetItem(row.product_name))
             self.table.setItem(row_index, 2, QTableWidgetItem(row.unit_type))
-            self.table.setItem(row_index, 3, QTableWidgetItem(str(row.sold_quantity)))
+            self.table.setItem(row_index, 3, QTableWidgetItem(format_quantity(row.sold_quantity)))
             self.table.setItem(row_index, 4, QTableWidgetItem(format_money(row.gross_revenue)))
-            self.table.setItem(row_index, 5, QTableWidgetItem(str(row.returned_quantity)))
+            self.table.setItem(row_index, 5, QTableWidgetItem(format_quantity(row.returned_quantity)))
             self.table.setItem(row_index, 6, QTableWidgetItem(format_money(row.return_amount)))
-            self.table.setItem(row_index, 7, QTableWidgetItem(str(row.net_quantity)))
+            self.table.setItem(row_index, 7, QTableWidgetItem(format_quantity(row.net_quantity)))
             self.table.setItem(row_index, 8, QTableWidgetItem(format_money(row.net_revenue)))

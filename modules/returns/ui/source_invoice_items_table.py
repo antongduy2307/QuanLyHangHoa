@@ -31,9 +31,10 @@ class SourceInvoiceItemsTable(QTableWidget):
         self._rows: list[SourceInvoiceItemRow] = []
         self._spinboxes: list[SelectAllSpinBox] = []
 
-    def load_items(self, rows: list[SourceInvoiceItemRow]) -> None:
+    def load_items(self, rows: list[SourceInvoiceItemRow], initial_quantities: dict[int, Decimal] | None = None) -> None:
         self._rows = rows
         self._spinboxes = []
+        initial_quantities = initial_quantities or {}
         self.setRowCount(len(rows))
         for row_index, row in enumerate(rows):
             self.setItem(row_index, 0, QTableWidgetItem(row.product_code_snapshot))
@@ -43,13 +44,15 @@ class SourceInvoiceItemsTable(QTableWidget):
             self.setItem(row_index, 4, QTableWidgetItem(str(row.already_returned_quantity)))
             self.setItem(row_index, 5, QTableWidgetItem(str(row.remaining_returnable_quantity)))
             quantity_input = SelectAllSpinBox()
-            quantity_input.setRange(0, max(0, int(row.remaining_returnable_quantity)))
-            quantity_input.setValue(0)
+            initial_quantity = initial_quantities.get(row.source_invoice_item_id, Decimal("0"))
+            max_quantity = max(0, int(row.remaining_returnable_quantity))
+            quantity_input.setRange(0, max_quantity)
+            quantity_input.setValue(int(initial_quantity))
             quantity_input.valueChanged.connect(lambda _value, index=row_index: self._update_projected_total(index))
             self._spinboxes.append(quantity_input)
             self.setCellWidget(row_index, 6, quantity_input)
             self.setItem(row_index, 7, QTableWidgetItem(format_money(row.unit_price)))
-            self.setItem(row_index, 8, QTableWidgetItem(format_money(Decimal("0"))))
+            self.setItem(row_index, 8, QTableWidgetItem(format_money(initial_quantity * row.unit_price)))
         self.totals_changed.emit()
 
     def selected_return_items(self) -> list[dict[str, object]]:

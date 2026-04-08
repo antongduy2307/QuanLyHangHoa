@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from core.db import Base
-from core.exceptions import ValidationError
+from core.exceptions import NotFoundError, ValidationError
 from modules.customer.models import Customer
 from modules.customer.repository import CustomerRepository
 from modules.customer.service import CustomerService
@@ -142,6 +142,45 @@ class CustomerServiceTestCase(unittest.TestCase):
         customer = self.service.get_customer(self.customer_id)
         self.assertEqual(customer.total_sales, Decimal("120"))
 
+    def test_update_debt_payment_changes_balance_correctly(self) -> None:
+        ledger = self.service.pay_debt(self.customer_id, Decimal("25"), note="Cu")
+        updated = self.service.update_debt_payment(ledger.id, Decimal("40"), note="Moi")
+        customer = self.service.get_customer(self.customer_id)
+        original_ledgers = list(self.repository.list_ledgers_by_ref(self.customer_id, "DEBT_PAYMENT", ledger.ref_id))
+
+        self.assertEqual(updated.event_type, "DEBT_PAYMENT")
+        self.assertEqual(updated.amount_delta, Decimal("-40"))
+        self.assertEqual(customer.current_balance, Decimal("-40"))
+        self.assertEqual(len(original_ledgers), 3)
+        self.assertTrue(any(entry.event_type == "DEBT_PAYMENT_EDIT_ROLLBACK" and entry.amount_delta == Decimal("25") for entry in original_ledgers))
+
+    def test_update_debt_payment_does_not_change_total_sales(self) -> None:
+        self.service.increase_sales(self.customer_id, Decimal("120"))
+        ledger = self.service.pay_debt(self.customer_id, Decimal("20"))
+        self.service.update_debt_payment(ledger.id, Decimal("35"), note="Sua")
+        customer = self.service.get_customer(self.customer_id)
+        self.assertEqual(customer.total_sales, Decimal("120"))
+
+    def test_update_debt_payment_note_works(self) -> None:
+        ledger = self.service.pay_debt(self.customer_id, Decimal("25"), note="Cu")
+        updated = self.service.update_debt_payment(ledger.id, Decimal("25"), note="Ghi chu moi")
+        self.assertEqual(updated.note, "Ghi chu moi")
+
+    def test_update_debt_payment_invalid_amount_fails(self) -> None:
+        ledger = self.service.pay_debt(self.customer_id, Decimal("25"))
+        with self.assertRaises(ValidationError):
+            self.service.update_debt_payment(ledger.id, Decimal("0"))
+        with self.assertRaises(ValidationError):
+            self.service.update_debt_payment(ledger.id, Decimal("-10"))
+
+    def test_update_debt_payment_invalid_or_nonexistent_ref_fails(self) -> None:
+        self.service.adjust_balance(self.customer_id, Decimal("10"), "MANUAL", 999, event_type="MANUAL")
+        manual_ledger = self.repository.list_ledgers_by_ref(self.customer_id, "MANUAL", 999)[0]
+        with self.assertRaises(ValidationError):
+            self.service.update_debt_payment(manual_ledger.id, Decimal("20"))
+        with self.assertRaises(NotFoundError):
+            self.service.update_debt_payment(999999, Decimal("20"))
+
     def test_pay_debt_invalid_amount_fails(self) -> None:
         with self.assertRaises(ValidationError):
             self.service.pay_debt(self.customer_id, Decimal("0"))
@@ -191,3 +230,5 @@ class CustomerServiceTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+

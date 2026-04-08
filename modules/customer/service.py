@@ -166,6 +166,38 @@ class CustomerService:
             event_type="DEBT_PAYMENT",
         )
 
+    def update_debt_payment(self, ledger_id: int, new_amount: Decimal | int | str, note: str | None = None) -> CustomerBalanceLedger:
+        session = self._repository.session
+        normalized_amount = self._require_positive_decimal(new_amount, "new_amount")
+        transaction_context = nullcontext() if session.in_transaction() else session.begin()
+
+        with transaction_context:
+            original_ledger = self._repository.get_ledger(ledger_id)
+            if original_ledger.event_type != "DEBT_PAYMENT" or original_ledger.ref_type != "DEBT_PAYMENT":
+                raise ValidationError("Giao dịch được chọn không phải là giao dịch trả nợ hợp lệ.")
+            customer = self._repository.get_customer(original_ledger.customer_id)
+
+            rollback_amount = original_ledger.amount_delta * Decimal("-1")
+            self._append_balance_ledger(
+                customer,
+                amount_delta=rollback_amount,
+                ref_type="DEBT_PAYMENT",
+                ref_id=original_ledger.ref_id,
+                event_type="DEBT_PAYMENT_EDIT_ROLLBACK",
+                note=f"Rollback debt payment {original_ledger.ref_id}",
+            )
+            replacement = self._append_balance_ledger(
+                customer,
+                amount_delta=normalized_amount * Decimal("-1"),
+                ref_type="DEBT_PAYMENT",
+                ref_id=original_ledger.ref_id,
+                event_type="DEBT_PAYMENT",
+                note=note,
+                created_at=original_ledger.created_at,
+            )
+            session.flush()
+            return replacement
+
     def increase_sales(self, customer_id: int, amount: Decimal | int | str) -> Customer:
         session = self._repository.session
         normalized_amount = self._require_non_negative_decimal(amount, "amount")
@@ -232,6 +264,7 @@ class CustomerService:
         ref_id: int,
         event_type: str,
         note: str | None,
+        created_at: datetime | None = None,
     ) -> CustomerBalanceLedger:
         balance_after = customer.current_balance + amount_delta
         customer.current_balance = balance_after
@@ -244,6 +277,8 @@ class CustomerService:
             balance_after=balance_after,
             note=note,
         )
+        if created_at is not None:
+            ledger.created_at = created_at
         self._repository.session.add(ledger)
         return ledger
 

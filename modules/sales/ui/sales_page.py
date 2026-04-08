@@ -25,12 +25,10 @@ class SalesPage(QWidget):
         self._customer_picker = CustomerPickerWidget(list(controller.list_customers()), self)
         self._product_search = ProductSearchWidget(controller.list_sellable_products(), self)
         self._items_table = InvoiceItemsTable()
-        self._original_remove_row_at = self._items_table.remove_row_at
-        self._items_table.remove_row_at = self._remove_row_and_refresh  # type: ignore[method-assign]
 
         self._total_label = QLabel(format_money(Decimal("0")))
         self._total_label.setStyleSheet("font-size: 20px; font-weight: 600;")
-        self._change_label = QLabel("")
+        self._change_label = QLabel(format_money(Decimal("0")))
         self._change_label.setProperty("class", "muted")
 
         self._paid_amount_input = SelectAllSpinBox()
@@ -44,11 +42,12 @@ class SalesPage(QWidget):
 
         self._product_search.item_added.connect(self._handle_item_added)
         self._customer_picker.customer_changed.connect(self._refresh_amounts)
+        self._items_table.totals_changed.connect(self._refresh_amounts)
 
         form_layout = QFormLayout()
         form_layout.addRow("Tổng tiền", self._total_label)
         form_layout.addRow("Khách trả", self._paid_amount_input)
-        form_layout.addRow("Tiền thối", self._change_label)
+        form_layout.addRow("Tiền dư", self._change_label)
         form_layout.addRow("Thanh toán", self._payment_method_combo)
 
         create_button = QPushButton("Tạo hóa đơn")
@@ -78,27 +77,15 @@ class SalesPage(QWidget):
         self._product_search.reload_data(self._controller.list_sellable_products())
         self._refresh_amounts()
 
-    def _remove_row_and_refresh(self, row_index: int) -> None:
-        self._original_remove_row_at(row_index)
-        self._refresh_amounts()
-
     def _handle_item_added(self, item: object) -> None:
         self._items_table.add_or_merge_item(dict(item))
-        self._refresh_amounts()
 
     def _refresh_amounts(self) -> None:
         total_amount = self._items_table.total_amount()
         self._total_label.setText(format_money(total_amount))
-
-        if self._customer_picker.selected_customer_id() is None:
-            paid_amount = Decimal(self._paid_amount_input.value())
-            change_amount = paid_amount - total_amount
-            if change_amount > Decimal("0"):
-                self._change_label.setText(format_money(change_amount))
-            else:
-                self._change_label.setText(format_money(Decimal("0")))
-        else:
-            self._change_label.setText("")
+        paid_amount = Decimal(self._paid_amount_input.value())
+        overpayment = max(paid_amount - total_amount, Decimal("0"))
+        self._change_label.setText(format_money(overpayment))
 
     def _create_invoice(self) -> None:
         try:

@@ -12,15 +12,25 @@ from shared.widgets.numeric_inputs import SelectAllSpinBox
 
 
 class DebtPaymentDialog(QDialog):
-    def __init__(self, customer: CustomerDTO, parent: QDialog | None = None) -> None:
+    def __init__(
+        self,
+        customer: CustomerDTO,
+        parent: QDialog | None = None,
+        *,
+        edit_mode: bool = False,
+        amount: Decimal = Decimal("0"),
+        note: str | None = None,
+    ) -> None:
         super().__init__(parent)
         self._customer = customer
-        self.setWindowTitle("Thanh toán nợ")
+        self._edit_mode = edit_mode
+        self.setWindowTitle("Sửa giao dịch trả nợ" if edit_mode else "Thanh toán nợ")
         self.resize(360, 220)
 
         self.amount_input = SelectAllSpinBox()
         self.amount_input.setRange(0, 999999999)
-        self.note_input = QLineEdit()
+        self.amount_input.setValue(int(amount))
+        self.note_input = QLineEdit(note or "")
 
         form_layout = QFormLayout()
         form_layout.addRow("Tên khách", QLabel(customer.customer_name))

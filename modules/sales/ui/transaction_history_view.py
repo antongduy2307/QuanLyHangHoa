@@ -112,10 +112,14 @@ class TransactionHistoryView(QWidget):
                 invoice = self._controller.get_invoice_detail(transaction_id)
                 InvoiceDetailPopup(invoice, self).exec()
             elif transaction_type == "RETURN":
-                return_invoice = ReturnController(SessionFactory).get_return_invoice_detail(transaction_id)
-                ReturnDetailPopup(return_invoice, self).exec()
+                return_controller = ReturnController(SessionFactory)
+                return_invoice = return_controller.get_return_invoice_detail(transaction_id)
+                ReturnDetailPopup(return_invoice, self, controller=return_controller, on_updated=self._reload).exec()
             elif transaction_type == "DEBT_PAYMENT":
-                ledger = CustomerController(SessionFactory).get_debt_payment_detail(transaction_id)
-                DebtPaymentDetailPopup(ledger, self).exec()
+                customer_controller = CustomerController(SessionFactory)
+                ledger = customer_controller.get_debt_payment_detail(transaction_id)
+                DebtPaymentDetailPopup(ledger, self, controller=customer_controller, on_updated=self._reload).exec()
         except Exception as exc:
             MessageBox.error(self, "Không tải được chi tiết giao dịch", str(exc))
+
+

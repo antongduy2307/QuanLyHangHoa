@@ -49,9 +49,14 @@ class CustomerRepository:
             select(CustomerBalanceLedger)
             .options(selectinload(CustomerBalanceLedger.customer))
             .where(CustomerBalanceLedger.event_type == "DEBT_PAYMENT")
-            .order_by(CustomerBalanceLedger.created_at.desc())
+            .order_by(CustomerBalanceLedger.id.desc())
         )
-        return self.session.scalars(statement).all()
+        entries = self.session.scalars(statement).all()
+        latest_by_ref_id: dict[int, CustomerBalanceLedger] = {}
+        for entry in entries:
+            if entry.ref_id not in latest_by_ref_id:
+                latest_by_ref_id[entry.ref_id] = entry
+        return sorted(latest_by_ref_id.values(), key=lambda item: (item.created_at, item.id), reverse=True)
 
     def search_debt_payments(self, query: str) -> Sequence[CustomerBalanceLedger]:
         entries = list(self.list_debt_payments())

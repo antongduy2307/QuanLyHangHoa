@@ -1,22 +1,36 @@
 ﻿from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QPushButton, QTableWidget, QTableWidgetItem
 
 from shared.formatting.money import format_money
+from shared.widgets.numeric_inputs import SelectAllSpinBox
 from shared.widgets.table_helpers import configure_table_widget
 
 
 class InvoiceItemsTable(QTableWidget):
+    totals_changed = pyqtSignal()
+
     def __init__(self) -> None:
         super().__init__(0, 7)
         self.setHorizontalHeaderLabels(["Mã hàng", "Tên hàng", "Đơn vị", "Số lượng", "Đơn giá", "Thành tiền", ""])
         configure_table_widget(self)
         self._items: list[dict[str, object]] = []
+        self._syncing = False
 
     def items_payload(self) -> list[dict[str, object]]:
-        return [{"product_id": item["product_id"], "unit_type": item["unit_type"], "quantity": item["quantity"]} for item in self._items]
+        return [
+            {
+                "product_id": item["product_id"],
+                "unit_type": item["unit_type"],
+                "quantity": item["quantity"],
+                "unit_price": item["unit_price"],
+                "line_total": item["line_total"],
+            }
+            for item in self._items
+        ]
 
     def total_amount(self) -> Decimal:
         return sum((Decimal(str(item["line_total"])) for item in self._items), start=Decimal("0"))
@@ -34,7 +48,9 @@ class InvoiceItemsTable(QTableWidget):
                 self._render()
                 return
         new_item = dict(item)
-        new_item["line_total"] = Decimal(str(item["quantity"])) * Decimal(str(item["unit_price"]))
+        quantity = Decimal(str(new_item["quantity"]))
+        unit_price = Decimal(str(new_item["unit_price"]))
+        new_item["line_total"] = Decimal(str(new_item.get("line_total", quantity * unit_price)))
         self._items.append(new_item)
         self._render()
 
@@ -44,15 +60,64 @@ class InvoiceItemsTable(QTableWidget):
             self._render()
 
     def _render(self) -> None:
-        self.setRowCount(len(self._items))
-        for row, item in enumerate(self._items):
-            self.setItem(row, 0, QTableWidgetItem(str(item["product_code_base"])))
-            self.setItem(row, 1, QTableWidgetItem(str(item["product_name"])))
-            unit_type = item["unit_type"]
-            self.setItem(row, 2, QTableWidgetItem(unit_type.value if hasattr(unit_type, "value") else str(unit_type)))
-            self.setItem(row, 3, QTableWidgetItem(str(item["quantity"])))
-            self.setItem(row, 4, QTableWidgetItem(format_money(Decimal(str(item["unit_price"])))) )
-            self.setItem(row, 5, QTableWidgetItem(format_money(Decimal(str(item["line_total"])))) )
-            remove_button = QPushButton("Xóa")
-            remove_button.clicked.connect(lambda _checked=False, index=row: self.remove_row_at(index))
-            self.setCellWidget(row, 6, remove_button)
+        self._syncing = True
+        try:
+            self.setRowCount(len(self._items))
+            for row, item in enumerate(self._items):
+                self.setItem(row, 0, QTableWidgetItem(str(item["product_code_base"])))
+                self.setItem(row, 1, QTableWidgetItem(str(item["product_name"])))
+                unit_type = item["unit_type"]
+                self.setItem(row, 2, QTableWidgetItem(unit_type.value if hasattr(unit_type, "value") else str(unit_type)))
+
+                quantity_spin = SelectAllSpinBox()
+                quantity_spin.setRange(1, 999999999)
+                quantity_spin.setValue(int(Decimal(str(item["quantity"]))))
+                quantity_spin.valueChanged.connect(lambda value, index=row: self._handle_quantity_changed(index, value))
+                self.setCellWidget(row, 3, quantity_spin)
+
+                unit_price_spin = SelectAllSpinBox()
+                unit_price_spin.setRange(0, 999999999)
+                unit_price_spin.setValue(int(Decimal(str(item["unit_price"]))))
+                unit_price_spin.valueChanged.connect(lambda value, index=row: self._handle_unit_price_changed(index, value))
+                self.setCellWidget(row, 4, unit_price_spin)
+
+                line_total_spin = SelectAllSpinBox()
+                line_total_spin.setRange(0, 999999999)
+                line_total_spin.setValue(int(Decimal(str(item["line_total"]))))
+                line_total_spin.valueChanged.connect(lambda value, index=row: self._handle_line_total_changed(index, value))
+                self.setCellWidget(row, 5, line_total_spin)
+
+                remove_button = QPushButton("Xóa")
+                remove_button.clicked.connect(lambda _checked=False, index=row: self.remove_row_at(index))
+                self.setCellWidget(row, 6, remove_button)
+        finally:
+            self._syncing = False
+        self.totals_changed.emit()
+
+    def _handle_quantity_changed(self, row_index: int, value: int) -> None:
+        if self._syncing or not (0 <= row_index < len(self._items)):
+            return
+        item = self._items[row_index]
+        quantity = Decimal(value)
+        item["quantity"] = quantity
+        item["line_total"] = quantity * Decimal(str(item["unit_price"]))
+        self._render()
+
+    def _handle_unit_price_changed(self, row_index: int, value: int) -> None:
+        if self._syncing or not (0 <= row_index < len(self._items)):
+            return
+        item = self._items[row_index]
+        unit_price = Decimal(value)
+        item["unit_price"] = unit_price
+        item["line_total"] = Decimal(str(item["quantity"])) * unit_price
+        self._render()
+
+    def _handle_line_total_changed(self, row_index: int, value: int) -> None:
+        if self._syncing or not (0 <= row_index < len(self._items)):
+            return
+        item = self._items[row_index]
+        line_total = Decimal(value)
+        quantity = Decimal(str(item["quantity"]))
+        item["line_total"] = line_total
+        item["unit_price"] = (line_total / quantity).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        self._render()

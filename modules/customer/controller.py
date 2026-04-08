@@ -95,6 +95,12 @@ class CustomerController:
         service = CustomerService(CustomerRepository(self._session_factory))
         return service.pay_debt(customer_id, amount, note=note)
 
+    def update_debt_payment(self, ledger_id: int, amount: Decimal, note: str | None = None) -> CustomerBalanceLedger:
+        service = CustomerService(CustomerRepository(self._session_factory))
+        ledger = service.update_debt_payment(ledger_id, amount, note=note)
+        service._repository.session.close()
+        return ledger
+
     def list_debt_payments(self) -> Sequence[CustomerBalanceLedger]:
         repository = CustomerRepository(self._session_factory)
         entries = repository.list_debt_payments()

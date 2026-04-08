@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from core.db import Base
 from core.enums import PaymentMethod, ReturnHandlingMode, UnitMode, UnitType
-from core.exceptions import ValidationError
+from core.exceptions import NotFoundError, ValidationError
 from modules.customer.models import Customer, CustomerBalanceLedger
 from modules.customer.repository import CustomerRepository
 from modules.customer.service import CustomerService
@@ -201,6 +201,196 @@ class ReturnServiceTestCase(unittest.TestCase):
         self.assertEqual(ledgers[0].event_type, "RETURN_REFUND_NOW")
         self.assertEqual(ledgers[0].amount_delta, Decimal("-300"))
 
+    def test_update_return_with_changed_quantity_updates_stock_correctly(self) -> None:
+        invoice = self.sales_service.create_invoice(
+            customer_id=None,
+            customer_snapshot_name="Khach le",
+            invoice_datetime=datetime(2026, 4, 9, 14, 30, 0),
+            items=[{"product_id": self.bao_product_id, "unit_type": UnitType.BAO, "quantity": Decimal("5")}],
+            paid_amount=Decimal("500"),
+            payment_method=PaymentMethod.CASH,
+        )
+        source_item = invoice.items[0]
+        return_invoice = self.return_service.create_return_invoice(
+            source_invoice_id=invoice.id,
+            return_datetime=datetime(2026, 4, 9, 14, 45, 0),
+            items=[{"source_invoice_item_id": source_item.id, "quantity": Decimal("2")}],
+            handling_mode=ReturnHandlingMode.REFUND_NOW,
+        )
+
+        updated = self.return_service.update_return_invoice(
+            return_invoice.id,
+            items=[{"source_invoice_item_id": source_item.id, "quantity": Decimal("4")}],
+            handling_mode=ReturnHandlingMode.REFUND_NOW,
+            note="Sua so luong",
+        )
+
+        self.assertEqual(updated.total_amount, Decimal("400"))
+        self.assertEqual(self.inventory_service.get_available_quantity(self.bao_product_id, UnitType.BAO), Decimal("-1"))
+
+    def test_update_return_with_changed_handling_mode_updates_balance_correctly(self) -> None:
+        invoice = self.sales_service.create_invoice(
+            customer_id=self.customer_id,
+            customer_snapshot_name="Khach return",
+            invoice_datetime=datetime(2026, 4, 9, 15, 0, 0),
+            items=[{"product_id": self.bao_product_id, "unit_type": UnitType.BAO, "quantity": Decimal("4")}],
+            paid_amount=Decimal("300"),
+        )
+        source_item = invoice.items[0]
+        return_invoice = self.return_service.create_return_invoice(
+            source_invoice_id=invoice.id,
+            return_datetime=datetime(2026, 4, 9, 15, 10, 0),
+            items=[{"source_invoice_item_id": source_item.id, "quantity": Decimal("2")}],
+            handling_mode=ReturnHandlingMode.STORE_CREDIT,
+        )
+
+        updated = self.return_service.update_return_invoice(
+            return_invoice.id,
+            items=[{"source_invoice_item_id": source_item.id, "quantity": Decimal("2")}],
+            handling_mode=ReturnHandlingMode.REFUND_NOW,
+            note="Doi cach xu ly",
+        )
+
+        customer = self.customer_service.get_customer(self.customer_id)
+        ledgers = self._ledger_for_return(updated.id)
+        self.assertEqual(customer.current_balance, Decimal("0"))
+        self.assertEqual(customer.total_sales, Decimal("200"))
+        self.assertEqual(len(ledgers), 1)
+        self.assertEqual(ledgers[0].event_type, "RETURN_REFUND_NOW")
+        self.assertEqual(ledgers[0].amount_delta, Decimal("-100"))
+
+    def test_update_return_updates_total_sales_correctly(self) -> None:
+        invoice = self.sales_service.create_invoice(
+            customer_id=self.customer_id,
+            customer_snapshot_name="Khach return",
+            invoice_datetime=datetime(2026, 4, 9, 15, 20, 0),
+            items=[{"product_id": self.bao_product_id, "unit_type": UnitType.BAO, "quantity": Decimal("4")}],
+            paid_amount=Decimal("300"),
+        )
+        source_item = invoice.items[0]
+        return_invoice = self.return_service.create_return_invoice(
+            source_invoice_id=invoice.id,
+            return_datetime=datetime(2026, 4, 9, 15, 30, 0),
+            items=[{"source_invoice_item_id": source_item.id, "quantity": Decimal("1")}],
+            handling_mode=ReturnHandlingMode.REFUND_NOW,
+        )
+
+        self.return_service.update_return_invoice(
+            return_invoice.id,
+            items=[{"source_invoice_item_id": source_item.id, "quantity": Decimal("3")}],
+            handling_mode=ReturnHandlingMode.REFUND_NOW,
+            note="Tang so luong",
+        )
+
+        customer = self.customer_service.get_customer(self.customer_id)
+        self.assertEqual(customer.total_sales, Decimal("100"))
+
+    def test_update_return_note_works(self) -> None:
+        invoice = self.sales_service.create_invoice(
+            customer_id=None,
+            customer_snapshot_name="Khach le",
+            invoice_datetime=datetime(2026, 4, 9, 15, 40, 0),
+            items=[{"product_id": self.bich_product_id, "unit_type": UnitType.BICH, "quantity": Decimal("2")}],
+            paid_amount=Decimal("40"),
+            payment_method=PaymentMethod.CASH,
+        )
+        source_item = invoice.items[0]
+        return_invoice = self.return_service.create_return_invoice(
+            source_invoice_id=invoice.id,
+            return_datetime=datetime(2026, 4, 9, 15, 45, 0),
+            items=[{"source_invoice_item_id": source_item.id, "quantity": Decimal("1")}],
+            handling_mode=ReturnHandlingMode.REFUND_NOW,
+        )
+
+        updated = self.return_service.update_return_invoice(
+            return_invoice.id,
+            items=[{"source_invoice_item_id": source_item.id, "quantity": Decimal("1")}],
+            handling_mode=ReturnHandlingMode.REFUND_NOW,
+            note="Ghi chu moi",
+        )
+        self.assertEqual(updated.note, "Ghi chu moi")
+
+    def test_update_return_invalid_quantity_fails(self) -> None:
+        invoice = self.sales_service.create_invoice(
+            customer_id=None,
+            customer_snapshot_name="Khach le",
+            invoice_datetime=datetime(2026, 4, 9, 16, 0, 0),
+            items=[{"product_id": self.bich_product_id, "unit_type": UnitType.BICH, "quantity": Decimal("5")}],
+            paid_amount=Decimal("100"),
+            payment_method=PaymentMethod.CASH,
+        )
+        source_item = invoice.items[0]
+        return_a = self.return_service.create_return_invoice(
+            source_invoice_id=invoice.id,
+            return_datetime=datetime(2026, 4, 9, 16, 10, 0),
+            items=[{"source_invoice_item_id": source_item.id, "quantity": Decimal("2")}],
+            handling_mode=ReturnHandlingMode.REFUND_NOW,
+        )
+        self.return_service.create_return_invoice(
+            source_invoice_id=invoice.id,
+            return_datetime=datetime(2026, 4, 9, 16, 15, 0),
+            items=[{"source_invoice_item_id": source_item.id, "quantity": Decimal("1")}],
+            handling_mode=ReturnHandlingMode.REFUND_NOW,
+        )
+
+        with self.assertRaises(ValidationError):
+            self.return_service.update_return_invoice(
+                return_a.id,
+                items=[{"source_invoice_item_id": source_item.id, "quantity": Decimal("5")}],
+                handling_mode=ReturnHandlingMode.REFUND_NOW,
+            )
+
+    def test_update_return_invalid_or_nonexistent_return_id_fails(self) -> None:
+        with self.assertRaises(NotFoundError):
+            self.return_service.update_return_invoice(
+                999999,
+                items=[{"source_invoice_item_id": 1, "quantity": Decimal("1")}],
+                handling_mode=ReturnHandlingMode.REFUND_NOW,
+            )
+
+    def test_update_return_is_atomic_on_failure(self) -> None:
+        invoice = self.sales_service.create_invoice(
+            customer_id=self.customer_id,
+            customer_snapshot_name="Khach return",
+            invoice_datetime=datetime(2026, 4, 9, 16, 30, 0),
+            items=[
+                {"product_id": self.bao_product_id, "unit_type": UnitType.BAO, "quantity": Decimal("2")},
+                {"product_id": self.bich_product_id, "unit_type": UnitType.BICH, "quantity": Decimal("2")},
+            ],
+            paid_amount=Decimal("0"),
+        )
+        return_invoice = self.return_service.create_return_invoice(
+            source_invoice_id=invoice.id,
+            return_datetime=datetime(2026, 4, 9, 16, 40, 0),
+            items=[
+                {"source_invoice_item_id": invoice.items[0].id, "quantity": Decimal("1")},
+                {"source_invoice_item_id": invoice.items[1].id, "quantity": Decimal("1")},
+            ],
+            handling_mode=ReturnHandlingMode.STORE_CREDIT,
+        )
+        stock_bao_before = self.inventory_service.get_available_quantity(self.bao_product_id, UnitType.BAO)
+        stock_bich_before = self.inventory_service.get_available_quantity(self.bich_product_id, UnitType.BICH)
+        customer_before = self.customer_service.get_customer(self.customer_id)
+        old_total = return_invoice.total_amount
+
+        with self.assertRaises(ValidationError):
+            self.return_service.update_return_invoice(
+                return_invoice.id,
+                items=[
+                    {"source_invoice_item_id": invoice.items[0].id, "quantity": Decimal("2")},
+                    {"source_invoice_item_id": invoice.items[1].id, "quantity": Decimal("3")},
+                ],
+                handling_mode=ReturnHandlingMode.REFUND_NOW,
+            )
+
+        reloaded = self.returns_repository.get_return_invoice(return_invoice.id)
+        customer_after = self.customer_service.get_customer(self.customer_id)
+        self.assertEqual(reloaded.total_amount, old_total)
+        self.assertEqual(self.inventory_service.get_available_quantity(self.bao_product_id, UnitType.BAO), stock_bao_before)
+        self.assertEqual(self.inventory_service.get_available_quantity(self.bich_product_id, UnitType.BICH), stock_bich_before)
+        self.assertEqual(customer_after.current_balance, customer_before.current_balance)
+        self.assertEqual(customer_after.total_sales, customer_before.total_sales)
+
     def test_return_quantity_cannot_exceed_remaining_quantity(self) -> None:
         invoice = self.sales_service.create_invoice(
             customer_id=None,
@@ -286,4 +476,6 @@ class ReturnServiceTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
 

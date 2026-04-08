@@ -161,4 +161,3 @@ class SalesController:
     def delete_invoice(self, invoice_id: int) -> None:
         service = SalesService(SalesRepository(self._session_factory))
         service.delete_invoice(invoice_id)
-

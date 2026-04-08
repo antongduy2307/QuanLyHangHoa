@@ -1,11 +1,15 @@
 ﻿from __future__ import annotations
 
+from decimal import Decimal
+
 from PyQt6.QtGui import QShowEvent
 from PyQt6.QtWidgets import QHBoxLayout, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 
 from modules.customer.controller import CustomerController
+from modules.customer.mappers import to_dto
 from modules.customer.models import CustomerBalanceLedger
 from modules.customer.ui.debt_payment_detail_popup import DebtPaymentDetailPopup
+from modules.customer.ui.debt_payment_dialog import DebtPaymentDialog
 from shared.formatting.dates import format_datetime
 from shared.formatting.money import format_money
 from shared.widgets.message_box import MessageBox
@@ -29,12 +33,15 @@ class DebtPaymentListView(QWidget):
 
         view_button = QPushButton("Xem")
         view_button.clicked.connect(self._open_detail)
+        edit_button = QPushButton("Sửa")
+        edit_button.clicked.connect(self._open_edit)
         refresh_button = QPushButton("Làm mới")
         refresh_button.clicked.connect(self.reload)
 
         controls = QHBoxLayout()
         controls.addWidget(self._search_input, 1)
         controls.addWidget(view_button)
+        controls.addWidget(edit_button)
         controls.addWidget(refresh_button)
 
         layout = QVBoxLayout(self)
@@ -83,6 +90,30 @@ class DebtPaymentListView(QWidget):
             return
         try:
             ledger = self._controller.get_debt_payment_detail(ledger_id)
-            DebtPaymentDetailPopup(ledger, self).exec()
+            DebtPaymentDetailPopup(ledger, controller=self._controller, on_updated=self.reload, parent=self).exec()
         except Exception as exc:
             MessageBox.error(self, "Không tải được chi tiết trả nợ", str(exc))
+
+    def _open_edit(self) -> None:
+        ledger_id = self._selected_ledger_id()
+        if ledger_id is None:
+            MessageBox.warning(self, "Chưa chọn", "Hãy chọn một giao dịch trả nợ để sửa.")
+            return
+        try:
+            ledger = self._controller.get_debt_payment_detail(ledger_id)
+            if ledger.customer is None:
+                raise ValueError("Không tìm thấy khách hàng của giao dịch trả nợ.")
+            dialog = DebtPaymentDialog(
+                to_dto(ledger.customer),
+                self,
+                edit_mode=True,
+                amount=abs(ledger.amount_delta),
+                note=ledger.note,
+            )
+            if dialog.exec():
+                payload = dialog.payload()
+                self._controller.update_debt_payment(ledger.id, Decimal(payload["amount"]), note=payload["note"])
+                MessageBox.info(self, "Thành công", "Đã cập nhật giao dịch trả nợ.")
+                self.reload()
+        except Exception as exc:
+            MessageBox.error(self, "Không cập nhật được giao dịch trả nợ", str(exc))

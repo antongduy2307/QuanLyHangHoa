@@ -1,20 +1,33 @@
 ﻿from __future__ import annotations
 
+from typing import Callable
+
 from PyQt6.QtWidgets import QDialog, QLabel, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout
 
 from modules.returns.models import ReturnInvoice
+from modules.returns.ui.return_edit_dialog import ReturnEditDialog
 from shared.formatting.dates import format_datetime
 from shared.formatting.money import format_money
+from shared.formatting.quantity import format_quantity
 from shared.widgets.message_box import MessageBox
 from shared.widgets.table_helpers import configure_table_widget
 
 
 class ReturnDetailPopup(QDialog):
-    def __init__(self, return_invoice: ReturnInvoice, parent: QDialog | None = None) -> None:
+    def __init__(
+        self,
+        return_invoice: ReturnInvoice,
+        parent: QDialog | None = None,
+        *,
+        controller=None,
+        on_updated: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__(parent)
         self._return_invoice = return_invoice
+        self._controller = controller
+        self._on_updated = on_updated
         self.setWindowTitle(f"Phiếu trả {return_invoice.return_code}")
-        self.resize(720, 460)
+        self.resize(720, 500)
 
         items_table = QTableWidget(0, 6)
         items_table.setHorizontalHeaderLabels(["Mã hàng", "Tên hàng", "Đơn vị", "Số lượng", "Đơn giá", "Thành tiền"])
@@ -24,7 +37,7 @@ class ReturnDetailPopup(QDialog):
             items_table.setItem(row_index, 0, QTableWidgetItem(item.product_code_snapshot))
             items_table.setItem(row_index, 1, QTableWidgetItem(item.product_name_snapshot))
             items_table.setItem(row_index, 2, QTableWidgetItem(item.unit_type.value))
-            items_table.setItem(row_index, 3, QTableWidgetItem(str(item.quantity)))
+            items_table.setItem(row_index, 3, QTableWidgetItem(format_quantity(item.quantity)))
             items_table.setItem(row_index, 4, QTableWidgetItem(format_money(item.unit_price)))
             items_table.setItem(row_index, 5, QTableWidgetItem(format_money(item.line_total)))
 
@@ -34,6 +47,8 @@ class ReturnDetailPopup(QDialog):
         open_invoice_button = QPushButton("Mở hóa đơn gốc")
         open_invoice_button.clicked.connect(self._open_source_invoice)
         open_invoice_button.setEnabled(return_invoice.source_invoice is not None)
+        edit_button = QPushButton("Sửa")
+        edit_button.clicked.connect(self._edit_return)
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(f"Mã trả hàng: {return_invoice.return_code}"))
@@ -45,6 +60,7 @@ class ReturnDetailPopup(QDialog):
         layout.addWidget(QLabel(f"Xử lý: {return_invoice.handling_mode.value}"))
         layout.addWidget(QLabel(f"Ghi chú: {return_invoice.note or '-'}"))
         layout.addWidget(open_invoice_button)
+        layout.addWidget(edit_button)
         layout.addWidget(items_table)
 
     def _open_source_invoice(self) -> None:
@@ -60,3 +76,25 @@ class ReturnDetailPopup(QDialog):
             InvoiceDetailPopup(invoice, self).exec()
         except Exception as exc:
             MessageBox.error(self, "Không tải được hóa đơn gốc", str(exc))
+
+    def _edit_return(self) -> None:
+        if self._return_invoice.source_invoice_id is None:
+            MessageBox.warning(self, "Chưa hỗ trợ", "Chưa hỗ trợ sửa phiếu trả hàng nhanh ở bước này.")
+            return
+        try:
+            if self._controller is None:
+                from core.db import SessionFactory
+                from modules.returns.controller import ReturnController
+
+                controller = ReturnController(SessionFactory)
+            else:
+                controller = self._controller
+            detail = controller.get_return_edit_detail(self._return_invoice.id)
+            dialog = ReturnEditDialog(controller, detail, self)
+            if dialog.exec():
+                if self._on_updated is not None:
+                    self._on_updated()
+                MessageBox.info(self, "Thành công", "Đã cập nhật phiếu trả hàng.")
+                self.accept()
+        except Exception as exc:
+            MessageBox.error(self, "Không cập nhật được phiếu trả hàng", str(exc))

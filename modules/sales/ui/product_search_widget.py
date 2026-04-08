@@ -121,6 +121,8 @@ class ProductSearchWidget(QWidget):
                 "unit_type": unit_type,
                 "quantity": quantity,
                 "unit_price": price,
+                "line_total": quantity * price,
             }
         )
         self.quantity_input.setValue(0)
+

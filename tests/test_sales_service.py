@@ -135,6 +135,80 @@ class SalesServiceTestCase(unittest.TestCase):
         self.assertEqual(invoice.paid_amount, Decimal("250"))
         self.assertEqual(self._ledger_for_invoice(invoice.id), [])
 
+    def test_create_invoice_with_manually_overridden_unit_price(self) -> None:
+        invoice = self.sales_service.create_invoice(
+            customer_id=None,
+            customer_snapshot_name="Khach le",
+            invoice_datetime=datetime(2026, 4, 7, 10, 45, 0),
+            items=[{
+                "product_id": self.bao_product_id,
+                "unit_type": UnitType.BAO,
+                "quantity": Decimal("2"),
+                "unit_price": Decimal("90"),
+                "line_total": Decimal("180"),
+            }],
+            paid_amount=Decimal("180"),
+            payment_method=PaymentMethod.CASH,
+        )
+
+        self.assertEqual(invoice.total_amount, Decimal("180"))
+        self.assertEqual(invoice.items[0].unit_price, Decimal("90"))
+        self.assertEqual(invoice.items[0].line_total, Decimal("180"))
+
+    def test_create_invoice_with_manually_overridden_line_total(self) -> None:
+        invoice = self.sales_service.create_invoice(
+            customer_id=None,
+            customer_snapshot_name="Khach le",
+            invoice_datetime=datetime(2026, 4, 7, 10, 50, 0),
+            items=[{
+                "product_id": self.bao_product_id,
+                "unit_type": UnitType.BAO,
+                "quantity": Decimal("3"),
+                "unit_price": Decimal("33"),
+                "line_total": Decimal("100"),
+            }],
+            paid_amount=Decimal("100"),
+            payment_method=PaymentMethod.CASH,
+        )
+
+        self.assertEqual(invoice.total_amount, Decimal("100"))
+        self.assertEqual(invoice.items[0].unit_price, Decimal("33"))
+        self.assertEqual(invoice.items[0].line_total, Decimal("100"))
+
+    def test_customer_overpayment_with_overridden_line_total_still_uses_total_amount_for_balance(self) -> None:
+        self.customer_service.adjust_balance(self.customer_id, Decimal("50"), "MANUAL", 2)
+        invoice = self.sales_service.create_invoice(
+            customer_id=self.customer_id,
+            customer_snapshot_name="Khach quen",
+            invoice_datetime=datetime(2026, 4, 7, 10, 55, 0),
+            items=[{
+                "product_id": self.bao_product_id,
+                "unit_type": UnitType.BAO,
+                "quantity": Decimal("3"),
+                "unit_price": Decimal("33"),
+                "line_total": Decimal("100"),
+            }],
+            paid_amount=Decimal("150"),
+            payment_method=PaymentMethod.CASH,
+        )
+
+        customer = self.customer_service.get_customer(self.customer_id)
+        self.assertEqual(invoice.total_amount, Decimal("100"))
+        self.assertEqual(customer.current_balance, Decimal("0"))
+
+    def test_legacy_default_price_flow_still_works(self) -> None:
+        invoice = self.sales_service.create_invoice(
+            customer_id=None,
+            customer_snapshot_name="Khach le",
+            invoice_datetime=datetime(2026, 4, 7, 10, 58, 0),
+            items=[{"product_id": self.bao_product_id, "unit_type": UnitType.BAO, "quantity": Decimal("2")}],
+            paid_amount=Decimal("200"),
+            payment_method=PaymentMethod.CASH,
+        )
+
+        self.assertEqual(invoice.items[0].unit_price, Decimal("100"))
+        self.assertEqual(invoice.items[0].line_total, Decimal("200"))
+
     def test_create_invoice_for_customer_partial_payment_updates_balance_and_sales(self) -> None:
         invoice = self.sales_service.create_invoice(
             customer_id=self.customer_id,
@@ -284,6 +358,32 @@ class SalesServiceTestCase(unittest.TestCase):
         self.assertEqual(ledgers[1].event_type, "INVOICE_PAYMENT")
         self.assertEqual(ledgers[1].amount_delta, Decimal("-100"))
 
+    def test_update_invoice_with_edited_price_and_line_total(self) -> None:
+        invoice = self.sales_service.create_invoice(
+            customer_id=None,
+            customer_snapshot_name="Khach le",
+            invoice_datetime=datetime(2026, 4, 8, 10, 15, 0),
+            items=[{"product_id": self.bao_product_id, "unit_type": UnitType.BAO, "quantity": Decimal("2")}],
+            paid_amount=Decimal("200"),
+            payment_method=PaymentMethod.CASH,
+        )
+
+        updated = self.sales_service.update_invoice(
+            invoice.id,
+            items=[{
+                "product_id": self.bao_product_id,
+                "unit_type": UnitType.BAO,
+                "quantity": Decimal("3"),
+                "unit_price": Decimal("31"),
+                "line_total": Decimal("95"),
+            }],
+            note="Manual pricing",
+        )
+
+        self.assertEqual(updated.total_amount, Decimal("95"))
+        self.assertEqual(updated.items[0].unit_price, Decimal("31"))
+        self.assertEqual(updated.items[0].line_total, Decimal("95"))
+
     def test_update_invoice_is_atomic_when_new_apply_fails(self) -> None:
         invoice = self.sales_service.create_invoice(
             customer_id=self.customer_id,
@@ -380,3 +480,4 @@ class SalesServiceTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
