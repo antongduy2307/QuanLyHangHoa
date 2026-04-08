@@ -153,6 +153,9 @@ class SalesService:
                 )
             )
 
+        if invoice.customer_id is None and actual_paid_amount < total_amount:
+            raise ValidationError("Khách lẻ phải trả đủ tiền hóa đơn.")
+
         invoice.total_amount = total_amount
         invoice.paid_amount = actual_paid_amount
         if note_override is not None:
@@ -256,4 +259,6 @@ class SalesService:
         if isinstance(value, Decimal):
             return value
         return Decimal(str(value))
+
+
 

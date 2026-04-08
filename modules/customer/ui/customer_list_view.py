@@ -3,7 +3,7 @@
 from decimal import Decimal
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QShowEvent
 from PyQt6.QtWidgets import QHBoxLayout, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 
 from modules.customer.controller import CustomerController
@@ -52,6 +52,10 @@ class CustomerListView(QWidget):
 
         self.reload()
 
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self.reload()
+
     def reload(self) -> None:
         try:
             self._customers = list(self._controller.list_customers())
@@ -68,7 +72,7 @@ class CustomerListView(QWidget):
         self._table.setRowCount(len(customers))
         for row, customer in enumerate(customers):
             self._table.setItem(row, 0, QTableWidgetItem(customer.customer_name))
-            self._table.setItem(row, 1, QTableWidgetItem(customer.phone or "Giữ nguyên"))
+            self._table.setItem(row, 1, QTableWidgetItem(customer.phone or "-"))
             balance_item = QTableWidgetItem(format_money(customer.current_balance))
             if customer.current_balance < Decimal("0"):
                 balance_item.setForeground(QColor("#b91c1c"))

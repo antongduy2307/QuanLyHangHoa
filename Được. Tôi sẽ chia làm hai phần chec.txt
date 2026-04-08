@@ -1,0 +1,539 @@
+Được. Tôi sẽ chia làm hai phần: checklist UAT để bạn test app V1, rồi chốt lại hướng lưu dữ liệu theo cách an toàn và triển khai được.
+
+## 1. Checklist UAT cụ thể cho app V1
+
+Mục tiêu của UAT này không phải chỉ là “app không lỗi”, mà là kiểm tra 3 thứ:
+
+* nghiệp vụ có đúng ý bạn không,
+* số liệu DB có nhất quán không,
+* UI có đủ thuận tay để người dùng thật thao tác không.
+
+### A. Chuẩn bị dữ liệu test
+
+Trước khi test, bạn nên tạo sẵn một bộ dữ liệu nhỏ nhưng đủ đa dạng:
+
+* 1 khách quen có nợ ban đầu = 0
+* 1 khách quen có nợ ban đầu dương, ví dụ 500,000
+* 1 khách quen có số điện thoại trống
+* 2 khách có số điện thoại trùng để xem warning
+
+Tạo sẵn ít nhất 6 mặt hàng:
+
+* 1 mặt hàng chỉ bán BAO
+* 1 mặt hàng chỉ bán KG
+* 1 mặt hàng bán BAO + KG
+* 1 mặt hàng BICH
+* 1 mặt hàng tên gần giống mặt hàng khác để test search
+* 1 mặt hàng mã gần giống mã khác để test search code
+
+Ví dụ:
+
+* GAO001, Gạo nếp, BAO
+* GAO002, Gạo tẻ, KG
+* CAM001, Cám tổng hợp, BAO + KG
+* BICH001, Túi phụ gia, BICH
+* T001, Tấm
+* T002, Tỏi
+
+Sau đó nhập kho ban đầu cho tất cả.
+
+### B. UAT module Hàng hóa
+
+#### 1. Tạo hàng hóa
+
+Test các case:
+
+* tạo hàng BAO only
+* tạo hàng KG only
+* tạo hàng BAO + KG
+* tạo hàng BICH
+
+Kỳ vọng:
+
+* lưu thành công
+* đơn vị enabled đúng
+* giá đúng theo đơn vị
+* hàng mới xuất hiện trong danh sách
+
+Test lỗi:
+
+* bỏ trống mã
+* bỏ trống tên
+* không chọn đơn vị nào
+* nhập giá <= 0
+* chọn BICH nhưng lại cố gắn logic BAO/KG
+
+Kỳ vọng:
+
+* báo lỗi rõ
+* không tạo record rác
+
+#### 2. Search hàng hóa
+
+Test:
+
+* gõ đúng mã đầy đủ
+* gõ vài ký tự đầu của mã
+* gõ vài ký tự đầu của tên
+* gõ chuỗi không có kết quả
+
+Kỳ vọng:
+
+* ưu tiên match theo mã
+* nếu không match mã thì match tên
+* danh sách lọc đúng, không bị nhầm
+
+### C. UAT kho
+
+#### 3. Nhập kho
+
+Test:
+
+* nhập kho 1 dòng
+* nhập kho nhiều dòng
+* nhập kho cho BAO/KG
+* nhập kho cho BICH
+
+Kỳ vọng:
+
+* tồn tăng đúng
+* phiếu nhập được tạo
+* reload danh sách thấy tồn mới
+
+Test lỗi:
+
+* quantity <= 0
+* chưa chọn product
+* nhiều dòng nhưng có 1 dòng lỗi
+
+Kỳ vọng:
+
+* atomic, không dòng nào được lưu nửa chừng
+
+#### 4. Điều chỉnh kho
+
+Test:
+
+* chỉnh tồn từ 5 xuống 3
+* chỉnh tồn từ 3 lên 8
+* chỉnh nhiều mặt hàng một lần
+
+Kỳ vọng:
+
+* old_quantity, new_quantity, delta_quantity hợp logic
+* tồn hiển thị đúng sau adjustment
+
+Test lỗi:
+
+* new_quantity âm
+* bỏ trống product
+* nhiều dòng, 1 dòng lỗi
+
+Kỳ vọng:
+
+* atomic
+
+#### 5. Âm kho
+
+Test:
+
+* bán số lượng lớn hơn tồn hiện có
+
+Kỳ vọng:
+
+* cho phép tạo hóa đơn
+* tồn sau giao dịch âm thật trong DB
+* báo cáo vẫn không vỡ
+
+### D. UAT khách hàng
+
+#### 6. Tạo và sửa khách
+
+Test:
+
+* tạo khách có phone
+* tạo khách không có phone
+* tạo khách trùng phone
+* sửa tên
+* sửa phone
+
+Kỳ vọng:
+
+* phone trống: warning nhưng lưu được
+* phone trùng: warning nhưng lưu được
+* current_balance và total_sales không bị sửa tay
+
+#### 7. Search khách
+
+Test:
+
+* gõ chữ -> tìm theo tên
+* gõ số -> tìm theo phone
+* gõ chuỗi không có kết quả
+
+Kỳ vọng:
+
+* đúng rule
+* không nhầm giữa name search và phone search
+
+#### 8. Popup chi tiết khách
+
+Test:
+
+* mở popup của khách chưa có giao dịch
+* mở popup của khách có giao dịch
+
+Kỳ vọng:
+
+* hiện đúng tên, phone, current_balance, total_sales
+* hiện 2–3 hóa đơn gần nhất, đúng thứ tự mới nhất trước
+
+### E. UAT bán hàng
+
+#### 9. Bán cho khách lẻ
+
+Test:
+
+* chọn khách lẻ
+* thêm 1 item
+* thêm nhiều item
+* bán BAO
+* bán KG
+* bán BICH
+
+Kỳ vọng:
+
+* tạo invoice thành công
+* không tạo ledger công nợ
+* tồn giảm đúng
+* tổng tiền đúng
+* báo cáo sau đó cộng doanh thu đúng
+
+#### 10. Bán cho khách quen trả đủ
+
+Test:
+
+* khách có nợ = 0
+* hóa đơn 300,000
+* paid_amount = 300,000
+
+Kỳ vọng:
+
+* current_balance sau giao dịch không đổi về bản chất
+* total_sales tăng 300,000
+* ledger có charge + payment đúng
+
+#### 11. Bán cho khách quen trả thiếu
+
+Test:
+
+* hóa đơn 300,000
+* paid_amount = 200,000
+
+Kỳ vọng:
+
+* current_balance tăng 100,000
+* total_sales tăng 300,000
+* ledger đúng semantics
+
+#### 12. Bán cho khách quen trả dư
+
+Test:
+
+* khách đang nợ cũ 500,000
+* hóa đơn mới 300,000
+* paid_amount = 700,000
+
+Kỳ vọng:
+
+* hóa đơn mới được thanh toán trước
+* phần dư trừ vào nợ cũ
+* current_balance sau giao dịch đúng theo rule đã chốt
+
+Test tiếp:
+
+* khách nợ cũ 100,000
+* hóa đơn mới 300,000
+* paid_amount = 500,000
+
+Kỳ vọng:
+
+* current_balance có thể âm nếu dư hơn cả nợ cũ
+
+#### 13. Search hàng trong bán hàng
+
+Test:
+
+* gõ mã
+* gõ tên
+* thêm cùng product + unit_type 2 lần
+
+Kỳ vọng:
+
+* unit enabled mới được chọn
+* giá tự đổ đúng
+* dòng được gộp đúng như UI hiện tại
+
+### F. UAT sửa/xóa hóa đơn
+
+#### 14. Sửa hóa đơn khách lẻ
+
+Test:
+
+* tạo hóa đơn 2 dòng
+* sửa lại số lượng
+* thêm item mới
+* bỏ item cũ
+
+Kỳ vọng:
+
+* invoice_code giữ nguyên
+* invoice_datetime giữ nguyên
+* tồn rollback rồi apply lại đúng
+* không phát sinh ledger
+
+#### 15. Sửa hóa đơn khách quen
+
+Test:
+
+* hóa đơn đã có paid_amount
+* sửa item list
+
+Kỳ vọng:
+
+* customer không đổi
+* paid_amount không đổi
+* payment_method không đổi
+* total_sales rollback rồi apply lại đúng
+* current_balance rollback rồi apply lại đúng
+
+#### 16. Xóa hóa đơn
+
+Test:
+
+* xóa invoice khách lẻ
+* xóa invoice khách quen
+
+Kỳ vọng:
+
+* invoice bị xóa hẳn
+* item bị xóa
+* tồn hoàn về đúng trạng thái cũ
+* current_balance và total_sales hoàn lại đúng
+
+### G. UAT trả hàng
+
+#### 17. Trả hàng khách lẻ
+
+Test:
+
+* chọn đúng hóa đơn nguồn khách lẻ
+* trả 1 phần số lượng
+* handling mode chỉ còn REFUND_NOW
+
+Kỳ vọng:
+
+* tạo return bill thành công
+* tồn tăng lại đúng
+* không tạo ledger customer
+
+#### 18. Trả hàng khách quen với STORE_CREDIT
+
+Test:
+
+* khách đang nợ 500,000
+* trả hàng 200,000
+
+Kỳ vọng:
+
+* current_balance còn 300,000
+* total_sales giảm 200,000
+* ledger RETURN đúng
+
+Test tiếp:
+
+* khách đang nợ 100,000
+* trả hàng 200,000
+
+Kỳ vọng:
+
+* current_balance = -100,000
+
+#### 19. Trả hàng khách quen với REFUND_NOW
+
+Test:
+
+* khách đang nợ 500,000
+* trả hàng 200,000
+
+Kỳ vọng:
+
+* current_balance giảm nhưng không xuống âm chỉ vì refund_now
+* total_sales giảm đúng
+
+Test tiếp:
+
+* current_balance <= 0
+* trả hàng refund_now
+
+Kỳ vọng:
+
+* không làm balance âm thêm
+
+#### 20. Không cho trả vượt
+
+Test:
+
+* hóa đơn mua 10
+* đã trả trước 3
+* cố trả tiếp 8
+
+Kỳ vọng:
+
+* UI chặn
+* service cũng chặn nếu UI lọt
+
+### H. UAT báo cáo
+
+#### 21. Sales summary
+
+Sau khi có một số hóa đơn bán và trả hàng, test:
+
+* today
+* yesterday
+* last_7_days
+* this_month
+* custom
+
+Kỳ vọng:
+
+* gross_sales_amount đúng
+* return_amount đúng
+* net_revenue = gross - return
+
+#### 22. Top products
+
+Test:
+
+* có cùng một product bán cả BAO và KG
+* có trả hàng một phần
+
+Kỳ vọng:
+
+* báo cáo ra 2 dòng riêng theo unit_type
+* sold_quantity, returned_quantity, net_quantity đúng
+* gross_revenue, return_amount, net_revenue đúng
+
+#### 23. Timeseries
+
+Tạo dữ liệu ở nhiều ngày khác nhau rồi test.
+
+Kỳ vọng:
+
+* mỗi ngày là một dòng riêng
+* số gross/return/net đúng từng ngày
+
+### I. UAT nhất quán dữ liệu
+
+Sau mỗi nhóm test lớn, bạn nên đối chiếu nhanh:
+
+* tồn kho của một vài mặt hàng
+* current_balance của 1–2 khách
+* total_sales của 1–2 khách
+* summary báo cáo trong ngày
+
+Mục tiêu là tìm bug “lệch dây chuyền”. Loại bug này thường không lộ ngay ở màn đang thao tác, mà lộ ở báo cáo hoặc popup khách hàng.
+
+### J. UAT trải nghiệm người dùng
+
+Ngoài logic, bạn nên ghi chú riêng 3 loại phản hồi:
+
+* thao tác nào quá nhiều bước
+* chỗ nào từ ngữ chưa đúng ý chủ
+* chỗ nào nhìn dễ nhầm
+
+Ví dụ:
+
+* nhãn nút
+* thứ tự cột
+* dialog nào nên to hơn
+* ô nào nên autofocus
+* có cần Enter để add item không
+* có cần giữ lại tìm kiếm gần đây không
+
+Bạn nên ghi UAT theo mẫu mỗi lỗi:
+
+* Mã lỗi
+* Bước tái hiện
+* Kỳ vọng
+* Thực tế
+* Mức độ: chặn dùng / khó chịu / góp ý
+
+Ví dụ:
+
+* UAT-SALES-003
+* Tạo hóa đơn khách quen trả dư
+* Kỳ vọng: balance giảm đúng
+* Thực tế: balance không đổi
+* Mức độ: chặn dùng
+
+## 2. Về vấn đề lưu dữ liệu mà bạn từng đề cập
+
+Phần này tôi giữ nguyên định hướng an toàn và có thể triển khai thật:
+
+Bạn nên tách dữ liệu thành 2 lớp rõ ràng.
+
+Lớp 1 là dữ liệu vận hành local trong app:
+
+* hàng hóa
+* hóa đơn
+* kho
+* trả hàng
+* báo cáo
+
+Lớp 2 là dữ liệu công nợ tối giản của khách quen:
+
+* tên
+* số điện thoại
+* current_balance
+* updated_at
+* ghi chú ngắn nếu cần
+
+Nếu bạn còn đang ở giai đoạn UAT, tôi khuyên chưa cần tích hợp cloud ngay. Thứ tự hợp lý hơn là:
+
+* hoàn tất UAT chức năng local trước
+* chốt các rule cuối cùng
+* sau đó mới tách “debt store” riêng
+
+Lý do là nếu bạn gắn cloud quá sớm, mỗi lần sửa rule công nợ sẽ kéo theo sửa logic đồng bộ, khó debug hơn.
+
+### Kế hoạch hợp lý cho phần lưu dữ liệu
+
+Giai đoạn hiện tại:
+
+* chỉ dùng `app.db` local để test toàn bộ nghiệp vụ
+
+Sau khi UAT ổn:
+
+* thiết kế thêm `debt_store` riêng
+* datastore này chỉ chứa sổ công nợ tối giản
+* app local cập nhật current_balance sang debt store sau mỗi event liên quan:
+
+  * create invoice
+  * update invoice
+  * delete invoice
+  * create return
+
+Nếu bạn vẫn muốn theo hướng cloud sau này, phương án triển khai sạch nhất vẫn là:
+
+* app local giữ toàn bộ vận hành
+* cloud chỉ giữ debt snapshot tối giản
+* thông tin kết nối cloud do người dùng chủ động cấu hình lại khi cần
+
+Tôi khuyên ở thời điểm này đừng nhảy sang làm cloud sync vội. Việc đúng nhất là:
+
+* test app local thật kỹ
+* khóa business rule
+* rồi mới làm debt store tách riêng
+
+Nếu bạn muốn, bước tiếp theo tôi sẽ viết cho bạn một mẫu tài liệu UAT dạng bảng để bạn chỉ việc điền kết quả test từng case.

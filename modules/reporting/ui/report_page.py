@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+from PyQt6.QtGui import QShowEvent
 from PyQt6.QtWidgets import QMessageBox, QVBoxLayout, QWidget
 
 from modules.reporting.controller import ReportingController
@@ -25,7 +26,16 @@ class ReportPage(QWidget):
         layout.addWidget(self._top_products_widget)
 
         self._range_selector.load_requested.connect(self._load_report)
-        self._load_report("last_7_days", None, None)
+        self.reload_current_report()
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self.reload_current_report()
+
+    def reload_current_report(self) -> None:
+        preset = self._range_selector.sort_preset()
+        custom_start, custom_end = self._range_selector.custom_range()
+        self._load_report(preset, custom_start, custom_end)
 
     def _load_report(self, preset: str, custom_start: object, custom_end: object) -> None:
         try:

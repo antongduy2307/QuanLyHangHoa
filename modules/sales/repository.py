@@ -25,15 +25,16 @@ class SalesRepository:
         self._session = session
 
     def list_invoices(self) -> Sequence[Invoice]:
-        statement = select(Invoice).order_by(Invoice.invoice_datetime.desc())
+        statement = select(Invoice).options(selectinload(Invoice.items)).order_by(Invoice.invoice_datetime.desc())
         return self.session.scalars(statement).all()
 
     def search_invoices_by_code(self, query: str, limit: int = 20) -> Sequence[Invoice]:
         needle = query.strip()
-        statement = select(Invoice).order_by(Invoice.invoice_datetime.desc()).limit(limit)
+        statement = select(Invoice).options(selectinload(Invoice.items)).order_by(Invoice.invoice_datetime.desc()).limit(limit)
         if needle:
             statement = (
                 select(Invoice)
+                .options(selectinload(Invoice.items))
                 .where(Invoice.invoice_code.ilike(f"%{needle}%"))
                 .order_by(Invoice.invoice_datetime.desc())
                 .limit(limit)

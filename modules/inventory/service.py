@@ -62,7 +62,7 @@ class InventoryService:
         session = self._repository.session
         code = validate_product_code_base(product_code_base)
         name = validate_product_name(product_name)
-        self._validate_create_product_payload(unit_mode, enabled_prices)
+        self._validate_price_payload(unit_mode, enabled_prices)
         transaction_context = nullcontext() if session.in_transaction() else session.begin()
 
         with transaction_context:
@@ -96,6 +96,57 @@ class InventoryService:
             session.flush()
             return product
 
+    def update_product(
+        self,
+        product_id: int,
+        *,
+        product_name: str,
+        unit_mode: UnitMode,
+        enabled_prices: Mapping[UnitType, Decimal],
+    ) -> Product:
+        session = self._repository.session
+        name = validate_product_name(product_name)
+        transaction_context = nullcontext() if session.in_transaction() else session.begin()
+
+        with transaction_context:
+            product = self._repository.get_product(product_id)
+            if unit_mode != product.unit_mode:
+                raise ValidationError("Chưa hỗ trợ đổi kiểu đơn vị của hàng hóa ở bước này.")
+            self._validate_price_payload(product.unit_mode, enabled_prices)
+
+            product.product_name = name
+            existing_by_unit = {price.unit_type: price for price in product.prices}
+            for unit_type in self._allowed_units(product.unit_mode):
+                if unit_type in enabled_prices:
+                    if unit_type in existing_by_unit:
+                        existing_by_unit[unit_type].price = enabled_prices[unit_type]
+                        existing_by_unit[unit_type].is_enabled = True
+                    else:
+                        session.add(
+                            ProductPrice(
+                                product_id=product.id,
+                                unit_type=unit_type,
+                                price=enabled_prices[unit_type],
+                                is_enabled=True,
+                            )
+                        )
+                elif unit_type in existing_by_unit:
+                    existing_by_unit[unit_type].is_enabled = False
+
+            session.flush()
+            return product
+
+    def delete_product(self, product_id: int) -> None:
+        session = self._repository.session
+        transaction_context = nullcontext() if session.in_transaction() else session.begin()
+
+        with transaction_context:
+            product = self._repository.get_product(product_id)
+            if self._has_product_history(product.id):
+                raise ValidationError("Không thể xóa hàng hóa đã phát sinh giao dịch hoặc chứng từ kho.")
+            session.delete(product)
+            session.flush()
+
     def kg_to_bao(self, kg: Decimal | int | str) -> Decimal:
         return self._to_decimal(kg) / BAO_TO_KG_RATIO
 
@@ -105,6 +156,11 @@ class InventoryService:
     def get_balance(self, product_id: int) -> InventoryBalance:
         product = self._repository.get_product(product_id)
         return self._repository.get_or_create_balance(product)
+
+    def get_current_quantity(self, product_id: int) -> Decimal:
+        product = self._repository.get_product(product_id)
+        balance = self._repository.get_or_create_balance(product)
+        return self._get_canonical_balance_quantity(product, balance)
 
     def get_available_quantity(self, product_id: int, unit_type: UnitType) -> Decimal:
         product = self._repository.get_product(product_id)
@@ -228,20 +284,39 @@ class InventoryService:
         new_quantity = self._require_non_negative_decimal(item, "new_quantity")
         return AdjustmentLineInput(product_id=product_id, new_quantity=new_quantity)
 
-    def _validate_create_product_payload(self, unit_mode: UnitMode, enabled_prices: Mapping[UnitType, Decimal]) -> None:
+    def _validate_price_payload(self, unit_mode: UnitMode, enabled_prices: Mapping[UnitType, Decimal]) -> None:
         if not enabled_prices:
             raise ValidationError("Phải có ít nhất 1 đơn vị được bật.")
         if unit_mode not in {UnitMode.BAO_KG, UnitMode.BICH}:
             raise ValidationError("Kiểu đơn vị không hợp lệ.")
 
+        allowed_units = set(self._allowed_units(unit_mode))
         for unit_type, price in enabled_prices.items():
+            if unit_type not in allowed_units:
+                if unit_mode == UnitMode.BAO_KG:
+                    raise ValidationError("Sản phẩm BAO_KG chỉ được phép có giá BAO/KG.")
+                raise ValidationError("Sản phẩm BỊCH chỉ được phép có giá BỊCH.")
             if price <= Decimal("0"):
                 raise ValidationError("Giá phải > 0.")
-            if unit_mode == UnitMode.BAO_KG and unit_type not in {UnitType.BAO, UnitType.KG}:
-                raise ValidationError("Sản phẩm BAO_KG chỉ được phép có giá BAO/KG.")
-            if unit_mode == UnitMode.BICH and unit_type != UnitType.BICH:
-                raise ValidationError("Sản phẩm BỊCH chỉ được phép có giá BỊCH.")
 
+    def _allowed_units(self, unit_mode: UnitMode) -> tuple[UnitType, ...]:
+        if unit_mode == UnitMode.BAO_KG:
+            return (UnitType.BAO, UnitType.KG)
+        return (UnitType.BICH,)
+
+
+    def _has_product_history(self, product_id: int) -> bool:
+        from modules.returns.models import ReturnInvoiceItem
+        from modules.sales.models import InvoiceItem
+
+        session = self._repository.session
+        checks = (
+            select(InvoiceItem.id).where(InvoiceItem.product_id == product_id).limit(1),
+            select(ReturnInvoiceItem.id).where(ReturnInvoiceItem.product_id == product_id).limit(1),
+            select(InventoryReceiptItem.id).where(InventoryReceiptItem.product_id == product_id).limit(1),
+            select(InventoryAdjustmentItem.id).where(InventoryAdjustmentItem.product_id == product_id).limit(1),
+        )
+        return any(session.scalar(statement) is not None for statement in checks)
     def _validate_unit_type(self, product: Product, unit_type: UnitType) -> None:
         product.validate_price_unit_type(unit_type)
 
@@ -286,3 +361,5 @@ class InventoryService:
         if isinstance(value, Decimal):
             return value
         return Decimal(str(value))
+
+

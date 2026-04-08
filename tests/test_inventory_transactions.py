@@ -65,16 +65,31 @@ class InventoryTransactionServiceTestCase(unittest.TestCase):
         self.assertEqual(self.service.get_available_quantity(self.second_bao_product_id, UnitType.BAO), Decimal("3"))
         self.assertEqual(self.service.get_available_quantity(self.bich_product_id, UnitType.BICH), Decimal("2"))
 
-    def test_create_adjustment_updates_balance_and_delta(self) -> None:
+    def test_current_quantity_loads_actual_balance(self) -> None:
         self.service.create_receipt([{"product_id": self.bao_product_id, "quantity": Decimal("5")}])
-        adjustment = self.service.create_adjustment([{"product_id": self.bao_product_id, "new_quantity": Decimal("2") }])
+        self.assertEqual(self.service.get_current_quantity(self.bao_product_id), Decimal("5"))
+
+    def test_adjustment_decreases_stock_from_five_to_three(self) -> None:
+        self.service.create_receipt([{"product_id": self.bao_product_id, "quantity": Decimal("5")}])
+        adjustment = self.service.create_adjustment([{"product_id": self.bao_product_id, "new_quantity": Decimal("3")}])
 
         self.assertEqual(len(adjustment.items), 1)
         item = adjustment.items[0]
         self.assertEqual(item.old_quantity, Decimal("5"))
-        self.assertEqual(item.new_quantity, Decimal("2"))
-        self.assertEqual(item.delta_quantity, Decimal("-3"))
-        self.assertEqual(self.service.get_available_quantity(self.bao_product_id, UnitType.BAO), Decimal("2"))
+        self.assertEqual(item.new_quantity, Decimal("3"))
+        self.assertEqual(item.delta_quantity, Decimal("-2"))
+        self.assertEqual(self.service.get_available_quantity(self.bao_product_id, UnitType.BAO), Decimal("3"))
+
+    def test_adjustment_increases_stock_from_three_to_eight(self) -> None:
+        self.service.create_receipt([{"product_id": self.bao_product_id, "quantity": Decimal("3")}])
+        adjustment = self.service.create_adjustment([{"product_id": self.bao_product_id, "new_quantity": Decimal("8")}])
+
+        self.assertEqual(len(adjustment.items), 1)
+        item = adjustment.items[0]
+        self.assertEqual(item.old_quantity, Decimal("3"))
+        self.assertEqual(item.new_quantity, Decimal("8"))
+        self.assertEqual(item.delta_quantity, Decimal("5"))
+        self.assertEqual(self.service.get_available_quantity(self.bao_product_id, UnitType.BAO), Decimal("8"))
 
     def test_adjustment_for_bich_uses_canonical_integer_stock(self) -> None:
         self.service.create_receipt([{"product_id": self.bich_product_id, "quantity": Decimal("7")}])

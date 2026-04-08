@@ -3,6 +3,8 @@
 from datetime import datetime
 from decimal import Decimal
 
+from PyQt6.QtCore import QTimer
+from PyQt6.QtGui import QFocusEvent, QMouseEvent, QShowEvent
 from PyQt6.QtWidgets import QComboBox, QDoubleSpinBox, QFormLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from core.enums import PaymentMethod
@@ -15,6 +17,18 @@ from shared.formatting.money import format_money
 from shared.widgets.message_box import MessageBox
 
 
+class _SelectAllDoubleSpinBox(QDoubleSpinBox):
+    def focusInEvent(self, event: QFocusEvent) -> None:
+        super().focusInEvent(event)
+        QTimer.singleShot(0, self.lineEdit().selectAll)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        should_select_all = not self.hasFocus()
+        super().mousePressEvent(event)
+        if should_select_all:
+            QTimer.singleShot(0, self.lineEdit().selectAll)
+
+
 class SalesPage(QWidget):
     def __init__(self, controller: SalesController) -> None:
         super().__init__()
@@ -23,21 +37,31 @@ class SalesPage(QWidget):
         self._customer_picker = CustomerPickerWidget(list(controller.list_customers()), self)
         self._product_search = ProductSearchWidget(controller.list_sellable_products(), self)
         self._items_table = InvoiceItemsTable()
+        self._original_remove_row_at = self._items_table.remove_row_at
+        self._items_table.remove_row_at = self._remove_row_and_refresh  # type: ignore[method-assign]
+
         self._total_label = QLabel(format_money(Decimal("0")))
         self._total_label.setStyleSheet("font-size: 20px; font-weight: 600;")
-        self._paid_amount_input = QDoubleSpinBox()
+        self._change_label = QLabel("")
+        self._change_label.setProperty("class", "muted")
+
+        self._paid_amount_input = _SelectAllDoubleSpinBox()
         self._paid_amount_input.setDecimals(2)
         self._paid_amount_input.setRange(0, 999999999)
+        self._paid_amount_input.valueChanged.connect(self._refresh_amounts)
+
         self._payment_method_combo = QComboBox()
         self._payment_method_combo.addItem("Để trống", None)
         self._payment_method_combo.addItem("Tiền mặt", PaymentMethod.CASH)
         self._payment_method_combo.addItem("Chuyển khoản", PaymentMethod.BANK_TRANSFER)
 
         self._product_search.item_added.connect(self._handle_item_added)
+        self._customer_picker.customer_changed.connect(self._refresh_amounts)
 
         form_layout = QFormLayout()
         form_layout.addRow("Tổng tiền", self._total_label)
         form_layout.addRow("Khách trả", self._paid_amount_input)
+        form_layout.addRow("Tiền thối", self._change_label)
         form_layout.addRow("Thanh toán", self._payment_method_combo)
 
         create_button = QPushButton("Tạo hóa đơn")
@@ -56,13 +80,38 @@ class SalesPage(QWidget):
         layout.addLayout(form_layout)
         layout.addWidget(create_button)
         layout.addStretch()
+        self._refresh_amounts()
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self.reload_data()
+
+    def reload_data(self) -> None:
+        self._customer_picker.reload_data(list(self._controller.list_customers()))
+        self._product_search.reload_data(self._controller.list_sellable_products())
+        self._refresh_amounts()
+
+    def _remove_row_and_refresh(self, row_index: int) -> None:
+        self._original_remove_row_at(row_index)
+        self._refresh_amounts()
 
     def _handle_item_added(self, item: object) -> None:
         self._items_table.add_or_merge_item(dict(item))
-        self._refresh_total()
+        self._refresh_amounts()
 
-    def _refresh_total(self) -> None:
-        self._total_label.setText(format_money(self._items_table.total_amount()))
+    def _refresh_amounts(self) -> None:
+        total_amount = self._items_table.total_amount()
+        self._total_label.setText(format_money(total_amount))
+
+        if self._customer_picker.selected_customer_id() is None:
+            paid_amount = Decimal(str(self._paid_amount_input.value()))
+            change_amount = paid_amount - total_amount
+            if change_amount > Decimal("0"):
+                self._change_label.setText(format_money(change_amount))
+            else:
+                self._change_label.setText(format_money(Decimal("0")))
+        else:
+            self._change_label.setText("")
 
     def _create_invoice(self) -> None:
         try:
@@ -76,6 +125,10 @@ class SalesPage(QWidget):
             if paid_amount < Decimal("0"):
                 raise ValidationError("Số tiền khách trả phải >= 0.")
 
+            total_amount = self._items_table.total_amount()
+            if customer_id is None and paid_amount < total_amount:
+                raise ValidationError("Khách lẻ phải trả đủ tiền hóa đơn.")
+
             invoice = self._controller.create_invoice(
                 customer_id=customer_id,
                 customer_snapshot_name=self._customer_picker.snapshot_name(),
@@ -85,6 +138,7 @@ class SalesPage(QWidget):
                 payment_method=self._payment_method_combo.currentData(),
             )
             MessageBox.info(self, "Thành công", f"Đã tạo hóa đơn {invoice.invoice_code}")
+            self.reload_data()
             self._reset_form()
         except Exception as exc:
             MessageBox.error(self, "Không tạo được hóa đơn", str(exc))
@@ -95,4 +149,4 @@ class SalesPage(QWidget):
         self._items_table.clear_items()
         self._paid_amount_input.setValue(0)
         self._payment_method_combo.setCurrentIndex(0)
-        self._refresh_total()
+        self._refresh_amounts()

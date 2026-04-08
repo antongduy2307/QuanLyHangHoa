@@ -11,9 +11,9 @@ from core.enums import PaymentMethod, UnitType
 from modules.customer.dto import CustomerDTO
 from modules.customer.repository import CustomerRepository
 from modules.customer.service import CustomerService
-from modules.inventory.models import Product
 from modules.inventory.repository import InventoryRepository
 from modules.inventory.service import InventoryService
+from modules.sales.models import Invoice
 from modules.sales.repository import SalesRepository
 from modules.sales.service import SalesService
 
@@ -58,6 +58,24 @@ class SalesController:
         repository.session.close()
         return options
 
+    def list_invoices(self) -> Sequence[Invoice]:
+        repository = SalesRepository(self._session_factory)
+        invoices = repository.list_invoices()
+        repository.session.close()
+        return invoices
+
+    def search_invoices(self, query: str) -> Sequence[Invoice]:
+        repository = SalesRepository(self._session_factory)
+        invoices = repository.search_invoices_by_code(query)
+        repository.session.close()
+        return invoices
+
+    def get_invoice_detail(self, invoice_id: int) -> Invoice:
+        repository = SalesRepository(self._session_factory)
+        invoice = repository.get_invoice(invoice_id)
+        repository.session.close()
+        return invoice
+
     def create_invoice(
         self,
         *,
@@ -79,3 +97,11 @@ class SalesController:
             payment_method=payment_method,
             note=note,
         )
+
+    def update_invoice(self, invoice_id: int, *, items: list[Mapping[str, object]], note: str | None = None) -> object:
+        service = SalesService(SalesRepository(self._session_factory))
+        return service.update_invoice(invoice_id, items=items, note=note)
+
+    def delete_invoice(self, invoice_id: int) -> None:
+        service = SalesService(SalesRepository(self._session_factory))
+        service.delete_invoice(invoice_id)

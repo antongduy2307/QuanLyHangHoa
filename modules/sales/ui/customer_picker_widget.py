@@ -49,6 +49,16 @@ class CustomerPickerWidget(QWidget):
         self.customer_radio.toggled.connect(self._sync_mode)
         self._sync_mode()
 
+    def reload_data(self, customers: list[CustomerDTO]) -> None:
+        previous_customer_id = None if self._selected_customer is None else self._selected_customer.id
+        self._customers = customers
+        self._selected_customer = next((customer for customer in customers if customer.id == previous_customer_id), None)
+        self._update_suggestions()
+        if self._selected_customer is not None and self.customer_radio.isChecked():
+            self._set_selected_customer(self._selected_customer)
+        elif self.walk_in_radio.isChecked():
+            self._sync_mode()
+
     def selected_customer_id(self) -> int | None:
         return None if self.walk_in_radio.isChecked() or self._selected_customer is None else self._selected_customer.id
 
@@ -92,15 +102,18 @@ class CustomerPickerWidget(QWidget):
         if item is None:
             return
         customer_id = item.data(256)
-        self._selected_customer = next((customer for customer in self._customers if customer.id == customer_id), None)
-        if self._selected_customer is None:
+        customer = next((customer for customer in self._customers if customer.id == customer_id), None)
+        if customer is None:
             return
+        self._set_selected_customer(customer)
+
+    def _set_selected_customer(self, customer: CustomerDTO) -> None:
+        self._selected_customer = customer
         self.current_label.setText(
-            f"Khách: {self._selected_customer.customer_name}" +
-            (f" | SDT: {self._selected_customer.phone}" if self._selected_customer.phone else "")
+            f"Khách: {customer.customer_name}" +
+            (f" | SDT: {customer.phone}" if customer.phone else "")
         )
-        balance = self._selected_customer.current_balance
+        balance = customer.current_balance
         color = "#b91c1c" if balance < Decimal("0") else "#14532d"
         self.balance_label.setText(f"Công nợ hiện tại: <span style='color:{color}'>{balance:,.0f}</span>")
         self.customer_changed.emit()
-

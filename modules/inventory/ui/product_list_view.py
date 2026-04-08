@@ -3,11 +3,13 @@
 from decimal import Decimal, ROUND_HALF_UP
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QShowEvent
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -34,15 +36,20 @@ class ProductListView(QWidget):
         self._search_input.textChanged.connect(self._apply_filter)
 
         self._table = QTableWidget(0, 4)
-        self._table.setHorizontalHeaderLabels(["Mã hàng", "Tên hàng", "Kiểu đơn vị", "Tồn hiện tại"])
+        self._table.setHorizontalHeaderLabels(["Mã hàng", "Tên hàng", "Đơn vị bán", "Tồn hiện tại"])
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self._table.verticalHeader().setVisible(False)
         self._table.setAlternatingRowColors(True)
+        self._table.itemDoubleClicked.connect(self._open_edit_product)
 
         create_button = QPushButton("Tạo mới")
         create_button.clicked.connect(self._open_create_product)
+        edit_button = QPushButton("Sửa")
+        edit_button.clicked.connect(self._open_edit_product)
+        delete_button = QPushButton("Xóa")
+        delete_button.clicked.connect(self._delete_product)
         receipt_button = QPushButton("Nhập kho")
         receipt_button.clicked.connect(self._open_receipt_dialog)
         adjustment_button = QPushButton("Điều chỉnh kho")
@@ -53,6 +60,8 @@ class ProductListView(QWidget):
         top_bar = QHBoxLayout()
         top_bar.addWidget(self._search_input, 1)
         top_bar.addWidget(create_button)
+        top_bar.addWidget(edit_button)
+        top_bar.addWidget(delete_button)
         top_bar.addWidget(receipt_button)
         top_bar.addWidget(adjustment_button)
         top_bar.addWidget(refresh_button)
@@ -67,6 +76,10 @@ class ProductListView(QWidget):
         layout.addLayout(top_bar)
         layout.addWidget(self._table)
 
+        self.reload()
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
         self.reload()
 
     def reload(self) -> None:
@@ -93,10 +106,18 @@ class ProductListView(QWidget):
         for row_index, product in enumerate(products):
             self._table.setItem(row_index, 0, QTableWidgetItem(product.product_code_base))
             self._table.setItem(row_index, 1, QTableWidgetItem(product.product_name))
-            self._table.setItem(row_index, 2, QTableWidgetItem(product.unit_mode))
+            self._table.setItem(row_index, 2, QTableWidgetItem(self._controller.get_unit_display(product)))
             self._table.setItem(row_index, 3, QTableWidgetItem(self._format_balance(product.on_hand_display)))
+            self._table.item(row_index, 0).setData(Qt.ItemDataRole.UserRole, product.id)
 
-    def _open_create_product(self) -> None:
+    def _selected_product_id(self) -> int | None:
+        row = self._table.currentRow()
+        if row < 0:
+            return None
+        item = self._table.item(row, 0)
+        return None if item is None else item.data(Qt.ItemDataRole.UserRole)
+
+    def _open_create_product(self, *_args: object) -> None:
         dialog = ProductDialog(self)
         if dialog.exec():
             try:
@@ -105,6 +126,52 @@ class ProductListView(QWidget):
                 self.reload()
             except Exception as exc:
                 MessageBox.error(self, "Không tạo được hàng hóa", str(exc))
+
+    def _open_edit_product(self, *_args: object) -> None:
+        product_id = self._selected_product_id()
+        if product_id is None:
+            MessageBox.warning(self, "Chưa chọn", "Hãy chọn một hàng hóa để sửa.")
+            return
+        try:
+            detail = self._controller.get_product_for_edit(product_id)
+            dialog = ProductDialog(
+                self,
+                edit_mode=True,
+                product_code_base=detail.product_code_base,
+                product_name=detail.product_name,
+                unit_mode=detail.unit_mode,
+                enabled_prices=detail.enabled_prices,
+                all_prices=detail.all_prices,
+            )
+            if dialog.exec():
+                payload = dialog.payload()
+                self._controller.update_product(
+                    product_id,
+                    product_name=str(payload["product_name"]),
+                    unit_mode=detail.unit_mode,
+                    enabled_prices=payload["enabled_prices"],
+                )
+                self.reload()
+        except Exception as exc:
+            MessageBox.error(self, "Không cập nhật được hàng hóa", str(exc))
+
+    def _delete_product(self) -> None:
+        product_id = self._selected_product_id()
+        if product_id is None:
+            MessageBox.warning(self, "Chưa chọn", "Hãy chọn một hàng hóa để xóa.")
+            return
+        confirmed = QMessageBox.question(
+            self,
+            "Xác nhận xóa",
+            "Bạn có chắc muốn xóa hàng hóa này không?",
+        )
+        if confirmed != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self._controller.delete_product(product_id)
+            self.reload()
+        except Exception as exc:
+            MessageBox.error(self, "Không xóa được hàng hóa", str(exc))
 
     def _open_receipt_dialog(self) -> None:
         dialog = InventoryReceiptDialog(self._controller.list_product_options(), self)

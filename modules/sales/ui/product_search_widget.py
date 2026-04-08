@@ -48,6 +48,13 @@ class ProductSearchWidget(QWidget):
 
         self._sync_product(None)
 
+    def reload_data(self, products: list[SellableProductOption]) -> None:
+        previous_product_id = None if self._selected_product is None else self._selected_product.product_id
+        self._products = products
+        self._selected_product = next((product for product in products if product.product_id == previous_product_id), None)
+        self._update_suggestions()
+        self._sync_product(self._selected_product)
+
     def reset(self) -> None:
         self.search_input.clear()
         self.suggestion_list.clear()
@@ -117,4 +124,3 @@ class ProductSearchWidget(QWidget):
             }
         )
         self.quantity_input.setValue(0)
-

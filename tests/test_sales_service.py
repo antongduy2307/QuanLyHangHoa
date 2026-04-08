@@ -86,7 +86,21 @@ class SalesServiceTestCase(unittest.TestCase):
         )
         return list(self.sales_repository.session.scalars(statement).all())
 
-    def test_create_invoice_for_walk_in_creates_no_ledger_and_updates_stock(self) -> None:
+    def test_walk_in_underpayment_fails_and_creates_no_invoice(self) -> None:
+        with self.assertRaises(ValidationError):
+            self.sales_service.create_invoice(
+                customer_id=None,
+                customer_snapshot_name="Khach le",
+                invoice_datetime=datetime(2026, 4, 7, 9, 0, 0),
+                items=[{"product_id": self.bao_product_id, "unit_type": UnitType.BAO, "quantity": Decimal("2")}],
+                paid_amount=Decimal("150"),
+                payment_method=PaymentMethod.CASH,
+            )
+
+        self.assertEqual(len(self.sales_repository.list_invoices()), 0)
+        self.assertEqual(self.inventory_service.get_available_quantity(self.bao_product_id, UnitType.BAO), Decimal("0"))
+
+    def test_walk_in_exact_payment_succeeds(self) -> None:
         invoice = self.sales_service.create_invoice(
             customer_id=None,
             customer_snapshot_name="Khach le",
@@ -98,12 +112,27 @@ class SalesServiceTestCase(unittest.TestCase):
 
         self.assertEqual(invoice.customer_id, None)
         self.assertEqual(invoice.total_amount, Decimal("200"))
+        self.assertEqual(invoice.paid_amount, Decimal("200"))
         self.assertEqual(len(invoice.items), 1)
         self.assertEqual(invoice.items[0].product_code_snapshot, "P-BAO")
         self.assertEqual(invoice.items[0].product_name_snapshot, "P-BAO")
         self.assertEqual(invoice.items[0].unit_price, Decimal("100"))
         self.assertEqual(invoice.items[0].line_total, Decimal("200"))
         self.assertEqual(self.inventory_service.get_available_quantity(self.bao_product_id, UnitType.BAO), Decimal("-2"))
+        self.assertEqual(self._ledger_for_invoice(invoice.id), [])
+
+    def test_walk_in_overpayment_succeeds(self) -> None:
+        invoice = self.sales_service.create_invoice(
+            customer_id=None,
+            customer_snapshot_name="Khach le",
+            invoice_datetime=datetime(2026, 4, 7, 10, 30, 0),
+            items=[{"product_id": self.bao_product_id, "unit_type": UnitType.BAO, "quantity": Decimal("2")}],
+            paid_amount=Decimal("250"),
+            payment_method=PaymentMethod.CASH,
+        )
+
+        self.assertEqual(invoice.total_amount, Decimal("200"))
+        self.assertEqual(invoice.paid_amount, Decimal("250"))
         self.assertEqual(self._ledger_for_invoice(invoice.id), [])
 
     def test_create_invoice_for_customer_partial_payment_updates_balance_and_sales(self) -> None:

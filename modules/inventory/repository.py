@@ -36,7 +36,14 @@ class InventoryRepository:
     def get_product(self, product_id: int) -> Product:
         statement = (
             select(Product)
-            .options(selectinload(Product.prices), selectinload(Product.inventory_balance))
+            .options(
+                selectinload(Product.prices),
+                selectinload(Product.inventory_balance),
+                selectinload(Product.invoice_items),
+                selectinload(Product.return_items),
+                selectinload(Product.receipt_items),
+                selectinload(Product.adjustment_items),
+            )
             .where(Product.id == product_id)
         )
         product = self.session.scalars(statement).one_or_none()
