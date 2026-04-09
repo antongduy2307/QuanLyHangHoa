@@ -1,6 +1,6 @@
 ﻿#define MyAppName "Quản lý Hàng hóa"
 #define MyAppExeName "QuanLyHangHoa.exe"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.3.0"
 #define MyAppPublisher "Quản lý Hàng hóa"
 #define MyAppDirName "QuanLyHangHoa"
 #define MyAppSourceDir "..\dist\QuanLyHangHoa"

@@ -16,10 +16,12 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from core.config import MAX_MONEY_INPUT
 from core.enums import UnitMode, UnitType
 from core.exceptions import ValidationError
 from shared.widgets.message_box import MessageBox
 from shared.widgets.numeric_inputs import SelectAllSpinBox
+from shared.widgets.ui_scale import apply_large_ui
 
 
 class ProductDialog(QDialog):
@@ -99,6 +101,7 @@ class ProductDialog(QDialog):
         layout.addWidget(unit_group)
         layout.addStretch()
         layout.addWidget(buttons)
+        apply_large_ui(self)
 
         self._bao_kg_radio.toggled.connect(self._sync_mode_ui)
         self._bich_radio.toggled.connect(self._sync_mode_ui)
@@ -184,6 +187,6 @@ class ProductDialog(QDialog):
 
     def _build_price_input(self, initial_value: Decimal) -> SelectAllSpinBox:
         spin = SelectAllSpinBox()
-        spin.setRange(0, 999999999)
+        spin.setRange(0, MAX_MONEY_INPUT)
         spin.setValue(int(initial_value))
         return spin

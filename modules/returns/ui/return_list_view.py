@@ -1,7 +1,7 @@
 ﻿from __future__ import annotations
 
 from PyQt6.QtGui import QShowEvent
-from PyQt6.QtWidgets import QHBoxLayout, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 
 from modules.returns.controller import ReturnController
 from modules.returns.models import ReturnInvoice
@@ -9,6 +9,7 @@ from modules.returns.ui.return_detail_popup import ReturnDetailPopup
 from modules.returns.ui.return_edit_dialog import ReturnEditDialog
 from shared.formatting.dates import format_datetime
 from shared.formatting.money import format_money
+from shared.widgets.autocomplete_line_edit import AutocompleteLineEdit
 from shared.widgets.message_box import MessageBox
 from shared.widgets.table_helpers import configure_table_widget
 
@@ -19,13 +20,14 @@ class ReturnListView(QWidget):
         self._controller = controller
         self._returns: list[ReturnInvoice] = []
 
-        self._search_input = QLineEdit()
-        self._search_input.setPlaceholderText("Tìm theo mã trả hàng")
+        self._search_input = AutocompleteLineEdit()
+        self._search_input.setPlaceholderText("Tìm theo tên khách hàng")
         self._search_input.textChanged.connect(self._apply_filter)
+        self._search_input.suggestion_selected.connect(self._handle_search_suggestion_selected)
 
         self._table = QTableWidget(0, 6)
         self._table.setHorizontalHeaderLabels(["Mã trả hàng", "Thời điểm", "Hóa đơn gốc", "Khách", "Tổng trả", "Xử lý"])
-        configure_table_widget(self._table)
+        configure_table_widget(self._table, "returns.list")
         self._table.itemDoubleClicked.connect(self._open_detail)
 
         view_button = QPushButton("Xem")
@@ -63,8 +65,25 @@ class ReturnListView(QWidget):
         if not query:
             filtered = self._returns
         else:
-            filtered = [return_invoice for return_invoice in self._returns if query in return_invoice.return_code.lower()]
+            filtered = [return_invoice for return_invoice in self._returns if query in return_invoice.customer_snapshot_name.lower()]
         self._render_rows(filtered)
+        self._update_search_suggestions(query, filtered)
+
+    def _update_search_suggestions(self, query: str, rows: list[ReturnInvoice]) -> None:
+        if not query:
+            self._search_input.hide_suggestions()
+            return
+        suggestions = [(row.customer_snapshot_name, row.id) for row in rows[:20]]
+        self._search_input.set_suggestions(suggestions)
+
+    def _handle_search_suggestion_selected(self, return_id: object) -> None:
+        if return_id is None:
+            return
+        for row_index in range(self._table.rowCount()):
+            item = self._table.item(row_index, 0)
+            if item is not None and item.data(256) == int(return_id):
+                self._table.setCurrentCell(row_index, 0)
+                break
 
     def _render_rows(self, rows: list[ReturnInvoice]) -> None:
         self._table.setRowCount(len(rows))

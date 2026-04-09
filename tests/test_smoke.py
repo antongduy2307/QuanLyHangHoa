@@ -12,7 +12,7 @@ class SmokeTestCase(unittest.TestCase):
     def test_init_db_and_module_registry(self) -> None:
         init_db()
         specs = load_module_specs()
-        self.assertEqual([spec.label for spec in specs], ["Hang hoa", "Ban hang", "Khach hang", "Bao cao"])
+        self.assertEqual([spec.label for spec in specs], ["Hàng hóa", "Bán hàng", "Khách hàng", "Báo cáo", "Cài đặt"])
 
     def test_core_tables_exist(self) -> None:
         init_db()

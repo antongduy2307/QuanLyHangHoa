@@ -21,6 +21,7 @@ ACTIVE_MODULE_PACKAGES = (
     "modules.sales",
     "modules.customer",
     "modules.reporting",
+    "modules.settings",
 )
 
 
@@ -62,6 +63,8 @@ def bootstrap_application(app: QApplication) -> AppContext:
     apply_theme(app)
     init_db()
     modules = load_module_specs()
-    window = AppWindow(settings.app_name, modules)
+    window = AppWindow(settings.app_name, modules, settings)
     LOGGER.info("Application bootstrapped with %s modules", len(modules))
     return AppContext(settings=settings, modules=modules, window=window)
+
+

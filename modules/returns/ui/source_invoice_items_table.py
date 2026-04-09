@@ -27,7 +27,7 @@ class SourceInvoiceItemsTable(QTableWidget):
             "Đơn giá",
             "Thành tiền",
         ])
-        configure_table_widget(self)
+        configure_table_widget(self, "returns.source_invoice_items")
         self._rows: list[SourceInvoiceItemRow] = []
         self._spinboxes: list[SelectAllSpinBox] = []
 
@@ -82,3 +82,5 @@ class SourceInvoiceItemsTable(QTableWidget):
         line_total = quantity * row.unit_price
         self.setItem(row_index, 8, QTableWidgetItem(format_money(line_total)))
         self.totals_changed.emit()
+
+

@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import QVBoxLayout, QWidget
 from modules.returns.controller import ReturnController
 from modules.returns.service import ReturnsService
 from modules.returns.ui.return_page import ReturnPage as ReturnPageView
+from shared.widgets.ui_scale import apply_large_ui
 
 
 class ReturnsPage(QWidget):
@@ -14,3 +15,4 @@ class ReturnsPage(QWidget):
 
         layout = QVBoxLayout(self)
         layout.addWidget(ReturnPageView(controller))
+        apply_large_ui(self)

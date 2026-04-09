@@ -16,6 +16,7 @@ from modules.returns.ui.source_invoice_search_widget import SourceInvoiceSearchW
 from modules.sales.ui.invoice_items_table import InvoiceItemsTable
 from shared.formatting.money import format_money
 from shared.widgets.message_box import MessageBox
+from shared.widgets.ui_scale import apply_large_ui
 
 
 class ReturnPage(QWidget):
@@ -37,6 +38,7 @@ class ReturnPage(QWidget):
         layout.addWidget(title)
         layout.addWidget(subtitle)
         layout.addWidget(self._tabs)
+        apply_large_ui(self)
 
         self._reload_quick_mode_data()
 
@@ -47,7 +49,7 @@ class ReturnPage(QWidget):
     def _build_invoice_mode_tab(self) -> QWidget:
         container = QWidget(self)
         self._search_widget = SourceInvoiceSearchWidget(container)
-        self._search_widget.search_button.clicked.connect(self._search_invoices)
+        self._search_widget.search_requested.connect(self._search_invoices)
         self._search_widget.invoice_selected.connect(self._load_invoice_detail)
 
         self._source_header = QLabel("Chưa chọn hóa đơn nguồn")
@@ -118,7 +120,7 @@ class ReturnPage(QWidget):
         if hasattr(self, "_quick_product_search"):
             self._quick_product_search.reload_data(self._controller.list_quick_return_products())
 
-    def _search_invoices(self) -> None:
+    def _search_invoices(self, _query: str | None = None) -> None:
         try:
             rows = list(self._controller.search_source_invoices(self._search_widget.search_input.text()))
             self._search_widget.set_results(rows)

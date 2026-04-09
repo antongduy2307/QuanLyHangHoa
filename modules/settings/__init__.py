@@ -4,7 +4,7 @@ from modules.settings.service import SettingsService
 from modules.settings.ui.page import SettingsPage
 
 MODULE_KEY = "settings"
-MODULE_LABEL = "Cai dat"
+MODULE_LABEL = "Cài đặt"
 
 
 

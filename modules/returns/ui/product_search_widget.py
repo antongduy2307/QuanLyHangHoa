@@ -2,11 +2,12 @@
 
 from decimal import Decimal
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from core.enums import UnitType
 from modules.returns.controller import QuickReturnProductOption
+from shared.widgets.autocomplete_line_edit import AutocompleteLineEdit
 from shared.widgets.numeric_inputs import SelectAllSpinBox
 
 
@@ -18,13 +19,10 @@ class QuickReturnProductSearchWidget(QWidget):
         self._products = products
         self._selected_product: QuickReturnProductOption | None = None
 
-        self.search_input = QLineEdit()
+        self.search_input = AutocompleteLineEdit()
         self.search_input.setPlaceholderText("Tìm theo mã hoặc tên hàng")
         self.search_input.textChanged.connect(self._update_suggestions)
-
-        self.suggestion_list = QListWidget()
-        self.suggestion_list.setMaximumHeight(120)
-        self.suggestion_list.itemClicked.connect(self._select_product)
+        self.search_input.suggestion_selected.connect(self._select_product_by_id)
 
         self.unit_combo = QComboBox()
         self.unit_combo.currentIndexChanged.connect(self._update_price_label)
@@ -43,7 +41,6 @@ class QuickReturnProductSearchWidget(QWidget):
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.search_input)
-        layout.addWidget(self.suggestion_list)
         layout.addLayout(controls)
 
         self._sync_product(None)
@@ -57,27 +54,24 @@ class QuickReturnProductSearchWidget(QWidget):
 
     def reset(self) -> None:
         self.search_input.clear()
-        self.suggestion_list.clear()
         self.quantity_input.setValue(0)
+        self.search_input.hide_suggestions()
         self._sync_product(None)
 
     def _update_suggestions(self) -> None:
         query = self.search_input.text().strip().lower()
-        self.suggestion_list.clear()
         if not query:
+            self.search_input.hide_suggestions()
             return
         code_matches = [product for product in self._products if query in product.product_code_base.lower()]
         matches = code_matches if code_matches else [product for product in self._products if query in product.product_name.lower()]
-        for product in matches[:20]:
-            self.suggestion_list.addItem(f"{product.product_code_base} - {product.product_name}")
-            self.suggestion_list.item(self.suggestion_list.count() - 1).setData(256, product.product_id)
+        suggestions = [(f"{product.product_code_base} - {product.product_name}", product.product_id) for product in matches[:20]]
+        self.search_input.set_suggestions(suggestions)
 
-    def _select_product(self, *_args: object) -> None:
-        item = self.suggestion_list.currentItem()
-        if item is None:
+    def _select_product_by_id(self, product_id: object) -> None:
+        if product_id is None:
             return
-        product_id = item.data(256)
-        product = next((candidate for candidate in self._products if candidate.product_id == product_id), None)
+        product = next((candidate for candidate in self._products if candidate.product_id == int(product_id)), None)
         self._sync_product(product)
 
     def _sync_product(self, product: QuickReturnProductOption | None) -> None:

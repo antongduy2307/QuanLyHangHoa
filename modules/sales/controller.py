@@ -89,6 +89,21 @@ class SalesController:
         repository.session.close()
         return invoice
 
+    def get_invoice_balance_after(self, invoice: Invoice) -> Decimal | None:
+        if invoice.customer_id is None:
+            return None
+
+        repository = CustomerRepository(self._session_factory)
+        session = repository.session
+        service = CustomerService(repository)
+        try:
+            ledgers = list(service.list_reference_ledgers(invoice.customer_id, "INVOICE", invoice.id))
+            if not ledgers:
+                return None
+            return ledgers[-1].balance_after
+        finally:
+            session.close()
+
     def list_transaction_history(
         self,
         *,
@@ -161,3 +176,4 @@ class SalesController:
     def delete_invoice(self, invoice_id: int) -> None:
         service = SalesService(SalesRepository(self._session_factory))
         service.delete_invoice(invoice_id)
+

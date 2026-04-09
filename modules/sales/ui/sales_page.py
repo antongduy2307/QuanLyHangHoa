@@ -3,15 +3,19 @@
 from datetime import datetime
 from decimal import Decimal
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QShowEvent
-from PyQt6.QtWidgets import QComboBox, QFormLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QComboBox, QFormLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
+from core.config import MAX_MONEY_INPUT
 from core.enums import PaymentMethod
 from core.exceptions import ValidationError
 from modules.sales.controller import SalesController
 from modules.sales.ui.customer_picker_widget import CustomerPickerWidget
 from modules.sales.ui.invoice_items_table import InvoiceItemsTable
 from modules.sales.ui.product_search_widget import ProductSearchWidget
+from modules.sales.ui.scale import scaled
+from modules.settings.service import get_ui_scale_factor, get_ui_scale_preset
 from shared.formatting.money import format_money
 from shared.widgets.message_box import MessageBox
 from shared.widgets.numeric_inputs import SelectAllSpinBox
@@ -21,18 +25,21 @@ class SalesPage(QWidget):
     def __init__(self, controller: SalesController) -> None:
         super().__init__()
         self._controller = controller
+        self._ui_scale = 1.0
 
         self._customer_picker = CustomerPickerWidget(list(controller.list_customers()), self)
         self._product_search = ProductSearchWidget(controller.list_sellable_products(), self)
         self._items_table = InvoiceItemsTable()
+        self._items_table.setMinimumHeight(320)
+        self._items_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
 
+        self._title_label = QLabel("Bán hàng")
         self._total_label = QLabel(format_money(Decimal("0")))
-        self._total_label.setStyleSheet("font-size: 20px; font-weight: 600;")
         self._change_label = QLabel(format_money(Decimal("0")))
         self._change_label.setProperty("class", "muted")
 
         self._paid_amount_input = SelectAllSpinBox()
-        self._paid_amount_input.setRange(0, 999999999)
+        self._paid_amount_input.setRange(0, MAX_MONEY_INPUT)
         self._paid_amount_input.valueChanged.connect(self._refresh_amounts)
 
         self._payment_method_combo = QComboBox()
@@ -44,29 +51,64 @@ class SalesPage(QWidget):
         self._customer_picker.customer_changed.connect(self._refresh_amounts)
         self._items_table.totals_changed.connect(self._refresh_amounts)
 
-        form_layout = QFormLayout()
-        form_layout.addRow("Tổng tiền", self._total_label)
-        form_layout.addRow("Khách trả", self._paid_amount_input)
-        form_layout.addRow("Tiền dư", self._change_label)
-        form_layout.addRow("Thanh toán", self._payment_method_combo)
+        self._form_layout = QFormLayout()
+        self._form_layout.setSpacing(12)
+        self._form_layout.addRow("Tổng tiền", self._total_label)
+        self._form_layout.addRow("Khách trả", self._paid_amount_input)
+        self._form_layout.addRow("Tiền dư", self._change_label)
+        self._form_layout.addRow("Thanh toán", self._payment_method_combo)
 
-        create_button = QPushButton("Tạo hóa đơn")
-        create_button.clicked.connect(self._create_invoice)
+        self._create_button = QPushButton("Tạo hóa đơn")
+        self._create_button.clicked.connect(self._create_invoice)
+
+        content = QWidget(self)
+        self._content_layout = QVBoxLayout(content)
+        self._content_layout.addWidget(self._title_label)
+        self._content_layout.addWidget(self._customer_picker)
+        self._content_layout.addWidget(self._product_search)
+        self._content_layout.addWidget(self._items_table)
+        self._content_layout.addLayout(self._form_layout)
+        self._content_layout.addWidget(self._create_button)
+        self._content_layout.addStretch()
+
+        self._scroll = QScrollArea(self)
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll.setWidget(content)
 
         layout = QVBoxLayout(self)
-        title = QLabel("Bán hàng")
-        subtitle = QLabel("Chọn khách, tìm hàng, thêm item và tạo hóa đơn thông qua SalesService.")
-        subtitle.setProperty("class", "muted")
-        subtitle.setWordWrap(True)
-        layout.addWidget(title)
-        layout.addWidget(subtitle)
-        layout.addWidget(self._customer_picker)
-        layout.addWidget(self._product_search)
-        layout.addWidget(self._items_table)
-        layout.addLayout(form_layout)
-        layout.addWidget(create_button)
-        layout.addStretch()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._scroll)
+
+        self.apply_ui_scale_preset(get_ui_scale_preset())
         self._refresh_amounts()
+
+    def apply_ui_scale_preset(self, preset: str) -> None:
+        self._ui_scale = get_ui_scale_factor(preset)
+        factor = self._ui_scale
+        self._title_label.setStyleSheet(f"font-size: {scaled(24, factor)}px; font-weight: 700;")
+        self._total_label.setStyleSheet(f"font-size: {scaled(32, factor)}px; font-weight: 700;")
+        self._change_label.setStyleSheet(f"font-size: {scaled(22, factor)}px;")
+        self._paid_amount_input.setMinimumHeight(scaled(54, factor))
+        self._paid_amount_input.setStyleSheet(f"font-size: {scaled(20, factor)}px; padding: {scaled(10, factor)}px {scaled(12, factor)}px;")
+        self._payment_method_combo.setMinimumHeight(scaled(54, factor))
+        self._payment_method_combo.setStyleSheet(f"font-size: {scaled(20, factor)}px; padding: {scaled(8, factor)}px {scaled(12, factor)}px;")
+        self._create_button.setMinimumHeight(scaled(58, factor))
+        self._create_button.setStyleSheet(f"font-size: {scaled(22, factor)}px; font-weight: 700; padding: {scaled(10, factor)}px {scaled(18, factor)}px;")
+        self._items_table.setMinimumHeight(scaled(320, factor))
+        self._content_layout.setContentsMargins(scaled(18, factor), scaled(10, factor), scaled(18, factor), scaled(14, factor))
+        self._content_layout.setSpacing(scaled(10, factor))
+
+        for index in range(self._form_layout.rowCount()):
+            label_item = self._form_layout.itemAt(index, QFormLayout.ItemRole.LabelRole)
+            if label_item is not None and label_item.widget() is not None:
+                label_item.widget().setStyleSheet(f"font-size: {scaled(20, factor)}px; font-weight: 600;")
+
+        self._customer_picker.apply_ui_scale(factor)
+        self._product_search.apply_ui_scale(factor)
+        self._items_table.verticalHeader().setDefaultSectionSize(scaled(52, factor))
+        self._items_table.verticalHeader().setMinimumSectionSize(scaled(52, factor))
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)

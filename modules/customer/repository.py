@@ -66,8 +66,7 @@ class CustomerRepository:
         return [
             entry
             for entry in entries
-            if needle in str(entry.ref_id).lower()
-            or (entry.customer and needle in entry.customer.customer_name.lower())
+            if entry.customer and needle in entry.customer.customer_name.lower()
         ]
 
     def list_ledgers_by_ref(self, customer_id: int, ref_type: str, ref_id: int) -> Sequence[CustomerBalanceLedger]:
@@ -88,3 +87,4 @@ class CustomerRepository:
             .order_by(CustomerBalanceLedger.id.asc())
         )
         return self.session.scalars(statement).all()
+

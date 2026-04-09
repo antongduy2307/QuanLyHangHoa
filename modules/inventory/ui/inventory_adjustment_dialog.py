@@ -21,6 +21,7 @@ from core.exceptions import ValidationError
 from modules.inventory.controller import InventoryController
 from shared.widgets.message_box import MessageBox
 from shared.widgets.numeric_inputs import SelectAllSpinBox
+from shared.widgets.ui_scale import apply_large_ui
 
 
 class AdjustmentRowWidget(QWidget):
@@ -117,6 +118,7 @@ class InventoryAdjustmentDialog(QDialog):
         layout.addWidget(scroll)
         layout.addWidget(add_button)
         layout.addWidget(buttons)
+        apply_large_ui(self)
 
         self._add_row()
 

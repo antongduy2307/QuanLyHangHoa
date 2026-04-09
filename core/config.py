@@ -16,6 +16,10 @@ from core.paths import (
 
 
 DEFAULT_APP_NAME = "Quản lý Hàng hóa"
+MAX_MONEY_INPUT = 10_000_000_000_000
+DEFAULT_UPDATE_MANIFEST_URL = "https://example.com/quanlyhanghoa/version.json"
+DEFAULT_UPDATE_CHECK_TIMEOUT_MS = 10_000
+DEFAULT_UPDATE_STARTUP_DELAY_MS = 3_000
 
 
 def _resolve_path(raw_value: str | None, fallback: Path) -> Path:
@@ -28,6 +32,16 @@ def _resolve_path(raw_value: str | None, fallback: Path) -> Path:
     return (PROJECT_ROOT / candidate).resolve()
 
 
+def _resolve_int(raw_value: str | None, fallback: int) -> int:
+    if not raw_value:
+        return fallback
+    try:
+        value = int(raw_value)
+    except ValueError:
+        return fallback
+    return value if value > 0 else fallback
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     app_name: str
@@ -37,6 +51,9 @@ class Settings:
     backup_dir: Path
     temp_dir: Path
     log_level: str
+    update_manifest_url: str
+    update_check_timeout_ms: int
+    update_startup_delay_ms: int
 
 
 @lru_cache(maxsize=1)
@@ -51,4 +68,7 @@ def get_settings() -> Settings:
         backup_dir=_resolve_path(getenv("APP_BACKUP_DIR"), get_default_backup_dir(app_name)),
         temp_dir=_resolve_path(getenv("APP_TEMP_DIR"), get_default_temp_dir(app_name)),
         log_level=getenv("APP_LOG_LEVEL", "INFO").upper(),
+        update_manifest_url=getenv("APP_UPDATE_MANIFEST_URL", DEFAULT_UPDATE_MANIFEST_URL).strip(),
+        update_check_timeout_ms=_resolve_int(getenv("APP_UPDATE_TIMEOUT_MS"), DEFAULT_UPDATE_CHECK_TIMEOUT_MS),
+        update_startup_delay_ms=_resolve_int(getenv("APP_UPDATE_STARTUP_DELAY_MS"), DEFAULT_UPDATE_STARTUP_DELAY_MS),
     )

@@ -10,6 +10,7 @@ from modules.returns.ui.return_list_view import ReturnListView
 from modules.sales.controller import SalesController
 from modules.sales.ui.invoice_list_view import InvoiceListView
 from modules.sales.ui.transaction_history_view import TransactionHistoryView
+from shared.widgets.ui_scale import apply_large_ui
 
 
 class HistoryPage(QWidget):
@@ -27,3 +28,4 @@ class HistoryPage(QWidget):
 
         layout = QVBoxLayout(self)
         layout.addWidget(tabs)
+        apply_large_ui(self)

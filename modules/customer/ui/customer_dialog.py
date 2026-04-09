@@ -4,8 +4,9 @@ from decimal import Decimal
 
 from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QMessageBox, QVBoxLayout
 
-from core.exceptions import ValidationError
+from core.config import MAX_MONEY_INPUT
 from shared.widgets.numeric_inputs import SelectAllSpinBox
+from shared.widgets.ui_scale import apply_large_ui
 
 
 class CustomerDialog(QDialog):
@@ -29,7 +30,7 @@ class CustomerDialog(QDialog):
         self.phone_input = QLineEdit(phone or "")
         self.address_input = QLineEdit(address or "")
         self.balance_input = SelectAllSpinBox()
-        self.balance_input.setRange(-999999999, 999999999)
+        self.balance_input.setRange(-MAX_MONEY_INPUT, MAX_MONEY_INPUT)
         self.balance_input.setValue(int(current_balance))
 
         form_layout = QFormLayout()
@@ -45,6 +46,7 @@ class CustomerDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addLayout(form_layout)
         layout.addWidget(buttons)
+        apply_large_ui(self)
 
     def payload(self) -> dict[str, object]:
         return {

@@ -5,9 +5,7 @@ from PyQt6.QtGui import QColor, QShowEvent
 from PyQt6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
-    QLineEdit,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -21,7 +19,9 @@ from modules.inventory.dto import InventoryProductDTO
 from modules.inventory.ui.inventory_adjustment_dialog import InventoryAdjustmentDialog
 from modules.inventory.ui.inventory_receipt_dialog import InventoryReceiptDialog
 from modules.inventory.ui.product_dialog import ProductDialog
+from shared.widgets.autocomplete_line_edit import AutocompleteLineEdit
 from shared.widgets.message_box import MessageBox
+from shared.widgets.table_helpers import configure_table_widget
 
 
 class ProductListView(QWidget):
@@ -30,20 +30,17 @@ class ProductListView(QWidget):
         self._controller = controller
         self._products: list[InventoryProductDTO] = []
 
-        self._search_input = QLineEdit()
+        self._search_input = AutocompleteLineEdit()
         self._search_input.setPlaceholderText("Tìm theo mã hoặc tên hàng...")
         self._search_input.textChanged.connect(self._apply_filter)
+        self._search_input.suggestion_selected.connect(self._handle_search_suggestion_selected)
 
         self._show_inactive_checkbox = QCheckBox("Hiện cả hàng ngừng sử dụng")
         self._show_inactive_checkbox.toggled.connect(self.reload)
 
         self._table = QTableWidget(0, 5)
         self._table.setHorizontalHeaderLabels(["Mã hàng", "Tên hàng", "Đơn vị bán", "Tồn hiện tại", "Trạng thái"])
-        self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self._table.verticalHeader().setVisible(False)
-        self._table.setAlternatingRowColors(True)
+        configure_table_widget(self._table, "inventory.product_list")
         self._table.itemDoubleClicked.connect(self._open_edit_product)
 
         create_button = QPushButton("Tạo mới")
@@ -103,6 +100,23 @@ class ProductListView(QWidget):
             else:
                 filtered = [p for p in self._products if query in p.product_name.lower()]
         self._render_rows(filtered)
+        self._update_search_suggestions(query, filtered)
+
+    def _update_search_suggestions(self, query: str, products: list[InventoryProductDTO]) -> None:
+        if not query:
+            self._search_input.hide_suggestions()
+            return
+        suggestions = [(f"{product.product_code_base} - {product.product_name}", product.id) for product in products[:20]]
+        self._search_input.set_suggestions(suggestions)
+
+    def _handle_search_suggestion_selected(self, product_id: object) -> None:
+        if product_id is None:
+            return
+        for row_index in range(self._table.rowCount()):
+            item = self._table.item(row_index, 0)
+            if item is not None and item.data(Qt.ItemDataRole.UserRole) == int(product_id):
+                self._table.setCurrentCell(row_index, 0)
+                break
 
     def _render_rows(self, products: list[InventoryProductDTO]) -> None:
         self._table.setRowCount(len(products))

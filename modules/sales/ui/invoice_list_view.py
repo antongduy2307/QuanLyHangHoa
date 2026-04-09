@@ -1,7 +1,7 @@
 ﻿from __future__ import annotations
 
 from PyQt6.QtGui import QShowEvent
-from PyQt6.QtWidgets import QHBoxLayout, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QMessageBox
+from PyQt6.QtWidgets import QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QMessageBox
 
 from modules.sales.controller import SalesController
 from modules.sales.models import Invoice
@@ -9,6 +9,7 @@ from modules.sales.ui.invoice_detail_popup import InvoiceDetailPopup
 from modules.sales.ui.invoice_edit_dialog import InvoiceEditDialog
 from shared.formatting.dates import format_datetime
 from shared.formatting.money import format_money
+from shared.widgets.autocomplete_line_edit import AutocompleteLineEdit
 from shared.widgets.message_box import MessageBox
 from shared.widgets.table_helpers import configure_table_widget
 
@@ -19,13 +20,14 @@ class InvoiceListView(QWidget):
         self._controller = controller
         self._invoices: list[Invoice] = []
 
-        self._search_input = QLineEdit()
-        self._search_input.setPlaceholderText("Tìm theo mã hóa đơn")
+        self._search_input = AutocompleteLineEdit()
+        self._search_input.setPlaceholderText("Tìm theo tên khách hàng")
         self._search_input.textChanged.connect(self._apply_filter)
+        self._search_input.suggestion_selected.connect(self._handle_search_suggestion_selected)
 
         self._table = QTableWidget(0, 7)
         self._table.setHorizontalHeaderLabels(["Mã hóa đơn", "Thời điểm", "Khách", "Tổng tiền", "Khách trả", "Thanh toán", "Số dòng"])
-        configure_table_widget(self._table)
+        configure_table_widget(self._table, "sales.invoice_list")
         self._table.itemDoubleClicked.connect(self._open_detail)
 
         view_button = QPushButton("Xem")
@@ -66,8 +68,25 @@ class InvoiceListView(QWidget):
         if not query:
             filtered = self._invoices
         else:
-            filtered = [invoice for invoice in self._invoices if query in invoice.invoice_code.lower()]
+            filtered = [invoice for invoice in self._invoices if query in invoice.customer_snapshot_name.lower()]
         self._render_rows(filtered)
+        self._update_search_suggestions(query, filtered)
+
+    def _update_search_suggestions(self, query: str, invoices: list[Invoice]) -> None:
+        if not query:
+            self._search_input.hide_suggestions()
+            return
+        suggestions = [(invoice.customer_snapshot_name, invoice.id) for invoice in invoices[:20]]
+        self._search_input.set_suggestions(suggestions)
+
+    def _handle_search_suggestion_selected(self, invoice_id: object) -> None:
+        if invoice_id is None:
+            return
+        for row_index in range(self._table.rowCount()):
+            item = self._table.item(row_index, 0)
+            if item is not None and item.data(256) == int(invoice_id):
+                self._table.setCurrentCell(row_index, 0)
+                break
 
     def _render_rows(self, invoices: list[Invoice]) -> None:
         self._table.setRowCount(len(invoices))

@@ -11,6 +11,7 @@ from shared.formatting.money import format_money
 from shared.formatting.quantity import format_quantity
 from shared.widgets.message_box import MessageBox
 from shared.widgets.table_helpers import configure_table_widget
+from shared.widgets.ui_scale import apply_large_ui
 
 
 class ReturnDetailPopup(QDialog):
@@ -27,13 +28,15 @@ class ReturnDetailPopup(QDialog):
         self._controller = controller
         self._on_updated = on_updated
         self.setWindowTitle(f"Phiếu trả {return_invoice.return_code}")
-        self.resize(720, 500)
+        self.resize(1050, 720)
+        self.setMinimumSize(920, 620)
 
         items_table = QTableWidget(0, 6)
         items_table.setHorizontalHeaderLabels(["Mã hàng", "Tên hàng", "Đơn vị", "Số lượng", "Đơn giá", "Thành tiền"])
-        configure_table_widget(items_table)
-        items_table.setRowCount(len(return_invoice.items))
+        configure_table_widget(items_table, "returns.detail.items")
+        items_table.setMinimumHeight(320)
         for row_index, item in enumerate(return_invoice.items):
+            items_table.insertRow(row_index)
             items_table.setItem(row_index, 0, QTableWidgetItem(item.product_code_snapshot))
             items_table.setItem(row_index, 1, QTableWidgetItem(item.product_name_snapshot))
             items_table.setItem(row_index, 2, QTableWidgetItem(item.unit_type.value))
@@ -51,6 +54,7 @@ class ReturnDetailPopup(QDialog):
         edit_button.clicked.connect(self._edit_return)
 
         layout = QVBoxLayout(self)
+        layout.setSpacing(14)
         layout.addWidget(QLabel(f"Mã trả hàng: {return_invoice.return_code}"))
         layout.addWidget(QLabel(f"Loại: {return_type}"))
         layout.addWidget(QLabel(f"Thời điểm: {format_datetime(return_invoice.return_datetime)}"))
@@ -62,6 +66,8 @@ class ReturnDetailPopup(QDialog):
         layout.addWidget(open_invoice_button)
         layout.addWidget(edit_button)
         layout.addWidget(items_table)
+        apply_large_ui(self)
+        self.setStyleSheet(self.styleSheet() + "\nQDialog QLabel { font-size: 16px; }\nQTableWidget { font-size: 15px; }\n")
 
     def _open_source_invoice(self) -> None:
         if self._return_invoice.source_invoice is None:

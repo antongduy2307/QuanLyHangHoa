@@ -2,10 +2,11 @@
 
 from decimal import Decimal, ROUND_HALF_UP
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import QPushButton, QTableWidget, QTableWidgetItem
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import QHeaderView, QPushButton, QTableWidget, QTableWidgetItem
 
-from shared.formatting.money import format_money
+from core.config import MAX_MONEY_INPUT
 from shared.widgets.numeric_inputs import SelectAllSpinBox
 from shared.widgets.table_helpers import configure_table_widget
 
@@ -16,7 +17,8 @@ class InvoiceItemsTable(QTableWidget):
     def __init__(self) -> None:
         super().__init__(0, 7)
         self.setHorizontalHeaderLabels(["Mã hàng", "Tên hàng", "Đơn vị", "Số lượng", "Đơn giá", "Thành tiền", ""])
-        configure_table_widget(self)
+        configure_table_widget(self, "sales.invoice_items")
+
         self._items: list[dict[str, object]] = []
         self._syncing = False
 
@@ -64,7 +66,13 @@ class InvoiceItemsTable(QTableWidget):
         try:
             self.setRowCount(len(self._items))
             for row, item in enumerate(self._items):
-                self.setItem(row, 0, QTableWidgetItem(str(item["product_code_base"])))
+                code_item = QTableWidgetItem(str(item["product_code_base"]))
+                code_font = QFont(code_item.font())
+                code_font.setBold(True)
+                code_font.setPointSize(code_font.pointSize() + 1)
+                code_item.setFont(code_font)
+                code_item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+                self.setItem(row, 0, code_item)
                 self.setItem(row, 1, QTableWidgetItem(str(item["product_name"])))
                 unit_type = item["unit_type"]
                 self.setItem(row, 2, QTableWidgetItem(unit_type.value if hasattr(unit_type, "value") else str(unit_type)))
@@ -72,19 +80,19 @@ class InvoiceItemsTable(QTableWidget):
                 quantity_spin = SelectAllSpinBox()
                 quantity_spin.setRange(1, 999999999)
                 quantity_spin.setValue(int(Decimal(str(item["quantity"]))))
-                quantity_spin.valueChanged.connect(lambda value, index=row: self._handle_quantity_changed(index, value))
+                quantity_spin.editingFinished.connect(lambda index=row, spin=quantity_spin: self._handle_quantity_finished(index, spin.value()))
                 self.setCellWidget(row, 3, quantity_spin)
 
                 unit_price_spin = SelectAllSpinBox()
-                unit_price_spin.setRange(0, 999999999)
+                unit_price_spin.setRange(0, MAX_MONEY_INPUT)
                 unit_price_spin.setValue(int(Decimal(str(item["unit_price"]))))
-                unit_price_spin.valueChanged.connect(lambda value, index=row: self._handle_unit_price_changed(index, value))
+                unit_price_spin.editingFinished.connect(lambda index=row, spin=unit_price_spin: self._handle_unit_price_finished(index, spin.value()))
                 self.setCellWidget(row, 4, unit_price_spin)
 
                 line_total_spin = SelectAllSpinBox()
-                line_total_spin.setRange(0, 999999999)
+                line_total_spin.setRange(0, MAX_MONEY_INPUT)
                 line_total_spin.setValue(int(Decimal(str(item["line_total"]))))
-                line_total_spin.valueChanged.connect(lambda value, index=row: self._handle_line_total_changed(index, value))
+                line_total_spin.editingFinished.connect(lambda index=row, spin=line_total_spin: self._handle_line_total_finished(index, spin.value()))
                 self.setCellWidget(row, 5, line_total_spin)
 
                 remove_button = QPushButton("Xóa")
@@ -94,7 +102,7 @@ class InvoiceItemsTable(QTableWidget):
             self._syncing = False
         self.totals_changed.emit()
 
-    def _handle_quantity_changed(self, row_index: int, value: int) -> None:
+    def _handle_quantity_finished(self, row_index: int, value: int) -> None:
         if self._syncing or not (0 <= row_index < len(self._items)):
             return
         item = self._items[row_index]
@@ -103,7 +111,7 @@ class InvoiceItemsTable(QTableWidget):
         item["line_total"] = quantity * Decimal(str(item["unit_price"]))
         self._render()
 
-    def _handle_unit_price_changed(self, row_index: int, value: int) -> None:
+    def _handle_unit_price_finished(self, row_index: int, value: int) -> None:
         if self._syncing or not (0 <= row_index < len(self._items)):
             return
         item = self._items[row_index]
@@ -112,7 +120,7 @@ class InvoiceItemsTable(QTableWidget):
         item["line_total"] = Decimal(str(item["quantity"])) * unit_price
         self._render()
 
-    def _handle_line_total_changed(self, row_index: int, value: int) -> None:
+    def _handle_line_total_finished(self, row_index: int, value: int) -> None:
         if self._syncing or not (0 <= row_index < len(self._items)):
             return
         item = self._items[row_index]
@@ -121,3 +129,5 @@ class InvoiceItemsTable(QTableWidget):
         item["line_total"] = line_total
         item["unit_price"] = (line_total / quantity).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
         self._render()
+
+

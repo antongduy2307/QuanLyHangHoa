@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QShowEvent
-from PyQt6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 
 from modules.customer.controller import CustomerController
 from modules.customer.dto import CustomerDTO
@@ -12,6 +12,7 @@ from modules.customer.ui.customer_detail_popup import CustomerDetailPopup
 from modules.customer.ui.customer_dialog import CustomerDialog
 from modules.customer.ui.debt_payment_dialog import DebtPaymentDialog
 from shared.formatting.money import format_money
+from shared.widgets.autocomplete_line_edit import AutocompleteLineEdit
 from shared.widgets.message_box import MessageBox
 from shared.widgets.table_helpers import configure_table_widget
 
@@ -22,9 +23,10 @@ class CustomerListView(QWidget):
         self._controller = controller
         self._customers: list[CustomerDTO] = []
 
-        self._search_input = QLineEdit()
+        self._search_input = AutocompleteLineEdit()
         self._search_input.setPlaceholderText("Tìm theo tên hoặc số điện thoại")
         self._search_input.textChanged.connect(self._apply_filter)
+        self._search_input.suggestion_selected.connect(self._handle_search_suggestion_selected)
 
         self._sort_combo = QComboBox()
         self._sort_combo.addItem("Tên A-Z", "name_asc")
@@ -40,7 +42,7 @@ class CustomerListView(QWidget):
 
         self._table = QTableWidget(0, 5)
         self._table.setHorizontalHeaderLabels(["Tên khách", "Điện thoại", "Địa chỉ", "Công nợ", "Tổng mua"])
-        configure_table_widget(self._table)
+        configure_table_widget(self._table, "customer.list")
         self._table.itemDoubleClicked.connect(self._open_detail_for_selected)
 
         create_button = QPushButton("Tạo khách")
@@ -91,6 +93,29 @@ class CustomerListView(QWidget):
         filtered = self._controller.search_customers(query, sort_option, only_positive_debt) if query else self._controller.list_customers(sort_option, only_positive_debt)
         self._customers = filtered
         self._render_rows(filtered)
+        self._update_search_suggestions(query, filtered)
+
+    def _update_search_suggestions(self, query: str, customers: list[CustomerDTO]) -> None:
+        if not query:
+            self._search_input.hide_suggestions()
+            return
+        suggestions: list[tuple[str, object]] = []
+        for customer in customers[:20]:
+            label = customer.customer_name if not customer.phone else f"{customer.customer_name} | {customer.phone}"
+            suggestions.append((label, customer.id))
+        self._search_input.set_suggestions(suggestions)
+
+    def _handle_search_suggestion_selected(self, customer_id: object) -> None:
+        if customer_id is None:
+            return
+        self._select_customer_row(int(customer_id))
+
+    def _select_customer_row(self, customer_id: int) -> None:
+        for row_index in range(self._table.rowCount()):
+            item = self._table.item(row_index, 0)
+            if item is not None and item.data(Qt.ItemDataRole.UserRole) == customer_id:
+                self._table.setCurrentCell(row_index, 0)
+                break
 
     def _render_rows(self, customers: list[CustomerDTO]) -> None:
         self._table.setRowCount(len(customers))
@@ -194,3 +219,4 @@ class CustomerListView(QWidget):
             CustomerDetailPopup(detail, self).exec()
         except Exception as exc:
             MessageBox.error(self, "Không tải được chi tiết", str(exc))
+

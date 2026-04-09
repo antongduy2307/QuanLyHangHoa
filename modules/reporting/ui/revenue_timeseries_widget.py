@@ -12,7 +12,7 @@ class RevenueTimeseriesWidget(QWidget):
         super().__init__(parent)
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["Ngày", "Doanh thu gộp", "Tiền trả", "Doanh thu ròng"])
-        configure_table_widget(self.table)
+        configure_table_widget(self.table, "reporting.revenue_timeseries")
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.table)
@@ -24,3 +24,5 @@ class RevenueTimeseriesWidget(QWidget):
             self.table.setItem(row_index, 1, QTableWidgetItem(format_money(point.gross_sales_amount)))
             self.table.setItem(row_index, 2, QTableWidgetItem(format_money(point.return_amount)))
             self.table.setItem(row_index, 3, QTableWidgetItem(format_money(point.net_revenue)))
+
+

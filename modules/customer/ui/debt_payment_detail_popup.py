@@ -12,6 +12,7 @@ from modules.customer.ui.debt_payment_dialog import DebtPaymentDialog
 from shared.formatting.dates import format_datetime
 from shared.formatting.money import format_money
 from shared.widgets.message_box import MessageBox
+from shared.widgets.ui_scale import apply_large_ui
 
 
 class DebtPaymentDetailPopup(QDialog):
@@ -28,12 +29,14 @@ class DebtPaymentDetailPopup(QDialog):
         self._controller = controller
         self._on_updated = on_updated
         self.setWindowTitle(f"Trả nợ {ledger.ref_id}")
-        self.resize(420, 260)
+        self.resize(760, 420)
+        self.setMinimumSize(680, 360)
 
         customer_name = ledger.customer.customer_name if ledger.customer else "-"
         phone = ledger.customer.phone if ledger.customer and ledger.customer.phone else "-"
 
         layout = QVBoxLayout(self)
+        layout.setSpacing(14)
         layout.addWidget(QLabel("Loại giao dịch: Trả nợ"))
         layout.addWidget(QLabel(f"Tên khách: {customer_name}"))
         layout.addWidget(QLabel(f"Điện thoại: {phone}"))
@@ -45,6 +48,8 @@ class DebtPaymentDetailPopup(QDialog):
             edit_button = QPushButton("Sửa")
             edit_button.clicked.connect(self._edit_payment)
             layout.addWidget(edit_button)
+        apply_large_ui(self)
+        self.setStyleSheet(self.styleSheet() + "\nQDialog QLabel { font-size: 16px; }\n")
 
     def _edit_payment(self) -> None:
         if self._controller is None or self._ledger.customer is None:
@@ -60,7 +65,7 @@ class DebtPaymentDetailPopup(QDialog):
             )
             if dialog.exec():
                 payload = dialog.payload()
-                updated = self._controller.update_debt_payment(latest_ledger.id, Decimal(payload["amount"]), note=payload["note"])
+                self._controller.update_debt_payment(latest_ledger.id, Decimal(payload["amount"]), note=payload["note"])
                 if self._on_updated is not None:
                     self._on_updated()
                 MessageBox.info(self, "Thành công", "Đã cập nhật giao dịch trả nợ.")

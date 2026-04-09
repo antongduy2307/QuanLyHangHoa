@@ -4,11 +4,13 @@ from decimal import Decimal
 
 from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QVBoxLayout
 
+from core.config import MAX_MONEY_INPUT
 from core.exceptions import ValidationError
 from modules.customer.dto import CustomerDTO
 from shared.formatting.money import format_money
 from shared.widgets.message_box import MessageBox
 from shared.widgets.numeric_inputs import SelectAllSpinBox
+from shared.widgets.ui_scale import apply_large_ui
 
 
 class DebtPaymentDialog(QDialog):
@@ -28,7 +30,7 @@ class DebtPaymentDialog(QDialog):
         self.resize(360, 220)
 
         self.amount_input = SelectAllSpinBox()
-        self.amount_input.setRange(0, 999999999)
+        self.amount_input.setRange(0, MAX_MONEY_INPUT)
         self.amount_input.setValue(int(amount))
         self.note_input = QLineEdit(note or "")
 
@@ -46,6 +48,7 @@ class DebtPaymentDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addLayout(form_layout)
         layout.addWidget(buttons)
+        apply_large_ui(self)
 
     def payload(self) -> dict[str, object]:
         return {

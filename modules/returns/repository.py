@@ -37,7 +37,7 @@ class ReturnsRepository:
         )
         return self.session.scalars(statement).all()
 
-    def search_return_invoices_by_code(self, query: str, limit: int = 20) -> Sequence[ReturnInvoice]:
+    def search_return_invoices_by_customer_name(self, query: str, limit: int = 20) -> Sequence[ReturnInvoice]:
         needle = query.strip()
         statement = (
             select(ReturnInvoice)
@@ -57,7 +57,7 @@ class ReturnsRepository:
                     selectinload(ReturnInvoice.source_invoice),
                     selectinload(ReturnInvoice.customer),
                 )
-                .where(ReturnInvoice.return_code.ilike(f"%{needle}%"))
+                .where(ReturnInvoice.customer_snapshot_name.ilike(f"%{needle}%"))
                 .order_by(ReturnInvoice.return_datetime.desc())
                 .limit(limit)
             )
@@ -105,4 +105,3 @@ class ReturnsRepository:
         )
         result = self.session.scalar(statement)
         return Decimal(str(result or 0))
-

@@ -19,7 +19,7 @@ class TopProductsTableWidget(QWidget):
         self.limit_input.setRange(1, 100)
         self.limit_input.setValue(10)
 
-        self.table = QTableWidget(0, 9)
+        self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels([
             "Mã hàng",
             "Tên hàng",
@@ -28,10 +28,9 @@ class TopProductsTableWidget(QWidget):
             "Doanh thu gộp",
             "Đã trả",
             "Tiền trả",
-            "Số lượng ròng",
             "Doanh thu ròng",
         ])
-        configure_table_widget(self.table)
+        configure_table_widget(self.table, "reporting.top_products")
 
         control_layout = QHBoxLayout()
         control_layout.addWidget(QLabel("Sắp xếp theo"))
@@ -60,5 +59,4 @@ class TopProductsTableWidget(QWidget):
             self.table.setItem(row_index, 4, QTableWidgetItem(format_money(row.gross_revenue)))
             self.table.setItem(row_index, 5, QTableWidgetItem(format_quantity(row.returned_quantity)))
             self.table.setItem(row_index, 6, QTableWidgetItem(format_money(row.return_amount)))
-            self.table.setItem(row_index, 7, QTableWidgetItem(format_quantity(row.net_quantity)))
-            self.table.setItem(row_index, 8, QTableWidgetItem(format_money(row.net_revenue)))
+            self.table.setItem(row_index, 7, QTableWidgetItem(format_money(row.net_revenue)))

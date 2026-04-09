@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import QVBoxLayout, QWidget
 from modules.inventory.controller import InventoryController
 from modules.inventory.service import InventoryService
 from modules.inventory.ui.product_list_view import ProductListView
+from shared.widgets.ui_scale import apply_large_ui
 
 
 class InventoryPage(QWidget):
@@ -14,3 +15,4 @@ class InventoryPage(QWidget):
 
         layout = QVBoxLayout(self)
         layout.addWidget(ProductListView(controller))
+        apply_large_ui(self)

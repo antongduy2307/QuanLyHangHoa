@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 from PyQt6.QtCore import QDate
 from PyQt6.QtGui import QShowEvent
-from PyQt6.QtWidgets import QComboBox, QDateEdit, QHBoxLayout, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QComboBox, QDateEdit, QHBoxLayout, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 
 from core.db import SessionFactory
 from modules.customer.controller import CustomerController
@@ -15,6 +15,7 @@ from modules.sales.controller import SalesController, TransactionHistoryRow
 from modules.sales.ui.invoice_detail_popup import InvoiceDetailPopup
 from shared.formatting.dates import format_datetime
 from shared.formatting.money import format_money
+from shared.widgets.autocomplete_line_edit import AutocompleteLineEdit
 from shared.widgets.message_box import MessageBox
 from shared.widgets.table_helpers import configure_table_widget
 
@@ -25,9 +26,10 @@ class TransactionHistoryView(QWidget):
         self._controller = controller
         self._rows: list[TransactionHistoryRow] = []
 
-        self._search_input = QLineEdit()
+        self._search_input = AutocompleteLineEdit()
         self._search_input.setPlaceholderText("Tìm theo tên khách hoặc mã giao dịch")
         self._search_input.textChanged.connect(self._reload)
+        self._search_input.suggestion_selected.connect(self._handle_search_suggestion_selected)
 
         self._type_combo = QComboBox()
         self._type_combo.addItem("Tất cả", "ALL")
@@ -51,7 +53,7 @@ class TransactionHistoryView(QWidget):
 
         self._table = QTableWidget(0, 5)
         self._table.setHorizontalHeaderLabels(["Thời gian giao dịch", "Loại giao dịch", "Mã giao dịch", "Tên khách", "Số tiền giao dịch"])
-        configure_table_widget(self._table)
+        configure_table_widget(self._table, "sales.transaction_history")
         self._table.itemDoubleClicked.connect(self._open_detail)
 
         controls = QHBoxLayout()
@@ -85,8 +87,26 @@ class TransactionHistoryView(QWidget):
                 )
             )
             self._render_rows()
+            self._update_search_suggestions(self._search_input.text().strip(), self._rows)
         except Exception as exc:
             MessageBox.error(self, "Không tải được lịch sử giao dịch", str(exc))
+
+    def _update_search_suggestions(self, query: str, rows: list[TransactionHistoryRow]) -> None:
+        if not query:
+            self._search_input.hide_suggestions()
+            return
+        suggestions = [(f"{row.transaction_code} | {row.customer_name}", (row.transaction_type, row.transaction_id)) for row in rows[:20]]
+        self._search_input.set_suggestions(suggestions)
+
+    def _handle_search_suggestion_selected(self, payload: object) -> None:
+        if not isinstance(payload, tuple):
+            return
+        transaction_type, transaction_id = payload
+        for row_index in range(self._table.rowCount()):
+            item = self._table.item(row_index, 0)
+            if item is not None and item.data(256) == (transaction_type, transaction_id):
+                self._table.setCurrentCell(row_index, 0)
+                break
 
     def _render_rows(self) -> None:
         self._table.setRowCount(len(self._rows))
@@ -121,5 +141,4 @@ class TransactionHistoryView(QWidget):
                 DebtPaymentDetailPopup(ledger, self, controller=customer_controller, on_updated=self._reload).exec()
         except Exception as exc:
             MessageBox.error(self, "Không tải được chi tiết giao dịch", str(exc))
-
 

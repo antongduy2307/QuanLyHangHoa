@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 from core.exceptions import ValidationError
 from shared.widgets.message_box import MessageBox
 from shared.widgets.numeric_inputs import SelectAllSpinBox
+from shared.widgets.ui_scale import apply_large_ui
 
 
 class ReceiptRowWidget(QWidget):
@@ -71,6 +72,7 @@ class InventoryReceiptDialog(QDialog):
         layout.addWidget(scroll)
         layout.addWidget(add_button)
         layout.addWidget(buttons)
+        apply_large_ui(self)
 
         self._add_row()
 

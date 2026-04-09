@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import QVBoxLayout, QWidget
 from modules.customer.controller import CustomerController
 from modules.customer.service import CustomerService
 from modules.customer.ui.customer_list_view import CustomerListView
+from shared.widgets.ui_scale import apply_large_ui
 
 
 class CustomerPage(QWidget):
@@ -14,3 +15,4 @@ class CustomerPage(QWidget):
 
         layout = QVBoxLayout(self)
         layout.addWidget(CustomerListView(controller))
+        apply_large_ui(self)

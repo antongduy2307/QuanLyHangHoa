@@ -1,26 +1,179 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
 
-from PyQt6.QtWidgets import QMainWindow
+from PyQt6.QtCore import QCoreApplication, QTimer, Qt
+from PyQt6.QtWidgets import QMainWindow, QProgressDialog
 
+from core.config import Settings
+from core.logging import get_logger
+from modules.update.service import UpdateCheckResult, UpdateDownloadResult, UpdateService
+from modules.update.ui.update_dialog import UpdateDialog
+from shared.widgets.message_box import MessageBox
 from shell.history_page import HistoryPage
 from shell.navigation import NavigationTabs
 
-if TYPE_CHECKING:
-    from shell.bootstrap import ModuleSpec
+
+LOGGER = get_logger(__name__)
 
 
 class AppWindow(QMainWindow):
-    def __init__(self, title: str, modules: Sequence[ModuleSpec]) -> None:
+    def __init__(self, title: str, modules: Sequence[object], settings: Settings) -> None:
         super().__init__()
+        self._settings = settings
         self.setWindowTitle(title)
         self.resize(1200, 720)
+        self._module_pages: dict[str, object] = {}
+        self._settings_page: object | None = None
+        self._active_check_origin: str | None = None
+        self._pending_update_result: UpdateCheckResult | None = None
+        self._update_progress_dialog: QProgressDialog | None = None
+        self._update_service = UpdateService(settings=settings, parent=self)
+        self._update_service.check_finished.connect(self._handle_update_check_result)
+        self._update_service.download_finished.connect(self._handle_update_download_result)
+        self._update_service.download_progress.connect(self._handle_update_download_progress)
 
         tabs = NavigationTabs()
         for module_spec in modules:
-            tabs.add_page(module_spec.label, module_spec.page_factory())
+            page = module_spec.page_factory()
+            self._module_pages[module_spec.key] = page
+            if module_spec.key == "settings":
+                self._settings_page = page
+                if hasattr(page, "check_updates_requested"):
+                    page.check_updates_requested.connect(self._run_manual_update_check)
+                if hasattr(page, "set_update_status"):
+                    page.set_update_status("Sẵn sàng kiểm tra cập nhật.")
+            tabs.add_page(module_spec.label, page)
+            if hasattr(page, "ui_scale_changed"):
+                page.ui_scale_changed.connect(self._apply_ui_scale_preset_to_pages)
 
         tabs.add_page("Lịch sử", HistoryPage())
         self.setCentralWidget(tabs)
+
+        self._startup_update_timer = QTimer(self)
+        self._startup_update_timer.setSingleShot(True)
+        self._startup_update_timer.timeout.connect(self._run_startup_update_check)
+        self._startup_update_timer.start(settings.update_startup_delay_ms)
+
+    def _apply_ui_scale_preset_to_pages(self, preset: str) -> None:
+        for page in self._module_pages.values():
+            if hasattr(page, "apply_ui_scale_preset"):
+                page.apply_ui_scale_preset(preset)
+
+    def _run_manual_update_check(self) -> None:
+        self._start_update_check("manual")
+
+    def _run_startup_update_check(self) -> None:
+        self._start_update_check("startup")
+
+    def _start_update_check(self, origin: str) -> None:
+        if self._active_check_origin is not None or self._update_progress_dialog is not None:
+            if origin == "manual":
+                MessageBox.info(self, "Cập nhật ứng dụng", "Đang có một tác vụ cập nhật khác chạy.")
+            return
+
+        self._active_check_origin = origin
+        self._set_update_busy(True, "Đang kiểm tra cập nhật...")
+        self._update_service.check_for_update()
+
+    def _handle_update_check_result(self, result: UpdateCheckResult) -> None:
+        origin = self._active_check_origin or "manual"
+        self._active_check_origin = None
+
+        if result.error:
+            self._set_update_busy(False, "Không kiểm tra được cập nhật.")
+            if origin == "manual":
+                MessageBox.warning(self, "Cập nhật ứng dụng", result.error)
+            return
+
+        if result.has_update or result.is_forced_update:
+            self._set_update_busy(False, f"Đã tìm thấy phiên bản {result.latest_version}.")
+            self._present_update_dialog(result)
+            return
+
+        self._set_update_busy(False, "Bạn đang dùng phiên bản mới nhất.")
+        if origin == "manual":
+            MessageBox.info(self, "Cập nhật ứng dụng", "Bạn đang dùng phiên bản mới nhất.")
+
+    def _present_update_dialog(self, result: UpdateCheckResult) -> None:
+        dialog = UpdateDialog(result, self)
+        dialog.exec()
+
+        if dialog.selected_action == "update":
+            self._begin_update_download(result)
+            return
+        if dialog.selected_action == "exit":
+            app = QCoreApplication.instance()
+            if app is not None:
+                app.quit()
+
+    def _begin_update_download(self, result: UpdateCheckResult) -> None:
+        if not result.latest_version or not result.installer_url:
+            MessageBox.warning(self, "Cập nhật ứng dụng", "Manifest cập nhật không có installer hợp lệ.")
+            return
+
+        self._pending_update_result = result
+        self._set_update_busy(True, f"Đang tải phiên bản {result.latest_version}...")
+
+        progress_dialog = QProgressDialog("Đang tải installer cập nhật...", None, 0, 0, self)
+        progress_dialog.setWindowTitle("Cập nhật ứng dụng")
+        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        progress_dialog.setCancelButton(None)
+        progress_dialog.setMinimumDuration(0)
+        progress_dialog.show()
+        self._update_progress_dialog = progress_dialog
+
+        self._update_service.download_installer(result.installer_url, result.latest_version)
+
+    def _handle_update_download_progress(self, received: int, total: int) -> None:
+        if self._update_progress_dialog is None:
+            return
+
+        if total > 0:
+            self._update_progress_dialog.setRange(0, total)
+            self._update_progress_dialog.setValue(received)
+            self._update_progress_dialog.setLabelText(f"Đang tải installer cập nhật... {received}/{total} bytes")
+            return
+
+        self._update_progress_dialog.setRange(0, 0)
+
+    def _handle_update_download_result(self, result: UpdateDownloadResult) -> None:
+        pending_result = self._pending_update_result
+        self._pending_update_result = None
+
+        if self._update_progress_dialog is not None:
+            self._update_progress_dialog.close()
+            self._update_progress_dialog.deleteLater()
+            self._update_progress_dialog = None
+
+        if not result.success or result.installer_path is None:
+            self._set_update_busy(False, "Tải installer cập nhật thất bại.")
+            MessageBox.warning(self, "Cập nhật ứng dụng", result.error or "Không tải được installer cập nhật.")
+            if pending_result is not None and pending_result.is_forced_update:
+                QTimer.singleShot(0, lambda: self._present_update_dialog(pending_result))
+            return
+
+        try:
+            launcher_path = self._update_service.launch_installer_after_exit(result.installer_path)
+        except RuntimeError as exc:
+            LOGGER.exception("Không thể handoff updater sang launcher tạm")
+            self._set_update_busy(False, "Không thể mở installer cập nhật.")
+            MessageBox.error(self, "Cập nhật ứng dụng", str(exc))
+            if pending_result is not None and pending_result.is_forced_update:
+                QTimer.singleShot(0, lambda: self._present_update_dialog(pending_result))
+            return
+
+        LOGGER.info("Update launcher created at %s for installer %s", launcher_path, result.installer_path)
+        self._set_update_busy(False, f"Đã tải xong phiên bản {result.version}.")
+        MessageBox.info(
+            self,
+            "Cập nhật ứng dụng",
+            "Installer mới đã được tải xong. Ứng dụng sẽ đóng để bắt đầu cài đè lên bản hiện tại.",
+        )
+        app = QCoreApplication.instance()
+        if app is not None:
+            QTimer.singleShot(0, app.quit)
+
+    def _set_update_busy(self, busy: bool, message: str) -> None:
+        if self._settings_page is not None and hasattr(self._settings_page, "set_update_busy"):
+            self._settings_page.set_update_busy(busy, message)

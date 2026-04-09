@@ -9,6 +9,7 @@ from modules.returns.ui.source_invoice_items_table import SourceInvoiceItemsTabl
 from shared.formatting.dates import format_datetime
 from shared.formatting.money import format_money
 from shared.widgets.message_box import MessageBox
+from shared.widgets.ui_scale import apply_large_ui
 
 
 class ReturnEditDialog(QDialog):
@@ -47,6 +48,7 @@ class ReturnEditDialog(QDialog):
         layout.addWidget(self._items_table)
         layout.addWidget(self._summary_widget)
         layout.addWidget(save_button)
+        apply_large_ui(self)
 
     def _refresh_total(self) -> None:
         self._summary_widget.set_total(self._items_table.total_amount())
