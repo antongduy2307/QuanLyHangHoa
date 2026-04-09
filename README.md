@@ -67,6 +67,43 @@ dist\QuanLyHangHoa\QuanLyHangHoa.exe
 
 Ban build van doc local database tu `%LOCALAPPDATA%\\<AppName>\\app.db`, khong phu thuoc vao working directory cua source project.
 
+## Build Installer (Inno Setup)
+
+Installer hien tai dong goi truc tiep output `onedir` tu PyInstaller.
+
+1. Build PyInstaller truoc:
+
+```bash
+pyinstaller --noconfirm desktop_app.spec
+```
+
+2. Mo file script Inno Setup:
+
+- `installer\QuanLyHangHoa.iss`
+
+3. Compile bang Inno Setup:
+
+- Cach GUI:
+  - mo Inno Setup Compiler
+  - mo `installer\QuanLyHangHoa.iss`
+  - bam `Build` / `Compile`
+- Cach command line neu da co `ISCC` trong PATH:
+
+```bash
+ISCC installer\QuanLyHangHoa.iss
+```
+
+4. Output installer:
+
+- `dist\installer\QuanLyHangHoa-Setup-0.1.0.exe`
+
+5. Chay thu installer:
+
+- cai app vao `Program Files\QuanLyHangHoa`
+- shortcut duoc tao:
+  - Start Menu
+  - Desktop (neu user tick task desktop icon)
+
 ## Ghi chu
 
 - Day la skeleton sach de bat dau phat trien, chua trien khai nghiep vu sau.
