@@ -66,17 +66,6 @@ class CustomerController:
         "RETURN": 20,
         "DEBT_PAYMENT": 30,
     }
-    _DEBT_ONLY_LEDGER_EVENT_TYPES = {
-        "OPENING_BALANCE",
-        "BALANCE_ADJUSTMENT",
-        "CUSTOMER_BALANCE_ADJUSTMENT",
-        "INITIAL_DEBT",
-        "ADJUSTMENT",
-        "MANUAL",
-    }
-    _TRADE_REF_TYPES = {"INVOICE", "RETURN"}
-    _INTERNAL_DEBT_LEDGER_EVENT_TYPES = {"DEBT_PAYMENT_EDIT_ROLLBACK", "ROLLBACK"}
-
     VALID_SORTS = {
         "name_asc",
         "name_desc",
@@ -263,15 +252,30 @@ class CustomerController:
 
     def list_customer_debt_history(self, customer_id: int) -> tuple[CustomerDebtEntry, ...]:
         sales_repository = SalesRepository(self._session_factory)
+        returns_repository = ReturnsRepository(self._session_factory)
         customer_repository = CustomerRepository(self._session_factory)
 
         invoices = tuple(sales_repository.list_invoices_by_customer(customer_id))
+        return_invoices = tuple(returns_repository.list_return_invoices_by_customer(customer_id))
         debt_payments = tuple(customer_repository.list_debt_payments_by_customer(customer_id))
         ledgers = tuple(customer_repository.list_balance_ledgers_by_customer(customer_id))
         sales_repository.session.close()
+        returns_repository.session.close()
         customer_repository.session.close()
 
+        invoice_ledgers = self._group_ledgers_by_ref(ledgers, "INVOICE")
+        return_ledgers = self._group_ledgers_by_ref(ledgers, "RETURN")
         invoice_id_by_code = {invoice.invoice_code: invoice.id for invoice in invoices}
+        invoice_balances = {ref_id: entries[-1].balance_after for ref_id, entries in invoice_ledgers.items()}
+        return_balances = {ref_id: entries[-1].balance_after for ref_id, entries in return_ledgers.items()}
+        invoice_timeline_datetimes = {
+            ref_id: self._reference_effective_datetime(entries)
+            for ref_id, entries in invoice_ledgers.items()
+        }
+        return_timeline_datetimes = {
+            ref_id: self._reference_effective_datetime(entries)
+            for ref_id, entries in return_ledgers.items()
+        }
 
         entries: list[CustomerDebtEntry] = []
         entries.extend(
@@ -288,7 +292,40 @@ class CustomerController:
                 sort_datetime=ledger.effective_transaction_datetime,
             )
             for ledger in ledgers
-            if self._is_debt_only_ledger(ledger)
+            if ledger.event_type in {"OPENING_BALANCE", "BALANCE_ADJUSTMENT", "ADJUSTMENT", "MANUAL", "CUSTOMER_BALANCE_ADJUSTMENT", "INITIAL_DEBT"}
+            and (ledger.ref_type or "").upper() not in {"INVOICE", "RETURN", "DEBT_PAYMENT"}
+        )
+        entries.extend(
+            CustomerDebtEntry(
+                transaction_id=invoice.id,
+                transaction_kind="INVOICE",
+                transaction_datetime=invoice_timeline_datetimes[invoice.id],
+                transaction_type="Bán hàng",
+                amount=invoice.total_amount,
+                balance_after=invoice_balances[invoice.id],
+                display_order=self._DEFAULT_DISPLAY_ORDER["INVOICE"],
+                source_ref_type="INVOICE",
+                source_ref_id=invoice.id,
+                sort_datetime=invoice_timeline_datetimes[invoice.id],
+            )
+            for invoice in invoices
+            if invoice.id in invoice_balances and invoice.id in invoice_timeline_datetimes
+        )
+        entries.extend(
+            CustomerDebtEntry(
+                transaction_id=return_invoice.id,
+                transaction_kind="RETURN",
+                transaction_datetime=return_timeline_datetimes[return_invoice.id],
+                transaction_type="Trả hàng",
+                amount=return_invoice.total_amount,
+                balance_after=return_balances[return_invoice.id],
+                display_order=self._DEFAULT_DISPLAY_ORDER["RETURN"],
+                source_ref_type="RETURN",
+                source_ref_id=return_invoice.id,
+                sort_datetime=return_timeline_datetimes[return_invoice.id],
+            )
+            for return_invoice in return_invoices
+            if return_invoice.id in return_balances and return_invoice.id in return_timeline_datetimes
         )
         entries.extend(
             CustomerDebtEntry(
@@ -425,6 +462,18 @@ class CustomerController:
             names.append(product_name)
         return ", ".join(names) if names else "-"
 
+    @staticmethod
+    def _group_ledgers_by_ref(
+        ledgers: Sequence[CustomerBalanceLedger],
+        ref_type: str,
+    ) -> dict[int, list[CustomerBalanceLedger]]:
+        grouped: dict[int, list[CustomerBalanceLedger]] = {}
+        for ledger in ledgers:
+            if ledger.ref_type != ref_type:
+                continue
+            grouped.setdefault(ledger.ref_id, []).append(ledger)
+        return grouped
+
     def _sort_history_entries(self, entries: list[CustomerHistoryEntry | CustomerDebtEntry]) -> None:
         entries.sort(
             key=lambda entry: (
@@ -477,16 +526,9 @@ class CustomerController:
             return invoice_datetime_by_id[source_invoice_id]
         return ledger.effective_transaction_datetime
 
-    def _is_debt_only_ledger(self, ledger: CustomerBalanceLedger) -> bool:
-        event_type = (ledger.event_type or "").upper()
-        ref_type = (ledger.ref_type or "").upper()
-        if event_type in self._INTERNAL_DEBT_LEDGER_EVENT_TYPES:
-            return False
-        if event_type == "DEBT_PAYMENT" or ref_type == "DEBT_PAYMENT":
-            return False
-        if ref_type in self._TRADE_REF_TYPES or event_type.startswith(("INVOICE_", "RETURN_")):
-            return False
-        return event_type in self._DEBT_ONLY_LEDGER_EVENT_TYPES
+    @staticmethod
+    def _reference_effective_datetime(entries: Sequence[CustomerBalanceLedger]) -> datetime:
+        return entries[-1].effective_transaction_datetime
 
     def _ledger_source_ref_type(
         self,
