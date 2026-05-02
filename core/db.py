@@ -7,6 +7,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from core.config import get_settings
+from core.migrations import migrate_customer_invoice_payments_to_debt_payment_v1
 from core.utils import ensure_directories
 
 
@@ -142,3 +143,8 @@ def init_db() -> None:
     _ensure_customer_note_column()
     _ensure_customer_balance_ledger_transaction_datetime_column()
     _ensure_customer_balance_ledger_ordering_columns()
+    migrate_customer_invoice_payments_to_debt_payment_v1(
+        ENGINE,
+        db_path=settings.db_path,
+        backup_dir=settings.backup_dir,
+    )

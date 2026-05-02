@@ -185,12 +185,6 @@ class SalesService:
         if invoice.customer_id is None and actual_paid_amount < total_amount:
             raise ValidationError("Khách lẻ phải trả đủ tiền hóa đơn.")
 
-        applied_paid_amount = actual_paid_amount
-        excess_paid_amount = Decimal("0")
-        if invoice.customer_id is not None:
-            applied_paid_amount = min(actual_paid_amount, total_amount)
-            excess_paid_amount = actual_paid_amount - applied_paid_amount
-
         invoice.total_amount = total_amount
         invoice.paid_amount = actual_paid_amount
         if note_override is not None:
@@ -209,24 +203,11 @@ class SalesService:
                 source_ref_id=invoice.id,
                 display_order=10,
             )
-            if applied_paid_amount != Decimal("0"):
-                self._customer_service.adjust_balance(
-                    invoice.customer_id,
-                    -applied_paid_amount,
-                    "INVOICE",
-                    invoice.id,
-                    note=f"Invoice payment {invoice.invoice_code}",
-                    event_type="INVOICE_PAYMENT",
-                    transaction_datetime=invoice.invoice_datetime,
-                    source_ref_type="INVOICE",
-                    source_ref_id=invoice.id,
-                    display_order=10,
-                )
-            if excess_paid_amount > Decimal("0"):
+            if actual_paid_amount > Decimal("0"):
                 self._customer_service.pay_debt(
                     invoice.customer_id,
-                    excess_paid_amount,
-                    note=f"Overpayment from invoice {invoice.invoice_code}",
+                    actual_paid_amount,
+                    note=f"Invoice payment {invoice.invoice_code}",
                     payment_datetime=invoice.invoice_datetime,
                     source_ref_type="INVOICE",
                     source_ref_id=invoice.id,
