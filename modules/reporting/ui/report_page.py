@@ -1,5 +1,6 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QShowEvent
 from PyQt6.QtWidgets import QMessageBox, QVBoxLayout, QWidget
 
@@ -14,6 +15,7 @@ class ReportPage(QWidget):
     def __init__(self, controller: ReportingController) -> None:
         super().__init__()
         self._controller = controller
+        self._refresh_pending = False
         self._range_selector = DateRangeSelectorWidget(self)
         self._summary_widget = SalesSummaryWidget(self)
         self._timeseries_widget = RevenueTimeseriesWidget(self)
@@ -30,12 +32,20 @@ class ReportPage(QWidget):
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
-        self.reload_current_report()
+        if self._refresh_pending or not event.spontaneous():
+            self.reload_current_report()
 
     def reload_current_report(self) -> None:
+        self._refresh_pending = False
         preset = self._range_selector.sort_preset()
         custom_start, custom_end = self._range_selector.custom_range()
         self._load_report(preset, custom_start, custom_end)
+
+    def notify_data_changed(self) -> None:
+        if self.isVisible():
+            QTimer.singleShot(0, self.reload_current_report)
+            return
+        self._refresh_pending = True
 
     def _load_report(self, preset: str, custom_start: object, custom_end: object) -> None:
         try:

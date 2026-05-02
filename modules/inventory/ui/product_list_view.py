@@ -31,7 +31,7 @@ class ProductListView(QWidget):
         self._products: list[InventoryProductDTO] = []
 
         self._search_input = AutocompleteLineEdit()
-        self._search_input.setPlaceholderText("Tìm theo mã hoặc tên hàng...")
+        self._search_input.setPlaceholderText("Tìm theo tên hàng...")
         self._search_input.textChanged.connect(self._apply_filter)
         self._search_input.suggestion_selected.connect(self._handle_search_suggestion_selected)
 
@@ -94,11 +94,7 @@ class ProductListView(QWidget):
         if not query:
             filtered = self._products
         else:
-            code_matches = [p for p in self._products if query in p.product_code_base.lower()]
-            if code_matches:
-                filtered = code_matches
-            else:
-                filtered = [p for p in self._products if query in p.product_name.lower()]
+            filtered = [p for p in self._products if query in p.product_name.lower()]
         self._render_rows(filtered)
         self._update_search_suggestions(query, filtered)
 
@@ -106,7 +102,7 @@ class ProductListView(QWidget):
         if not query:
             self._search_input.hide_suggestions()
             return
-        suggestions = [(f"{product.product_code_base} - {product.product_name}", product.id) for product in products[:20]]
+        suggestions = [(product.product_name, product.id) for product in products[:20]]
         self._search_input.set_suggestions(suggestions)
 
     def _handle_search_suggestion_selected(self, product_id: object) -> None:

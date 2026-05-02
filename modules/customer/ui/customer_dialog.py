@@ -2,7 +2,7 @@
 
 from decimal import Decimal
 
-from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QMessageBox, QVBoxLayout
+from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QMessageBox, QTextEdit, QVBoxLayout
 
 from core.config import MAX_MONEY_INPUT
 from shared.widgets.numeric_inputs import SelectAllSpinBox
@@ -17,6 +17,7 @@ class CustomerDialog(QDialog):
         customer_name: str = "",
         phone: str | None = None,
         address: str | None = None,
+        note: str | None = None,
         current_balance: Decimal = Decimal("0"),
         edit_mode: bool = False,
         parent: QDialog | None = None,
@@ -24,11 +25,14 @@ class CustomerDialog(QDialog):
         super().__init__(parent)
         self._edit_mode = edit_mode
         self.setWindowTitle(title)
-        self.resize(420, 240)
+        self.resize(460, 360)
 
         self.name_input = QLineEdit(customer_name)
         self.phone_input = QLineEdit(phone or "")
         self.address_input = QLineEdit(address or "")
+        self.note_input = QTextEdit(note or "")
+        self.note_input.setPlaceholderText("Ghi chú nội bộ về khách hàng (không bắt buộc)")
+        self.note_input.setMinimumHeight(96)
         self.balance_input = SelectAllSpinBox()
         self.balance_input.setRange(-MAX_MONEY_INPUT, MAX_MONEY_INPUT)
         self.balance_input.setValue(int(current_balance))
@@ -37,6 +41,7 @@ class CustomerDialog(QDialog):
         form_layout.addRow("Tên khách", self.name_input)
         form_layout.addRow("Điện thoại", self.phone_input)
         form_layout.addRow("Địa chỉ", self.address_input)
+        form_layout.addRow("Ghi chú", self.note_input)
         form_layout.addRow("Công nợ hiện tại" if edit_mode else "Công nợ ban đầu", self.balance_input)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -53,6 +58,7 @@ class CustomerDialog(QDialog):
             "customer_name": self.name_input.text(),
             "phone": self.phone_input.text() or None,
             "address": self.address_input.text() or None,
+            "note": self.note_input.toPlainText().strip() or None,
             "current_balance": Decimal(self.balance_input.value()),
             "initial_balance": Decimal(self.balance_input.value()),
         }

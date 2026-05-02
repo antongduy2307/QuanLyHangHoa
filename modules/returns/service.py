@@ -31,6 +31,8 @@ class QuickReturnLineInput:
     product_id: int
     unit_type: UnitType
     quantity: Decimal
+    unit_price: Decimal | None = None
+    line_total: Decimal | None = None
 
 
 class ReturnService:
@@ -103,6 +105,7 @@ class ReturnService:
                 handling_mode=normalized_mode,
                 return_code=return_invoice.return_code,
                 return_id=return_invoice.id,
+                transaction_datetime=return_invoice.return_datetime,
             )
 
             session.flush()
@@ -114,32 +117,37 @@ class ReturnService:
         *,
         items: list[Mapping[str, object]],
         handling_mode: ReturnHandlingMode | str,
+        return_datetime: datetime | None = None,
         note: str | None = None,
     ) -> ReturnInvoice:
         session = self._repository.session
         self.use_session(session)
-        normalized_items = self._normalize_items(items)
         normalized_mode = self._normalize_handling_mode(handling_mode)
+        normalized_return_datetime = self._require_datetime(return_datetime, "return_datetime") if return_datetime is not None else None
         transaction_context = session.begin_nested() if session.in_transaction() else session.begin()
 
         with transaction_context:
             return_invoice = self._repository.get_return_invoice(return_invoice_id)
-            if return_invoice.source_invoice_id is None:
-                raise ValidationError("Chưa hỗ trợ sửa phiếu trả hàng nhanh ở bước này.")
-
-            source_invoice = self._sales_repository.get_invoice(return_invoice.source_invoice_id)
             customer_id = return_invoice.customer_id
             self._validate_walk_in_mode(customer_id, normalized_mode)
+            if normalized_return_datetime is not None:
+                return_invoice.return_datetime = normalized_return_datetime
 
             self._rollback_return_effects(return_invoice)
             return_invoice.items.clear()
             session.flush()
 
-            total_amount = self._populate_linked_return_items(
-                return_invoice=return_invoice,
-                source_invoice_id=source_invoice.id,
-                normalized_items=normalized_items,
-            )
+            if return_invoice.source_invoice_id is None:
+                normalized_quick_items = self._normalize_quick_items(items)
+                total_amount = self._populate_quick_return_items(return_invoice=return_invoice, normalized_items=normalized_quick_items)
+            else:
+                source_invoice = self._sales_repository.get_invoice(return_invoice.source_invoice_id)
+                normalized_items = self._normalize_items(items)
+                total_amount = self._populate_linked_return_items(
+                    return_invoice=return_invoice,
+                    source_invoice_id=source_invoice.id,
+                    normalized_items=normalized_items,
+                )
             return_invoice.handling_mode = normalized_mode
             return_invoice.note = note
             return_invoice.total_amount = total_amount
@@ -149,10 +157,41 @@ class ReturnService:
                 handling_mode=normalized_mode,
                 return_code=return_invoice.return_code,
                 return_id=return_invoice.id,
+                transaction_datetime=return_invoice.return_datetime,
             )
 
             session.flush()
             return return_invoice
+
+    def update_return_datetime(self, return_invoice_id: int, new_datetime: datetime) -> ReturnInvoice:
+        session = self._repository.session
+        self.use_session(session)
+        transaction_context = session.begin_nested() if session.in_transaction() else session.begin()
+
+        with transaction_context:
+            normalized_datetime = self._require_datetime(new_datetime, "new_datetime")
+            return_invoice = self._repository.get_return_invoice(return_invoice_id)
+            return_invoice.return_datetime = normalized_datetime
+            if return_invoice.customer_id is not None:
+                self._customer_service.sync_reference_transaction_datetime(
+                    return_invoice.customer_id,
+                    "RETURN",
+                    return_invoice.id,
+                    normalized_datetime,
+                )
+            session.flush()
+            return return_invoice
+
+    def delete_return_invoice(self, return_invoice_id: int) -> None:
+        session = self._repository.session
+        self.use_session(session)
+        transaction_context = session.begin_nested() if session.in_transaction() else session.begin()
+
+        with transaction_context:
+            return_invoice = self._repository.get_return_invoice(return_invoice_id)
+            self._rollback_return_effects(return_invoice)
+            session.delete(return_invoice)
+            session.flush()
 
     def create_quick_return_invoice(
         self,
@@ -192,27 +231,7 @@ class ReturnService:
             session.flush()
 
             total_amount = Decimal("0")
-            for line in normalized_items:
-                product = self._inventory_service.get_product(line.product_id)
-                product.validate_price_unit_type(line.unit_type)
-                price_row = next((price for price in product.prices if price.unit_type == line.unit_type and price.is_enabled), None)
-                if price_row is None:
-                    raise ValidationError(f"Không tìm thấy giá đang bật cho hàng {product.product_code_base} với đơn vị {line.unit_type.value}.")
-                line_total = line.quantity * price_row.price
-                total_amount += line_total
-                self._inventory_service.increase_stock(product.id, line.quantity, line.unit_type)
-                return_invoice.items.append(
-                    ReturnInvoiceItem(
-                        source_invoice_item_id=None,
-                        product_id=product.id,
-                        unit_type=line.unit_type,
-                        quantity=line.quantity,
-                        unit_price=price_row.price,
-                        line_total=line_total,
-                        product_code_snapshot=product.product_code_base,
-                        product_name_snapshot=product.product_name,
-                    )
-                )
+            total_amount = self._populate_quick_return_items(return_invoice=return_invoice, normalized_items=normalized_items)
 
             return_invoice.total_amount = total_amount
             self._apply_customer_effects(
@@ -221,6 +240,7 @@ class ReturnService:
                 handling_mode=normalized_mode,
                 return_code=return_invoice.return_code,
                 return_id=return_invoice.id,
+                transaction_datetime=return_invoice.return_datetime,
             )
 
             session.flush()
@@ -268,6 +288,37 @@ class ReturnService:
             )
         return total_amount
 
+    def _populate_quick_return_items(
+        self,
+        *,
+        return_invoice: ReturnInvoice,
+        normalized_items: list[QuickReturnLineInput],
+    ) -> Decimal:
+        total_amount = Decimal("0")
+        for line in normalized_items:
+            product = self._inventory_service.get_product(line.product_id)
+            product.validate_price_unit_type(line.unit_type)
+            price_row = next((price for price in product.prices if price.unit_type == line.unit_type and price.is_enabled), None)
+            if price_row is None:
+                raise ValidationError(f"Không tìm thấy giá đang bật cho hàng {product.product_code_base} với đơn vị {line.unit_type.value}.")
+            unit_price = line.unit_price if line.unit_price is not None else price_row.price
+            line_total = line.line_total if line.line_total is not None else line.quantity * unit_price
+            total_amount += line_total
+            self._inventory_service.increase_stock(product.id, line.quantity, line.unit_type)
+            return_invoice.items.append(
+                ReturnInvoiceItem(
+                    source_invoice_item_id=None,
+                    product_id=product.id,
+                    unit_type=line.unit_type,
+                    quantity=line.quantity,
+                    unit_price=unit_price,
+                    line_total=line_total,
+                    product_code_snapshot=product.product_code_base,
+                    product_name_snapshot=product.product_name,
+                )
+            )
+        return total_amount
+
     def _rollback_return_effects(self, return_invoice: ReturnInvoice) -> None:
         for item in list(return_invoice.items):
             self._inventory_service.decrease_stock(item.product_id, item.quantity, item.unit_type)
@@ -285,6 +336,7 @@ class ReturnService:
         handling_mode: ReturnHandlingMode,
         return_code: str,
         return_id: int,
+        transaction_datetime: datetime,
     ) -> None:
         if customer_id is None:
             return
@@ -298,6 +350,7 @@ class ReturnService:
                 return_id,
                 note=f"Return store credit {return_code}",
                 event_type="RETURN_STORE_CREDIT",
+                transaction_datetime=transaction_datetime,
             )
             return
         applied_delta = min(positive_customer_balance, total_amount)
@@ -309,6 +362,7 @@ class ReturnService:
                 return_id,
                 note=f"Return refund now {return_code}",
                 event_type="RETURN_REFUND_NOW",
+                transaction_datetime=transaction_datetime,
             )
 
     def _validate_walk_in_mode(self, customer_id: int | None, handling_mode: ReturnHandlingMode) -> None:
@@ -335,7 +389,17 @@ class ReturnService:
             product_id = self._require_int(item, "product_id")
             unit_type = self._require_unit_type(item.get("unit_type"))
             quantity = self._require_positive_decimal(item.get("quantity"), "quantity")
-            normalized.append(QuickReturnLineInput(product_id=product_id, unit_type=unit_type, quantity=quantity))
+            unit_price = self._require_optional_non_negative_decimal(item.get("unit_price"), "unit_price")
+            line_total = self._require_optional_non_negative_decimal(item.get("line_total"), "line_total")
+            normalized.append(
+                QuickReturnLineInput(
+                    product_id=product_id,
+                    unit_type=unit_type,
+                    quantity=quantity,
+                    unit_price=unit_price,
+                    line_total=line_total,
+                )
+            )
         return normalized
 
     def _normalize_handling_mode(self, value: ReturnHandlingMode | str) -> ReturnHandlingMode:
@@ -369,6 +433,19 @@ class ReturnService:
         if amount <= Decimal("0"):
             raise ValidationError(f"{field_name} phải > 0.")
         return amount
+
+    def _require_optional_non_negative_decimal(self, value: object, field_name: str) -> Decimal | None:
+        if value is None:
+            return None
+        amount = self._to_decimal(value)
+        if amount < Decimal("0"):
+            raise ValidationError(f"{field_name} phải >= 0.")
+        return amount
+
+    def _require_datetime(self, value: object, field_name: str) -> datetime:
+        if not isinstance(value, datetime):
+            raise ValidationError(f"{field_name} phải là datetime hợp lệ.")
+        return value
 
     @staticmethod
     def _to_decimal(value: object) -> Decimal:

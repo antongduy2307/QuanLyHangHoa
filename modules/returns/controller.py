@@ -250,6 +250,7 @@ class ReturnController:
         *,
         items: list[Mapping[str, object]],
         handling_mode: str,
+        return_datetime: datetime | None = None,
         note: str | None = None,
     ) -> object:
         service = ReturnService(ReturnsRepository(self._session_factory), sales_repository=SalesRepository(self._session_factory))
@@ -257,8 +258,17 @@ class ReturnController:
             return_invoice_id,
             items=items,
             handling_mode=handling_mode,
+            return_datetime=return_datetime,
             note=note,
         )
+
+    def update_return_datetime(self, return_invoice_id: int, new_datetime: datetime) -> ReturnInvoice:
+        service = ReturnService(ReturnsRepository(self._session_factory), sales_repository=SalesRepository(self._session_factory))
+        return service.update_return_datetime(return_invoice_id, new_datetime)
+
+    def delete_return_invoice(self, return_invoice_id: int) -> None:
+        service = ReturnService(ReturnsRepository(self._session_factory), sales_repository=SalesRepository(self._session_factory))
+        service.delete_return_invoice(return_invoice_id)
 
     def create_quick_return_invoice(
         self,

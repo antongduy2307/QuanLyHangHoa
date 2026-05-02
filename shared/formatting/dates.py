@@ -11,3 +11,7 @@ def format_date(value: date) -> str:
 
 def format_datetime(value: datetime) -> str:
     return value.strftime("%d/%m/%Y %H:%M")
+
+
+def format_datetime_seconds(value: datetime) -> str:
+    return value.strftime("%d/%m/%Y %H:%M:%S")

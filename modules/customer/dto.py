@@ -15,3 +15,4 @@ class CustomerDTO:
     total_sales: Decimal
     is_walk_in: bool
     created_at: datetime
+    note: str | None = None

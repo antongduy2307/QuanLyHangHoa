@@ -13,6 +13,7 @@ class AutocompleteLineEdit(QLineEdit):
         super().__init__(parent)
         self._app = QApplication.instance()
         self._popup: QListWidget | None = QListWidget()
+        self._popup_minimum_width = 420
         self._popup.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool)
         self._popup.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self._popup.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -42,6 +43,7 @@ class AutocompleteLineEdit(QLineEdit):
         self._position_popup()
         popup.show()
         popup.raise_()
+        self.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def hide_suggestions(self) -> None:
         popup = self._popup_ref()
@@ -49,6 +51,21 @@ class AutocompleteLineEdit(QLineEdit):
             return
         popup.hide()
         popup.clearSelection()
+
+    def set_popup_minimum_width(self, width: int) -> None:
+        self._popup_minimum_width = max(0, int(width))
+
+    def set_popup_maximum_height(self, height: int) -> None:
+        popup = self._popup_ref()
+        if popup is None:
+            return
+        popup.setMaximumHeight(max(0, int(height)))
+
+    def set_popup_stylesheet(self, stylesheet: str) -> None:
+        popup = self._popup_ref()
+        if popup is None:
+            return
+        popup.setStyleSheet(stylesheet)
 
     def eventFilter(self, watched: object, event: object) -> bool:
         popup = self._popup_ref()
@@ -82,7 +99,7 @@ class AutocompleteLineEdit(QLineEdit):
         popup = self._popup_ref()
         if popup is None:
             return
-        popup_width = max(self.width(), 420)
+        popup_width = max(self.width(), self._popup_minimum_width)
         row_count = min(max(popup.count(), 1), 6)
         row_height = popup.sizeHintForRow(0)
         if row_height <= 0:

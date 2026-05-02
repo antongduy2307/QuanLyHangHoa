@@ -6,7 +6,7 @@ from typing import Sequence
 from PyQt6 import sip
 from PyQt6.QtCore import QEvent, QObject, QPoint, QSettings, QTimer, Qt
 from PyQt6.QtGui import QFontMetrics
-from PyQt6.QtWidgets import QAbstractItemView, QHeaderView, QMenu, QTableView, QTableWidget
+from PyQt6.QtWidgets import QAbstractItemView, QComboBox, QHeaderView, QLineEdit, QMenu, QPushButton, QSizePolicy, QTableView, QTableWidget, QWidget
 
 
 _TABLE_WIDTH_STATE_VERSION = 2
@@ -93,6 +93,10 @@ class _FullWidthResizeController(QObject):
         for index in range(header.count()):
             header_text = str(table.model().headerData(index, Qt.Orientation.Horizontal) or "")
             widths[index] = max(80, metrics.horizontalAdvance(header_text) + 28)
+        custom_widths = table.property("column_minimum_widths")
+        if isinstance(custom_widths, dict):
+            for index, width in custom_widths.items():
+                widths[int(index)] = max(widths.get(int(index), 80), int(width))
         return widths
 
     def _build_default_widths(self) -> list[int]:
@@ -324,3 +328,52 @@ def _setup_resizable_table(table: QTableWidget | QTableView, persistence_key: st
     if getattr(table, '_full_width_resize_controller', None) is not None:
         return
     setattr(table, '_full_width_resize_controller', _FullWidthResizeController(table, persistence_key))
+
+
+def configure_table_cell_widget(widget: QWidget, *, compact: bool = False, height: int = 34) -> None:
+    horizontal_policy = QSizePolicy.Policy.MinimumExpanding if compact else QSizePolicy.Policy.Expanding
+    widget.setSizePolicy(horizontal_policy, QSizePolicy.Policy.Fixed)
+    widget.setMinimumWidth(0)
+    widget.setContentsMargins(0, 0, 0, 0)
+    widget.setMinimumHeight(height)
+    widget.setMaximumHeight(height)
+
+    if isinstance(widget, QLineEdit):
+        widget.setFrame(False)
+        widget.setStyleSheet(
+            "margin: 0;"
+            "padding: 0 6px;"
+            "border: none;"
+            "border-radius: 0;"
+            "background: transparent;"
+        )
+    elif isinstance(widget, QComboBox):
+        widget.setStyleSheet(
+            "margin: 0;"
+            "padding: 0 18px 0 6px;"
+            "border: none;"
+            "border-radius: 0;"
+            "background: transparent;"
+            "selection-background-color: transparent;"
+            "selection-color: palette(text);"
+            "QComboBox::drop-down {"
+            " border: none;"
+            " background: transparent;"
+            " width: 14px;"
+            " subcontrol-origin: padding;"
+            " subcontrol-position: top right;"
+            "}"
+            "QComboBox::down-arrow {"
+            " width: 8px;"
+            " height: 8px;"
+            " margin-right: 2px;"
+            "}"
+        )
+    elif isinstance(widget, QPushButton):
+        widget.setStyleSheet(
+            "margin: 0;"
+            "padding: 0 8px;"
+            "border: none;"
+            "border-radius: 0;"
+            "background: transparent;"
+        )

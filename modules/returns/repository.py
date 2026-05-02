@@ -63,6 +63,33 @@ class ReturnsRepository:
             )
         return self.session.scalars(statement).all()
 
+    def get_recent_return_invoices_by_customer(self, customer_id: int, limit: int = 3) -> Sequence[ReturnInvoice]:
+        statement = (
+            select(ReturnInvoice)
+            .options(
+                selectinload(ReturnInvoice.items),
+                selectinload(ReturnInvoice.source_invoice),
+                selectinload(ReturnInvoice.customer),
+            )
+            .where(ReturnInvoice.customer_id == customer_id)
+            .order_by(ReturnInvoice.return_datetime.desc())
+            .limit(limit)
+        )
+        return self.session.scalars(statement).all()
+
+    def list_return_invoices_by_customer(self, customer_id: int) -> Sequence[ReturnInvoice]:
+        statement = (
+            select(ReturnInvoice)
+            .options(
+                selectinload(ReturnInvoice.items),
+                selectinload(ReturnInvoice.source_invoice),
+                selectinload(ReturnInvoice.customer),
+            )
+            .where(ReturnInvoice.customer_id == customer_id)
+            .order_by(ReturnInvoice.return_datetime.desc())
+        )
+        return self.session.scalars(statement).all()
+
     def get_return_invoice(self, return_invoice_id: int) -> ReturnInvoice:
         statement = (
             select(ReturnInvoice)

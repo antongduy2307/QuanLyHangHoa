@@ -5,6 +5,7 @@ from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from modules.update.service import UpdateCheckResult
+from shared.widgets.ui_scale import boost_font_size
 
 
 class UpdateDialog(QDialog):
@@ -20,7 +21,7 @@ class UpdateDialog(QDialog):
         layout = QVBoxLayout(self)
 
         title = QLabel("Đã có phiên bản mới sẵn sàng.")
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {boost_font_size(18)}px; font-weight: 600;")
         layout.addWidget(title)
 
         if result.is_forced_update:

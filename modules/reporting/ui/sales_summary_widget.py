@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import QLabel, QGridLayout, QWidget
 
 from modules.reporting.dto import SalesSummaryDTO
 from shared.formatting.money import format_money
+from shared.widgets.ui_scale import boost_font_size
 
 
 class SalesSummaryWidget(QWidget):
@@ -14,7 +15,7 @@ class SalesSummaryWidget(QWidget):
         self._gross_label = QLabel(format_money(Decimal("0")))
         self._return_label = QLabel(format_money(Decimal("0")))
         self._net_label = QLabel(format_money(Decimal("0")))
-        self._net_label.setStyleSheet("font-size: 24px; font-weight: 700;")
+        self._net_label.setStyleSheet(f"font-size: {boost_font_size(24)}px; font-weight: 700;")
 
         layout = QGridLayout(self)
         layout.addWidget(QLabel("Doanh thu gộp"), 0, 0)

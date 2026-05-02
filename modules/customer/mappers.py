@@ -14,4 +14,5 @@ def to_dto(model: Customer) -> CustomerDTO:
         total_sales=model.total_sales,
         is_walk_in=model.is_walk_in,
         created_at=model.created_at,
+        note=model.note,
     )

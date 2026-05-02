@@ -3,12 +3,12 @@
 from decimal import Decimal
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem
+from PyQt6.QtWidgets import QAbstractItemView, QHeaderView, QTableWidget, QTableWidgetItem
 
 from modules.returns.controller import SourceInvoiceItemRow
 from shared.formatting.money import format_money
 from shared.widgets.numeric_inputs import SelectAllSpinBox
-from shared.widgets.table_helpers import configure_table_widget
+from shared.widgets.table_helpers import configure_table_cell_widget, configure_table_widget
 
 
 class SourceInvoiceItemsTable(QTableWidget):
@@ -28,6 +28,11 @@ class SourceInvoiceItemsTable(QTableWidget):
             "Thành tiền",
         ])
         configure_table_widget(self, "returns.source_invoice_items")
+        self.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.Interactive)
+        self.verticalHeader().setDefaultSectionSize(max(self.verticalHeader().defaultSectionSize(), 56))
+        self.verticalHeader().setMinimumSectionSize(max(self.verticalHeader().minimumSectionSize(), 56))
         self._rows: list[SourceInvoiceItemRow] = []
         self._spinboxes: list[SelectAllSpinBox] = []
 
@@ -50,6 +55,7 @@ class SourceInvoiceItemsTable(QTableWidget):
             quantity_input.setValue(int(initial_quantity))
             quantity_input.valueChanged.connect(lambda _value, index=row_index: self._update_projected_total(index))
             self._spinboxes.append(quantity_input)
+            configure_table_cell_widget(quantity_input, height=34)
             self.setCellWidget(row_index, 6, quantity_input)
             self.setItem(row_index, 7, QTableWidgetItem(format_money(row.unit_price)))
             self.setItem(row_index, 8, QTableWidgetItem(format_money(initial_quantity * row.unit_price)))

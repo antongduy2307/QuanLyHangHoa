@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import os
 
 from PyQt6.QtCore import QCoreApplication, QTimer, Qt
-from PyQt6.QtWidgets import QMainWindow, QProgressDialog
+from PyQt6.QtWidgets import QApplication, QMainWindow, QProgressDialog
 
 from core.config import Settings
 from core.logging import get_logger
+from modules.diagnostics.service import DiagnosticsService
+from modules.settings.service import get_ui_scale_preset
 from modules.update.service import UpdateCheckResult, UpdateDownloadResult, UpdateService
 from modules.update.ui.update_dialog import UpdateDialog
 from shared.widgets.message_box import MessageBox
+from shared.widgets.ui_scale import apply_large_ui
 from shell.history_page import HistoryPage
 from shell.navigation import NavigationTabs
 
@@ -20,10 +24,17 @@ LOGGER = get_logger(__name__)
 class AppWindow(QMainWindow):
     def __init__(self, title: str, modules: Sequence[object], settings: Settings) -> None:
         super().__init__()
+        app = QApplication.instance()
+        if app is None:
+            raise RuntimeError("QApplication must be initialized before AppWindow.")
+
         self._settings = settings
+        self._diagnostics_service = DiagnosticsService(settings, app)
         self.setWindowTitle(title)
         self.resize(1200, 720)
         self._module_pages: dict[str, object] = {}
+        self._history_page: HistoryPage | None = None
+        self._reporting_page: object | None = None
         self._settings_page: object | None = None
         self._active_check_origin: str | None = None
         self._pending_update_result: UpdateCheckResult | None = None
@@ -33,32 +44,109 @@ class AppWindow(QMainWindow):
         self._update_service.download_finished.connect(self._handle_update_download_result)
         self._update_service.download_progress.connect(self._handle_update_download_progress)
 
+        initial_ui_scale_preset = get_ui_scale_preset()
+
         tabs = NavigationTabs()
+        self._navigation_tabs = tabs
         for module_spec in modules:
             page = module_spec.page_factory()
             self._module_pages[module_spec.key] = page
+            if module_spec.key == "reporting":
+                self._reporting_page = page
             if module_spec.key == "settings":
                 self._settings_page = page
                 if hasattr(page, "check_updates_requested"):
                     page.check_updates_requested.connect(self._run_manual_update_check)
+                if hasattr(page, "open_logs_requested"):
+                    page.open_logs_requested.connect(self._open_logs_directory)
+                if hasattr(page, "export_diagnostics_requested"):
+                    page.export_diagnostics_requested.connect(self._export_diagnostics)
                 if hasattr(page, "set_update_status"):
                     page.set_update_status("Sẵn sàng kiểm tra cập nhật.")
             tabs.add_page(module_spec.label, page)
+            self._apply_ui_scale_to_page(page, initial_ui_scale_preset)
             if hasattr(page, "ui_scale_changed"):
                 page.ui_scale_changed.connect(self._apply_ui_scale_preset_to_pages)
 
-        tabs.add_page("Lịch sử", HistoryPage())
+        self._history_page = HistoryPage()
+        tabs.add_page("Lịch sử", self._history_page)
+        self._apply_ui_scale_to_page(self._history_page, initial_ui_scale_preset)
         self.setCentralWidget(tabs)
+
+        self._wire_report_refresh_sources()
 
         self._startup_update_timer = QTimer(self)
         self._startup_update_timer.setSingleShot(True)
         self._startup_update_timer.timeout.connect(self._run_startup_update_check)
         self._startup_update_timer.start(settings.update_startup_delay_ms)
 
+    def navigate_to_history_transaction(self, transaction_kind: str, transaction_id: int) -> None:
+        if self._history_page is None:
+            return
+        history_index = self._navigation_tabs.indexOf(self._history_page)
+        if history_index >= 0:
+            self._navigation_tabs.setCurrentIndex(history_index)
+        self._history_page.open_transaction_detail(transaction_kind, transaction_id)
+
+    def open_sales_invoice_editor(self, invoice_id: int) -> None:
+        sales_page = self._module_pages.get("sales")
+        if sales_page is None or not hasattr(sales_page, "open_invoice_edit_tab"):
+            return
+        sales_index = self._navigation_tabs.indexOf(sales_page)
+        if sales_index >= 0:
+            self._navigation_tabs.setCurrentIndex(sales_index)
+        sales_page.open_invoice_edit_tab(invoice_id)
+
+    def open_sales_return_editor(self, return_id: int) -> None:
+        sales_page = self._module_pages.get("sales")
+        if sales_page is None or not hasattr(sales_page, "open_return_edit_tab"):
+            return
+        sales_index = self._navigation_tabs.indexOf(sales_page)
+        if sales_index >= 0:
+            self._navigation_tabs.setCurrentIndex(sales_index)
+        sales_page.open_return_edit_tab(return_id)
+
+    def _wire_report_refresh_sources(self) -> None:
+        if self._reporting_page is None or not hasattr(self._reporting_page, "notify_data_changed"):
+            return
+
+        for module_key, page in self._module_pages.items():
+            if module_key == "reporting":
+                continue
+            if hasattr(page, "transaction_changed"):
+                page.transaction_changed.connect(self._handle_data_changed_from_pages)
+        if self._history_page is not None:
+            self._history_page.history_changed.connect(self._notify_reporting_page_dirty)
+
+    def _notify_reporting_page_dirty(self) -> None:
+        if self._reporting_page is not None and hasattr(self._reporting_page, "notify_data_changed"):
+            self._reporting_page.notify_data_changed()
+
+    def _handle_data_changed_from_pages(self) -> None:
+        if self._history_page is not None and hasattr(self._history_page, "reload_all_views"):
+            self._history_page.reload_all_views()
+        customer_page = self._module_pages.get("customer")
+        if customer_page is not None and hasattr(customer_page, "_customer_list_view") and hasattr(customer_page._customer_list_view, "reload"):
+            customer_page._customer_list_view.reload()
+        inventory_page = self._module_pages.get("inventory")
+        if inventory_page is not None:
+            from modules.inventory.ui.product_list_view import ProductListView
+
+            product_list_view = inventory_page.findChild(ProductListView)
+            if product_list_view is not None and hasattr(product_list_view, "reload"):
+                product_list_view.reload()
+        self._notify_reporting_page_dirty()
+
     def _apply_ui_scale_preset_to_pages(self, preset: str) -> None:
         for page in self._module_pages.values():
-            if hasattr(page, "apply_ui_scale_preset"):
-                page.apply_ui_scale_preset(preset)
+            self._apply_ui_scale_to_page(page, preset)
+        if self._history_page is not None:
+            self._apply_ui_scale_to_page(self._history_page, preset)
+
+    def _apply_ui_scale_to_page(self, page: object, preset: str) -> None:
+        if hasattr(page, "apply_ui_scale_preset"):
+            page.apply_ui_scale_preset(preset)
+        apply_large_ui(page, preset)
 
     def _run_manual_update_check(self) -> None:
         self._start_update_check("manual")
@@ -81,9 +169,19 @@ class AppWindow(QMainWindow):
         self._active_check_origin = None
 
         if result.error:
-            self._set_update_busy(False, "Không kiểm tra được cập nhật.")
+            LOGGER.warning(
+                "Update check failed | origin=%s | manifest_url=%s | error=%s | app_continues=True",
+                origin,
+                result.manifest_url,
+                result.error,
+            )
+            self._set_update_busy(False, "Không kiểm tra được cập nhật. Ứng dụng vẫn hoạt động bình thường.")
             if origin == "manual":
-                MessageBox.warning(self, "Cập nhật ứng dụng", result.error)
+                MessageBox.warning(
+                    self,
+                    "Cập nhật ứng dụng",
+                    f"{result.error}\n\nĐây không phải lỗi khởi động hay lỗi dữ liệu. Bạn vẫn có thể tiếp tục sử dụng ứng dụng.",
+                )
             return
 
         if result.has_update or result.is_forced_update:
@@ -177,3 +275,25 @@ class AppWindow(QMainWindow):
     def _set_update_busy(self, busy: bool, message: str) -> None:
         if self._settings_page is not None and hasattr(self._settings_page, "set_update_busy"):
             self._settings_page.set_update_busy(busy, message)
+
+    def _open_logs_directory(self) -> None:
+        log_dir = self._diagnostics_service.log_directory()
+        try:
+            if hasattr(os, "startfile"):
+                os.startfile(log_dir)  # type: ignore[attr-defined]
+                return
+            MessageBox.info(self, "Thư mục log", f"Thư mục log nằm tại:\n{log_dir}")
+        except Exception as exc:
+            MessageBox.error(self, "Không mở được thư mục log", str(exc))
+
+    def _export_diagnostics(self) -> None:
+        if self._settings_page is not None and hasattr(self._settings_page, "set_diagnostics_busy"):
+            self._settings_page.set_diagnostics_busy(True)
+        try:
+            archive_path = self._diagnostics_service.export_diagnostics()
+            MessageBox.info(self, "Xuất chẩn đoán thành công", f"Đã tạo gói chẩn đoán tại:\n{archive_path}")
+        except Exception as exc:
+            MessageBox.error(self, "Không xuất được chẩn đoán", str(exc))
+        finally:
+            if self._settings_page is not None and hasattr(self._settings_page, "set_diagnostics_busy"):
+                self._settings_page.set_diagnostics_busy(False)

@@ -7,3 +7,11 @@ __pycache__/
 .env
 data/app.db
 .vscode/
+tests/
+installer/
+build/
+docs/
+dist/
+app.db
+desktop_app.spec
+overview_project.md

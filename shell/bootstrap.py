@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import QApplication, QWidget
 
 from core.config import Settings, get_settings
 from core.db import init_db
-from core.logging import configure_logging, get_logger
+from core.logging import configure_logging, get_logger, install_exception_hooks, log_runtime_start
 from shared.styles.theme import apply_theme
 
 if TYPE_CHECKING:
@@ -59,11 +59,19 @@ def bootstrap_application(app: QApplication) -> AppContext:
     from shell.app_window import AppWindow
 
     settings = get_settings()
-    configure_logging(settings.log_level)
+    configure_logging(settings.log_level, settings.log_dir)
+    install_exception_hooks(settings.app_name)
     apply_theme(app)
+    LOGGER.info(
+        "Qt style initialized | style=%s | font=%s | pointSize=%s",
+        app.style().objectName(),
+        app.font().family(),
+        app.font().pointSizeF(),
+    )
     init_db()
     modules = load_module_specs()
     window = AppWindow(settings.app_name, modules, settings)
+    log_runtime_start(app, settings)
     LOGGER.info("Application bootstrapped with %s modules", len(modules))
     return AppContext(settings=settings, modules=modules, window=window)
 

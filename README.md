@@ -41,7 +41,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Lan chay dau tien ung dung se tu tao thu muc du lieu runtime va SQLite DB trong `%LOCALAPPDATA%\\<AppName>\\app.db` tren Windows. Neu moi truong khong co `LOCALAPPDATA`, app se fallback an toan ve `data/app.db` trong project.
+Lan chay dau tien ung dung se tu tao thu muc du lieu runtime va SQLite DB trong `%LOCALAPPDATA%\\QuanLyHangHoa\\app.db` tren Windows. Neu moi truong khong co `LOCALAPPDATA`, app se fallback an toan ve `data/app.db` trong project.
 
 ## Build Windows (PyInstaller)
 
@@ -70,7 +70,7 @@ pyinstaller --noconfirm desktop_app.spec
 dist\QuanLyHangHoa\QuanLyHangHoa.exe
 ```
 
-Ban build van doc local database tu `%LOCALAPPDATA%\\<AppName>\\app.db`, khong phu thuoc vao working directory cua source project.
+Ban build van doc local database tu `%LOCALAPPDATA%\\QuanLyHangHoa\\app.db`, khong phu thuoc vao working directory cua source project.
 
 ## Build Installer (Inno Setup)
 
@@ -119,7 +119,7 @@ App desktop da co flow semi-auto update v1:
 - App se tai installer moi vao `%LOCALAPPDATA%\QuanLyHangHoa\temp\`.
 - Sau khi tai xong, app tao launcher `.cmd` tam, dong app hien tai, roi launcher moi goi installer moi.
 - V1 khong ghi de binary dang chay trong process hien tai. App chi handoff sang installer sau khi app da thoat.
-- Runtime DB van nam o `%LOCALAPPDATA%\<AppName>\app.db` va khong bi copy/move/xoa trong update flow.
+- Runtime DB van nam o `%LOCALAPPDATA%\QuanLyHangHoa\app.db` va khong bi copy/move/xoa trong update flow.
 
 Manifest JSON toi thieu:
 
@@ -166,7 +166,7 @@ ISCC installer\QuanLyHangHoa.iss
 Luu y release:
 
 - Update flow chi cap nhat binary app/installer.
-- Update flow khong migrate schema va khong can thiep vao `%LOCALAPPDATA%\<AppName>\app.db`.
+- Update flow khong migrate schema va khong can thiep vao `%LOCALAPPDATA%\QuanLyHangHoa\app.db`.
 - Neu muon doi chinh sach installer (silent / very silent / restart), can review rieng vi V1 dang uu tien installer co UI de an toan va de debug.
 
 ## Ghi chu

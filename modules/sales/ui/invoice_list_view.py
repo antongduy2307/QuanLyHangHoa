@@ -1,12 +1,14 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+from typing import Callable
+
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QShowEvent
-from PyQt6.QtWidgets import QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QMessageBox
+from PyQt6.QtWidgets import QHBoxLayout, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 
 from modules.sales.controller import SalesController
 from modules.sales.models import Invoice
 from modules.sales.ui.invoice_detail_popup import InvoiceDetailPopup
-from modules.sales.ui.invoice_edit_dialog import InvoiceEditDialog
 from shared.formatting.dates import format_datetime
 from shared.formatting.money import format_money
 from shared.widgets.autocomplete_line_edit import AutocompleteLineEdit
@@ -15,9 +17,15 @@ from shared.widgets.table_helpers import configure_table_widget
 
 
 class InvoiceListView(QWidget):
-    def __init__(self, controller: SalesController) -> None:
+    def __init__(
+        self,
+        controller: SalesController,
+        *,
+        on_history_changed: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__()
         self._controller = controller
+        self._on_history_changed = on_history_changed
         self._invoices: list[Invoice] = []
 
         self._search_input = AutocompleteLineEdit()
@@ -25,8 +33,8 @@ class InvoiceListView(QWidget):
         self._search_input.textChanged.connect(self._apply_filter)
         self._search_input.suggestion_selected.connect(self._handle_search_suggestion_selected)
 
-        self._table = QTableWidget(0, 7)
-        self._table.setHorizontalHeaderLabels(["Mã hóa đơn", "Thời điểm", "Khách", "Tổng tiền", "Khách trả", "Thanh toán", "Số dòng"])
+        self._table = QTableWidget(0, 6)
+        self._table.setHorizontalHeaderLabels(["Khách hàng", "Tổng tiền", "Khách trả", "Thanh toán", "Số dòng", "Thời điểm"])
         configure_table_widget(self._table, "sales.invoice_list")
         self._table.itemDoubleClicked.connect(self._open_detail)
 
@@ -76,36 +84,44 @@ class InvoiceListView(QWidget):
         if not query:
             self._search_input.hide_suggestions()
             return
-        suggestions = [(invoice.customer_snapshot_name, invoice.id) for invoice in invoices[:20]]
+        seen_names: set[str] = set()
+        suggestions: list[tuple[str, object]] = []
+        for invoice in invoices:
+            customer_name = invoice.customer_snapshot_name
+            if customer_name in seen_names:
+                continue
+            seen_names.add(customer_name)
+            suggestions.append((customer_name, customer_name))
+            if len(suggestions) >= 20:
+                break
         self._search_input.set_suggestions(suggestions)
 
-    def _handle_search_suggestion_selected(self, invoice_id: object) -> None:
-        if invoice_id is None:
+    def _handle_search_suggestion_selected(self, customer_name: object) -> None:
+        if not isinstance(customer_name, str):
             return
         for row_index in range(self._table.rowCount()):
             item = self._table.item(row_index, 0)
-            if item is not None and item.data(256) == int(invoice_id):
+            if item is not None and item.text() == customer_name:
                 self._table.setCurrentCell(row_index, 0)
                 break
 
     def _render_rows(self, invoices: list[Invoice]) -> None:
         self._table.setRowCount(len(invoices))
         for row_index, invoice in enumerate(invoices):
-            self._table.setItem(row_index, 0, QTableWidgetItem(invoice.invoice_code))
-            self._table.setItem(row_index, 1, QTableWidgetItem(format_datetime(invoice.invoice_datetime)))
-            self._table.setItem(row_index, 2, QTableWidgetItem(invoice.customer_snapshot_name))
-            self._table.setItem(row_index, 3, QTableWidgetItem(format_money(invoice.total_amount)))
-            self._table.setItem(row_index, 4, QTableWidgetItem(format_money(invoice.paid_amount or 0)))
-            self._table.setItem(row_index, 5, QTableWidgetItem(invoice.payment_method.value if invoice.payment_method else '-'))
-            self._table.setItem(row_index, 6, QTableWidgetItem(str(len(invoice.items))))
-            self._table.item(row_index, 0).setData(256, invoice.id)
+            self._table.setItem(row_index, 0, QTableWidgetItem(invoice.customer_snapshot_name))
+            self._table.setItem(row_index, 1, QTableWidgetItem(format_money(invoice.total_amount)))
+            self._table.setItem(row_index, 2, QTableWidgetItem(format_money(invoice.paid_amount or 0)))
+            self._table.setItem(row_index, 3, QTableWidgetItem(invoice.payment_method.value if invoice.payment_method else "-"))
+            self._table.setItem(row_index, 4, QTableWidgetItem(str(len(invoice.items))))
+            self._table.setItem(row_index, 5, QTableWidgetItem(format_datetime(invoice.invoice_datetime)))
+            self._table.item(row_index, 0).setData(Qt.ItemDataRole.UserRole, invoice.id)
 
     def _selected_invoice_id(self) -> int | None:
         row = self._table.currentRow()
         if row < 0:
             return None
         item = self._table.item(row, 0)
-        return None if item is None else item.data(256)
+        return None if item is None else item.data(Qt.ItemDataRole.UserRole)
 
     def _open_detail(self, *_args: object) -> None:
         invoice_id = self._selected_invoice_id()
@@ -113,7 +129,7 @@ class InvoiceListView(QWidget):
             return
         try:
             invoice = self._controller.get_invoice_detail(invoice_id)
-            InvoiceDetailPopup(invoice, self).exec()
+            InvoiceDetailPopup(invoice, self, controller=self._controller, on_updated=self._handle_history_changed).exec()
         except Exception as exc:
             MessageBox.error(self, "Không tải được chi tiết hóa đơn", str(exc))
 
@@ -122,13 +138,11 @@ class InvoiceListView(QWidget):
         if invoice_id is None:
             MessageBox.warning(self, "Chưa chọn", "Hãy chọn một hóa đơn để sửa.")
             return
-        try:
-            invoice = self._controller.get_invoice_detail(invoice_id)
-            dialog = InvoiceEditDialog(self._controller, invoice, self)
-            if dialog.exec():
-                self.reload()
-        except Exception as exc:
-            MessageBox.error(self, "Không sửa được hóa đơn", str(exc))
+        app_window = self.window()
+        if hasattr(app_window, "open_sales_invoice_editor"):
+            app_window.open_sales_invoice_editor(invoice_id)
+            return
+        MessageBox.warning(self, "Chưa hỗ trợ", "Không mở được tab sửa hóa đơn từ màn hình hiện tại.")
 
     def _delete_invoice(self) -> None:
         invoice_id = self._selected_invoice_id()
@@ -140,6 +154,12 @@ class InvoiceListView(QWidget):
             return
         try:
             self._controller.delete_invoice(invoice_id)
-            self.reload()
+            self._handle_history_changed()
         except Exception as exc:
             MessageBox.error(self, "Không xóa được hóa đơn", str(exc))
+
+    def _handle_history_changed(self) -> None:
+        if self._on_history_changed is not None:
+            self._on_history_changed()
+            return
+        self.reload()

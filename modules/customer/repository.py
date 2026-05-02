@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload, sessionmaker
 
 from core.exceptions import NotFoundError
@@ -52,11 +52,18 @@ class CustomerRepository:
             .order_by(CustomerBalanceLedger.id.desc())
         )
         entries = self.session.scalars(statement).all()
-        latest_by_ref_id: dict[int, CustomerBalanceLedger] = {}
-        for entry in entries:
-            if entry.ref_id not in latest_by_ref_id:
-                latest_by_ref_id[entry.ref_id] = entry
-        return sorted(latest_by_ref_id.values(), key=lambda item: (item.created_at, item.id), reverse=True)
+        return self._latest_debt_payments(entries)
+
+    def get_recent_debt_payments_by_customer(self, customer_id: int, limit: int = 3) -> Sequence[CustomerBalanceLedger]:
+        statement = (
+            select(CustomerBalanceLedger)
+            .options(selectinload(CustomerBalanceLedger.customer))
+            .where(CustomerBalanceLedger.customer_id == customer_id)
+            .where(CustomerBalanceLedger.event_type == "DEBT_PAYMENT")
+            .order_by(CustomerBalanceLedger.id.desc())
+        )
+        entries = self.session.scalars(statement).all()
+        return self._latest_debt_payments(entries)[:limit]
 
     def search_debt_payments(self, query: str) -> Sequence[CustomerBalanceLedger]:
         entries = list(self.list_debt_payments())
@@ -87,4 +94,105 @@ class CustomerRepository:
             .order_by(CustomerBalanceLedger.id.asc())
         )
         return self.session.scalars(statement).all()
+
+    def list_debt_payment_ref_ids_by_source(
+        self,
+        customer_id: int,
+        source_ref_type: str,
+        source_ref_id: int,
+        *,
+        legacy_note: str | None = None,
+    ) -> Sequence[int]:
+        source_filter = (
+            (CustomerBalanceLedger.source_ref_type == source_ref_type)
+            & (CustomerBalanceLedger.source_ref_id == source_ref_id)
+        )
+        if legacy_note:
+            source_filter = or_(source_filter, CustomerBalanceLedger.note == legacy_note)
+        statement = (
+            select(CustomerBalanceLedger.ref_id)
+            .where(CustomerBalanceLedger.customer_id == customer_id)
+            .where(CustomerBalanceLedger.ref_type == "DEBT_PAYMENT")
+            .where(CustomerBalanceLedger.event_type == "DEBT_PAYMENT")
+            .where(source_filter)
+            .order_by(CustomerBalanceLedger.ref_id.asc())
+            .distinct()
+        )
+        return self.session.scalars(statement).all()
+
+    def list_balance_ledgers_by_customer(self, customer_id: int) -> Sequence[CustomerBalanceLedger]:
+        statement = (
+            select(CustomerBalanceLedger)
+            .options(selectinload(CustomerBalanceLedger.customer))
+            .where(CustomerBalanceLedger.customer_id == customer_id)
+            .order_by(
+                CustomerBalanceLedger.transaction_datetime.asc(),
+                CustomerBalanceLedger.display_order.asc(),
+                CustomerBalanceLedger.id.asc(),
+            )
+        )
+        return self.session.scalars(statement).all()
+
+    def list_debt_payments_by_customer(self, customer_id: int) -> Sequence[CustomerBalanceLedger]:
+        statement = (
+            select(CustomerBalanceLedger)
+            .options(selectinload(CustomerBalanceLedger.customer))
+            .where(CustomerBalanceLedger.customer_id == customer_id)
+            .where(CustomerBalanceLedger.event_type == "DEBT_PAYMENT")
+            .order_by(CustomerBalanceLedger.id.desc())
+        )
+        entries = self.session.scalars(statement).all()
+        return self._latest_debt_payments(entries)
+
+    def has_business_history(self, customer_id: int) -> bool:
+        from modules.returns.models import ReturnInvoice
+        from modules.sales.models import Invoice
+
+        invoice_exists = self.session.scalar(
+            select(Invoice.id).where(Invoice.customer_id == customer_id).limit(1)
+        )
+        if invoice_exists is not None:
+            return True
+
+        return_exists = self.session.scalar(
+            select(ReturnInvoice.id).where(ReturnInvoice.customer_id == customer_id).limit(1)
+        )
+        if return_exists is not None:
+            return True
+
+        ledger_exists = self.session.scalar(
+            select(CustomerBalanceLedger.id).where(CustomerBalanceLedger.customer_id == customer_id).limit(1)
+        )
+        return ledger_exists is not None
+
+    def has_trade_or_debt_history(self, customer_id: int) -> bool:
+        from modules.returns.models import ReturnInvoice
+        from modules.sales.models import Invoice
+
+        invoice_exists = self.session.scalar(select(Invoice.id).where(Invoice.customer_id == customer_id).limit(1))
+        if invoice_exists is not None:
+            return True
+
+        return_exists = self.session.scalar(select(ReturnInvoice.id).where(ReturnInvoice.customer_id == customer_id).limit(1))
+        if return_exists is not None:
+            return True
+
+        debt_payment_exists = self.session.scalar(
+            select(CustomerBalanceLedger.id)
+            .where(CustomerBalanceLedger.customer_id == customer_id)
+            .where(CustomerBalanceLedger.event_type == "DEBT_PAYMENT")
+            .limit(1)
+        )
+        return debt_payment_exists is not None
+
+    def _latest_debt_payments(self, entries: Sequence[CustomerBalanceLedger]) -> list[CustomerBalanceLedger]:
+        latest_by_ref_id: dict[int, CustomerBalanceLedger] = {}
+        for entry in entries:
+            if entry.ref_id not in latest_by_ref_id:
+                latest_by_ref_id[entry.ref_id] = entry
+        return sorted(
+            latest_by_ref_id.values(),
+            key=lambda item: (item.effective_transaction_datetime, item.id),
+            reverse=True,
+        )
 

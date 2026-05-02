@@ -11,7 +11,6 @@ from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkReques
 
 from core.config import Settings, get_settings
 from core.logging import get_logger
-from core.paths import sanitize_app_dir_name
 from core.utils import ensure_directories
 from core.version import APP_VERSION
 
@@ -21,6 +20,14 @@ _ALLOWED_URL_SCHEMES = {"http", "https"}
 _TIMEOUT_PROPERTY = "updateTimedOut"
 _WRITE_ERROR_PROPERTY = "updateWriteError"
 _INSTALLER_ARGS: tuple[str, ...] = ("/NORESTART",)
+_RETRYABLE_NETWORK_ERRORS = {
+    QNetworkReply.NetworkError.TimeoutError,
+    QNetworkReply.NetworkError.TemporaryNetworkFailureError,
+    QNetworkReply.NetworkError.NetworkSessionFailedError,
+    QNetworkReply.NetworkError.UnknownNetworkError,
+    QNetworkReply.NetworkError.ProxyTimeoutError,
+    QNetworkReply.NetworkError.ServiceUnavailableError,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,8 +64,11 @@ class UpdateDownloadResult:
 class _PendingDownload:
     partial_path: Path
     final_path: Path
+    installer_name: str
     version: str
     installer_url: str
+    attempt: int
+    max_attempts: int
 
 
 def compare_versions(left: str, right: str) -> int:
@@ -136,6 +146,8 @@ class UpdateService(QObject):
         current_version: str = APP_VERSION,
         manifest_url: str | None = None,
         timeout_ms: int | None = None,
+        download_timeout_ms: int | None = None,
+        download_retry_count: int | None = None,
         network_manager: QNetworkAccessManager | None = None,
         parent: QObject | None = None,
     ) -> None:
@@ -143,13 +155,16 @@ class UpdateService(QObject):
         self._settings = settings or get_settings()
         self._current_version = current_version
         self._manifest_url = manifest_url or self._settings.update_manifest_url
-        self._timeout_ms = timeout_ms or self._settings.update_check_timeout_ms
+        self._check_timeout_ms = timeout_ms or self._settings.update_check_timeout_ms
+        self._download_timeout_ms = download_timeout_ms or self._settings.update_download_timeout_ms
+        self._download_retry_count = max(1, download_retry_count or self._settings.update_download_retry_count)
         self._network = network_manager or QNetworkAccessManager(self)
         self._timers: dict[object, QTimer] = {}
         self._downloads: dict[object, _PendingDownload] = {}
 
     def check_for_update(self, manifest_url: str | None = None) -> None:
         target_url = (manifest_url or self._manifest_url).strip()
+        LOGGER.info("Update manifest check started | url=%s | timeout_ms=%s", target_url, self._check_timeout_ms)
         if not _is_supported_url(target_url):
             self.check_finished.emit(
                 UpdateCheckResult(
@@ -163,7 +178,7 @@ class UpdateService(QObject):
 
         request = QNetworkRequest(QUrl(target_url))
         reply = self._network.get(request)
-        self._attach_timeout(reply)
+        self._attach_timeout(reply, self._check_timeout_ms)
         reply.finished.connect(lambda: self._handle_check_finished(reply, target_url))
 
     def download_installer(self, installer_url: str, version: str) -> None:
@@ -185,47 +200,86 @@ class UpdateService(QObject):
         partial_path = final_path.with_suffix(f"{final_path.suffix}.download")
         final_path.unlink(missing_ok=True)
         partial_path.unlink(missing_ok=True)
-
-        request = QNetworkRequest(QUrl(target_url))
-        reply = self._network.get(request)
-        self._downloads[reply] = _PendingDownload(
-            partial_path=partial_path,
-            final_path=final_path,
-            version=version,
-            installer_url=target_url,
+        LOGGER.info(
+            "Installer download requested | version=%s | url=%s | installer_name=%s | final_path=%s | timeout_ms=%s | retries=%s",
+            version,
+            target_url,
+            installer_name,
+            final_path,
+            self._download_timeout_ms,
+            self._download_retry_count,
         )
-        self._attach_timeout(reply)
-        reply.readyRead.connect(lambda: self._handle_download_ready_read(reply))
-        reply.downloadProgress.connect(self.download_progress.emit)
-        reply.finished.connect(lambda: self._handle_download_finished(reply))
+        self._start_download_attempt(
+            _PendingDownload(
+                partial_path=partial_path,
+                final_path=final_path,
+                installer_name=installer_name,
+                version=version,
+                installer_url=target_url,
+                attempt=1,
+                max_attempts=self._download_retry_count,
+            )
+        )
 
     def build_installer_filename(self, installer_url: str, version: str) -> str:
         file_name = PurePosixPath(urlparse(installer_url).path).name
         if file_name and file_name.lower().endswith(".exe"):
             return file_name
-        app_dir_name = sanitize_app_dir_name(self._settings.app_name)
-        return f"{app_dir_name}-Setup-{version}.exe"
+        return f"{self._settings.runtime_dir_name}-Setup-{version}.exe"
 
     def create_launcher_script(self, installer_path: Path, *, wait_for_pid: int | None = None) -> Path:
+        validated_installer_path = self._validate_installer_file(installer_path)
         ensure_directories([self._settings.temp_dir])
-        launcher_path = self._settings.temp_dir / f"launch-update-{installer_path.stem}.cmd"
+        launcher_path = self._settings.temp_dir / f"launch-update-{validated_installer_path.stem}.cmd"
         launcher_path.write_text(
-            self._build_launcher_script(installer_path, wait_for_pid=wait_for_pid or os.getpid()),
+            self._build_launcher_script(validated_installer_path, wait_for_pid=wait_for_pid or os.getpid()),
             encoding="utf-8",
         )
+        LOGGER.info("Update launcher script created | launcher_path=%s | installer_path=%s", launcher_path, validated_installer_path)
         return launcher_path
 
     def launch_installer_after_exit(self, installer_path: Path, *, wait_for_pid: int | None = None) -> Path:
-        launcher_path = self.create_launcher_script(installer_path, wait_for_pid=wait_for_pid)
+        validated_installer_path = self._validate_installer_file(installer_path)
+        launcher_path = self.create_launcher_script(validated_installer_path, wait_for_pid=wait_for_pid)
         command = os.environ.get("COMSPEC", "cmd.exe")
+        LOGGER.info("Launching updater handoff | launcher_path=%s | installer_path=%s", launcher_path, validated_installer_path)
         started = QProcess.startDetached(command, ["/c", str(launcher_path)])
         if not started:
             raise RuntimeError("Không thể khởi chạy launcher cập nhật.")
         return launcher_path
 
+    def _start_download_attempt(self, pending: _PendingDownload) -> None:
+        pending.final_path.unlink(missing_ok=True)
+        pending.partial_path.unlink(missing_ok=True)
+
+        request = QNetworkRequest(QUrl(pending.installer_url))
+        reply = self._network.get(request)
+        self._downloads[reply] = pending
+        self._attach_timeout(reply, self._download_timeout_ms)
+        reply.readyRead.connect(lambda: self._handle_download_ready_read(reply))
+        reply.downloadProgress.connect(lambda received, total: self._handle_download_progress(reply, received, total))
+        reply.finished.connect(lambda: self._handle_download_finished(reply))
+        LOGGER.info(
+            "Installer download started | attempt=%s/%s | url=%s | partial_path=%s | final_path=%s",
+            pending.attempt,
+            pending.max_attempts,
+            pending.installer_url,
+            pending.partial_path,
+            pending.final_path,
+        )
+
     def _handle_check_finished(self, reply: object, manifest_url: str) -> None:
+        LOGGER.info("Update manifest check finished | url=%s | http_status=%s", manifest_url, self._http_status_code(reply))
         if self._has_network_error(reply):
             error = self._reply_error_message(reply, "kiểm tra cập nhật")
+            LOGGER.warning(
+                "Update manifest check failed | url=%s | error_type=%s | timed_out=%s | http_status=%s | error=%s",
+                manifest_url,
+                reply.error(),
+                bool(reply.property(_TIMEOUT_PROPERTY)),
+                self._http_status_code(reply),
+                error,
+            )
             self._cleanup_reply(reply)
             self.check_finished.emit(
                 UpdateCheckResult(
@@ -239,6 +293,12 @@ class UpdateService(QObject):
 
         try:
             manifest = parse_update_manifest(_read_reply_bytes(reply))
+            LOGGER.info(
+                "Update manifest parsed | latest_version=%s | min_required_version=%s | installer_url=%s",
+                manifest.version,
+                manifest.min_required_version,
+                manifest.installer_url,
+            )
             result = build_update_check_result(
                 manifest,
                 current_version=self._current_version,
@@ -262,6 +322,7 @@ class UpdateService(QObject):
         if pending is None:
             return
 
+        self._reset_timeout(reply)
         chunk = _read_reply_bytes(reply)
         if not chunk:
             return
@@ -276,6 +337,11 @@ class UpdateService(QObject):
             if hasattr(reply, "abort"):
                 reply.abort()
 
+    def _handle_download_progress(self, reply: object, received: int, total: int) -> None:
+        if reply in self._downloads:
+            self._reset_timeout(reply)
+        self.download_progress.emit(received, total)
+
     def _handle_download_finished(self, reply: object) -> None:
         pending = self._downloads.pop(reply, None)
         if pending is None:
@@ -283,71 +349,141 @@ class UpdateService(QObject):
             return
 
         self._handle_download_ready_read(reply)
+        LOGGER.info(
+            "Installer download finished | attempt=%s/%s | url=%s | http_status=%s",
+            pending.attempt,
+            pending.max_attempts,
+            pending.installer_url,
+            self._http_status_code(reply),
+        )
 
         write_error = reply.property(_WRITE_ERROR_PROPERTY)
         if write_error:
             pending.partial_path.unlink(missing_ok=True)
             self._cleanup_reply(reply)
-            self.download_finished.emit(
-                UpdateDownloadResult(
-                    success=False,
-                    version=pending.version,
-                    installer_url=pending.installer_url,
-                    error=f"Không ghi được installer tải về: {write_error}",
-                )
+            self._emit_download_failure(
+                pending,
+                f"Không ghi được installer tải về: {write_error}",
+                retryable=False,
             )
             return
 
-        if self._has_network_error(reply):
-            pending.partial_path.unlink(missing_ok=True)
+        if self._has_download_failure(reply):
             error = self._reply_error_message(reply, "tải installer cập nhật")
+            retryable = self._is_retryable_download_error(reply)
+            pending.partial_path.unlink(missing_ok=True)
             self._cleanup_reply(reply)
-            self.download_finished.emit(
-                UpdateDownloadResult(
-                    success=False,
-                    version=pending.version,
-                    installer_url=pending.installer_url,
-                    error=error,
-                )
-            )
+            self._emit_download_failure(pending, error, retryable=retryable)
             return
 
         try:
-            if not pending.partial_path.exists() or pending.partial_path.stat().st_size <= 0:
-                raise OSError("File installer tải về rỗng.")
-            pending.partial_path.replace(pending.final_path)
-        except OSError as exc:
+            final_path = self._finalize_download_file(pending)
+        except (OSError, RuntimeError) as exc:
             LOGGER.exception("Không thể hoàn tất file installer cập nhật %s", pending.final_path)
             pending.partial_path.unlink(missing_ok=True)
+            pending.final_path.unlink(missing_ok=True)
             self._cleanup_reply(reply)
-            self.download_finished.emit(
-                UpdateDownloadResult(
-                    success=False,
-                    version=pending.version,
-                    installer_url=pending.installer_url,
-                    error=f"Không lưu được installer cập nhật: {exc}",
-                )
+            self._emit_download_failure(
+                pending,
+                f"Không lưu được installer cập nhật: {exc}",
+                retryable=False,
             )
             return
 
         self._cleanup_reply(reply)
+        LOGGER.info(
+            "Installer download success | version=%s | installer_url=%s | installer_path=%s | installer_name=%s",
+            pending.version,
+            pending.installer_url,
+            final_path,
+            pending.installer_name,
+        )
         self.download_finished.emit(
             UpdateDownloadResult(
                 success=True,
                 version=pending.version,
                 installer_url=pending.installer_url,
-                installer_path=pending.final_path,
+                installer_path=final_path,
             )
         )
 
-    def _attach_timeout(self, reply: object) -> None:
+    def _finalize_download_file(self, pending: _PendingDownload) -> Path:
+        if not pending.partial_path.exists():
+            raise OSError("File installer tải về không tồn tại.")
+        if pending.partial_path.stat().st_size <= 0:
+            raise OSError("File installer tải về rỗng.")
+        pending.partial_path.replace(pending.final_path)
+        return self._validate_installer_file(pending.final_path)
+
+    def _validate_installer_file(self, installer_path: Path) -> Path:
+        resolved_path = installer_path.resolve()
+        if not resolved_path.exists():
+            raise RuntimeError("Không tìm thấy file installer đã tải.")
+        if resolved_path.suffix.lower() != ".exe":
+            raise RuntimeError("File cập nhật tải về không phải .exe hợp lệ.")
+        if resolved_path.stat().st_size <= 0:
+            raise RuntimeError("File installer tải về bị rỗng.")
+        return resolved_path
+
+    def _emit_download_failure(self, pending: _PendingDownload, error: str, *, retryable: bool) -> None:
+        LOGGER.warning(
+            "Installer download failed | attempt=%s/%s | retryable=%s | url=%s | final_path=%s | error=%s",
+            pending.attempt,
+            pending.max_attempts,
+            retryable,
+            pending.installer_url,
+            pending.final_path,
+            error,
+        )
+        if retryable and pending.attempt < pending.max_attempts:
+            retry_pending = _PendingDownload(
+                partial_path=pending.partial_path,
+                final_path=pending.final_path,
+                installer_name=pending.installer_name,
+                version=pending.version,
+                installer_url=pending.installer_url,
+                attempt=pending.attempt + 1,
+                max_attempts=pending.max_attempts,
+            )
+            LOGGER.info(
+                "Retrying installer download | next_attempt=%s/%s | url=%s",
+                retry_pending.attempt,
+                retry_pending.max_attempts,
+                retry_pending.installer_url,
+            )
+            self._start_download_attempt(retry_pending)
+            return
+
+        self.download_finished.emit(
+            UpdateDownloadResult(
+                success=False,
+                version=pending.version,
+                installer_url=pending.installer_url,
+                error=error,
+            )
+        )
+
+    def _attach_timeout(self, reply: object, timeout_ms: int) -> None:
         timer = QTimer(self)
         timer.setSingleShot(True)
         timer.timeout.connect(lambda: self._abort_reply_for_timeout(reply))
-        timer.start(self._timeout_ms)
+        timer.setProperty("timeoutMs", timeout_ms)
+        timer.start(timeout_ms)
         self._timers[reply] = timer
 
+    def _reset_timeout(self, reply: object) -> None:
+        timer = self._timers.get(reply)
+        if timer is None:
+            return
+        timeout_ms = timer.property("timeoutMs")
+        try:
+            normalized_timeout = int(timeout_ms)
+        except (TypeError, ValueError):
+            return
+        timer.start(normalized_timeout)
+
     def _abort_reply_for_timeout(self, reply: object) -> None:
+        LOGGER.warning("Update network request timed out | timeout_ms=%s", self._timers.get(reply).property("timeoutMs") if reply in self._timers else None)
         reply.setProperty(_TIMEOUT_PROPERTY, True)
         if hasattr(reply, "abort"):
             reply.abort()
@@ -363,13 +499,41 @@ class UpdateService(QObject):
     def _has_network_error(self, reply: object) -> bool:
         return reply.error() != QNetworkReply.NetworkError.NoError
 
+    def _has_download_failure(self, reply: object) -> bool:
+        if self._has_network_error(reply):
+            return True
+        http_status = self._http_status_code(reply)
+        return http_status is not None and http_status >= 400
+
+    def _is_retryable_download_error(self, reply: object) -> bool:
+        if bool(reply.property(_TIMEOUT_PROPERTY)):
+            return True
+        http_status = self._http_status_code(reply)
+        if http_status in {408, 429} or (http_status is not None and http_status >= 500):
+            return True
+        return reply.error() in _RETRYABLE_NETWORK_ERRORS
+
     def _reply_error_message(self, reply: object, action: str) -> str:
         if bool(reply.property(_TIMEOUT_PROPERTY)):
-            return f"Yêu cầu {action} đã hết thời gian chờ."
+            return f"Không thể {action}: yêu cầu đã hết thời gian chờ. Đây chỉ là lỗi mạng của tác vụ cập nhật; ứng dụng vẫn có thể dùng bình thường."
+        http_status = self._http_status_code(reply)
+        if http_status is not None and http_status >= 400:
+            return f"Không thể {action}: HTTP {http_status}."
         error_message = reply.errorString().strip()
         if error_message:
             return f"Không thể {action}: {error_message}"
         return f"Không thể {action}."
+
+    def _http_status_code(self, reply: object) -> int | None:
+        if not hasattr(reply, "attribute"):
+            return None
+        status = reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
+        if status is None:
+            return None
+        try:
+            return int(status)
+        except (TypeError, ValueError):
+            return None
 
     def _build_launcher_script(self, installer_path: Path, *, wait_for_pid: int) -> str:
         escaped_installer_path = _escape_batch_value(str(installer_path))

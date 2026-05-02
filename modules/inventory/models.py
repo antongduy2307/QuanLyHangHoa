@@ -221,11 +221,12 @@ class InventoryAdjustmentItem(Base):
 
     Only the local arithmetic for `delta_quantity` is enforced here.
     Mode-specific quantity semantics stay in service code.
+    `old_quantity` is an audit snapshot of the real pre-adjustment balance and may be negative
+    because canonical inventory balances allow negative stock.
     """
 
     __tablename__ = "inventory_adjustment_items"
     __table_args__ = (
-        CheckConstraint("old_quantity >= 0", name="ck_inventory_adjustment_items_old_non_negative"),
         CheckConstraint("new_quantity >= 0", name="ck_inventory_adjustment_items_new_non_negative"),
     )
 

@@ -1,40 +1,46 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from decimal import Decimal
 
-from PyQt6.QtCore import QEvent, QPoint, Qt, pyqtSignal
-from PyQt6.QtGui import QKeyEvent
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QVBoxLayout, QWidget
+from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QRadioButton, QVBoxLayout, QWidget
 
 from modules.customer.dto import CustomerDTO
-from modules.sales.ui.scale import scaled
-from shared.formatting.money import format_money
+from modules.sales.ui.scale import scaled, scaled_font
+from shared.widgets.autocomplete_line_edit import AutocompleteLineEdit
 
 
 class CustomerPickerWidget(QWidget):
     customer_changed = pyqtSignal()
 
-    def __init__(self, customers: list[CustomerDTO], parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        customers: list[CustomerDTO],
+        parent: QWidget | None = None,
+        *,
+        compact: bool = False,
+    ) -> None:
         super().__init__(parent)
         self._customers = customers
         self._selected_customer: CustomerDTO | None = None
         self._ui_scale = 1.0
+        self._compact = compact
+        self._locked = False
 
         self.walk_in_radio = QRadioButton("Khách lẻ")
         self.customer_radio = QRadioButton("Khách quen")
         self.walk_in_radio.setChecked(True)
 
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Tìm khách theo tên hoặc số điện thoại")
-        self.search_input.textChanged.connect(self._update_suggestions)
-        self.search_input.installEventFilter(self)
+        self.search_input = AutocompleteLineEdit()
+        self.search_input.setPlaceholderText("Tìm theo tên khách hàng")
+        self.search_input.textEdited.connect(self._handle_search_text_edited)
+        self.search_input.suggestion_selected.connect(self._handle_suggestion_selected)
+        self.search_input.returnPressed.connect(self._select_best_match)
 
-        self._suggestion_popup = QListWidget()
-        self._suggestion_popup.setWindowFlags(Qt.WindowType.Popup)
-        self._suggestion_popup.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._suggestion_popup.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._suggestion_popup.itemClicked.connect(self._select_suggestion)
-        self._suggestion_popup.itemActivated.connect(self._select_suggestion)
+        self.clear_button = QPushButton("×")
+        self.clear_button.setObjectName("salesCustomerClearButton")
+        self.clear_button.setVisible(False)
+        self.clear_button.clicked.connect(self._clear_customer)
 
         self.current_label = QLabel("Khách lẻ")
         self.current_label.setProperty("class", "muted")
@@ -42,12 +48,17 @@ class CustomerPickerWidget(QWidget):
         self.balance_label.setProperty("class", "muted")
 
         customer_row = QHBoxLayout()
+        customer_row.setContentsMargins(0, 0, 0, 0)
         customer_row.addWidget(self.search_input, 1)
-        customer_row.addWidget(self.walk_in_radio)
-        customer_row.addWidget(self.customer_radio)
+        customer_row.addWidget(self.clear_button)
+        if not compact:
+            customer_row.addWidget(self.walk_in_radio)
+            customer_row.addWidget(self.customer_radio)
 
         info_layout = QVBoxLayout()
-        info_layout.addWidget(self.current_label)
+        info_layout.setContentsMargins(0, 0, 0, 0)
+        if not compact:
+            info_layout.addWidget(self.current_label)
         info_layout.addWidget(self.balance_label)
 
         layout = QVBoxLayout(self)
@@ -62,156 +73,213 @@ class CustomerPickerWidget(QWidget):
 
     def apply_ui_scale(self, factor: float) -> None:
         self._ui_scale = factor
-        radio_style = f"font-size: {scaled(16, factor)}px; padding: {scaled(4, factor)}px {scaled(8, factor)}px;"
+        radio_style = f"font-size: {scaled_font(16, factor)}px; padding: {scaled(4, factor)}px {scaled(8, factor)}px;"
         for radio in (self.walk_in_radio, self.customer_radio):
             radio.setStyleSheet(radio_style)
         self.search_input.setMinimumHeight(scaled(42, factor))
-        self.search_input.setMinimumWidth(scaled(420, factor))
-        self.search_input.setStyleSheet(f"font-size: {scaled(17, factor)}px; padding: {scaled(8, factor)}px {scaled(12, factor)}px;")
-        self._suggestion_popup.setMaximumHeight(scaled(220, factor))
-        self._suggestion_popup.setStyleSheet(
-            f"QListWidget {{ font-size: {scaled(15, factor)}px; padding: {scaled(4, factor)}px; border: 1px solid #cbd5e1; }}"
+        self.search_input.setMinimumWidth(scaled(320 if self._compact else 420, factor))
+        self.search_input.setStyleSheet(
+            f"font-size: {scaled_font(17, factor)}px; padding: {scaled(8, factor)}px {scaled(12, factor)}px;"
+        )
+        self.clear_button.setMinimumHeight(scaled(42, factor))
+        self.clear_button.setMaximumWidth(scaled(42, factor))
+        self.search_input.set_popup_minimum_width(scaled(460 if self._compact else 520, factor))
+        self.search_input.set_popup_maximum_height(scaled(220, factor))
+        self.search_input.set_popup_stylesheet(
+            f"QListWidget {{ font-size: {scaled_font(15, factor)}px; padding: {scaled(4, factor)}px; border: 1px solid #cbd5e1; }}"
             f"QListWidget::item {{ min-height: {scaled(34, factor)}px; padding: {scaled(6, factor)}px {scaled(8, factor)}px; }}"
         )
-        self.current_label.setStyleSheet(f"font-size: {scaled(16, factor)}px;")
-        self.balance_label.setStyleSheet(f"font-size: {scaled(16, factor)}px;")
+        self.current_label.setStyleSheet(f"font-size: {scaled_font(16, factor)}px;")
+        self.balance_label.setStyleSheet(f"font-size: {scaled_font(15 if self._compact else 16, factor)}px;")
+
         customer_row = self.layout().itemAt(0).layout()
         info_layout = self.layout().itemAt(1).layout()
         if customer_row is not None:
-            customer_row.setSpacing(scaled(12, factor))
+            customer_row.setSpacing(scaled(8 if self._compact else 12, factor))
         if info_layout is not None:
             info_layout.setSpacing(max(2, scaled(2, factor)))
-        self.layout().setSpacing(scaled(6, factor))
-
-    def eventFilter(self, watched: object, event: object) -> bool:
-        if watched is self.search_input and isinstance(event, QKeyEvent):
-            if self._suggestion_popup.isVisible():
-                if event.key() == Qt.Key.Key_Down:
-                    self._move_selection(1)
-                    return True
-                if event.key() == Qt.Key.Key_Up:
-                    self._move_selection(-1)
-                    return True
-                if event.key() in {Qt.Key.Key_Return, Qt.Key.Key_Enter}:
-                    self._activate_current_suggestion()
-                    return True
-                if event.key() == Qt.Key.Key_Escape:
-                    self._hide_suggestions()
-                    return True
-        if watched is self.search_input and isinstance(event, QEvent):
-            if event.type() == QEvent.Type.Move or event.type() == QEvent.Type.Resize:
-                if self._suggestion_popup.isVisible():
-                    self._position_suggestion_popup()
-        return super().eventFilter(watched, event)
+        self.layout().setSpacing(scaled(4 if self._compact else 6, factor))
 
     def reload_data(self, customers: list[CustomerDTO]) -> None:
         previous_customer_id = None if self._selected_customer is None else self._selected_customer.id
         self._customers = customers
         self._selected_customer = next((customer for customer in customers if customer.id == previous_customer_id), None)
+        if self._selected_customer is not None:
+            self.search_input.blockSignals(True)
+            self.search_input.setText(self._search_text_for_customer(self._selected_customer))
+            self.search_input.blockSignals(False)
+        elif not self._compact and self.walk_in_radio.isChecked():
+            self.search_input.clear()
         self._update_suggestions()
-        if self._selected_customer is not None and self.customer_radio.isChecked():
-            self._set_selected_customer(self._selected_customer)
-        elif self.walk_in_radio.isChecked():
-            self._sync_mode()
+        self._refresh_customer_state()
+        if self._compact or self.walk_in_radio.isChecked():
+            self.customer_changed.emit()
 
     def selected_customer_id(self) -> int | None:
+        if self._compact:
+            return None if self._selected_customer is None else self._selected_customer.id
         return None if self.walk_in_radio.isChecked() or self._selected_customer is None else self._selected_customer.id
 
     def snapshot_name(self) -> str:
-        if self.walk_in_radio.isChecked():
+        if self.selected_customer_id() is None:
             return "Khách lẻ"
         return self._selected_customer.customer_name if self._selected_customer is not None else ""
 
     def reset(self) -> None:
-        self.walk_in_radio.setChecked(True)
+        if self._locked:
+            return
         self.search_input.clear()
+        self.search_input.hide_suggestions()
         self._selected_customer = None
+        if not self._compact:
+            self.walk_in_radio.setChecked(True)
+        self._sync_mode()
+
+    def lock_customer(self, customer: CustomerDTO | None) -> None:
+        self._locked = True
+        self._selected_customer = customer
+        if self._compact:
+            if customer is None:
+                self.search_input.setText("Khách lẻ")
+            else:
+                self.search_input.setText(self._search_text_for_customer(customer))
+        else:
+            self.walk_in_radio.setChecked(customer is None)
+            self.customer_radio.setChecked(customer is not None)
+            if customer is None:
+                self.search_input.clear()
+            else:
+                self.search_input.setText(self._search_text_for_customer(customer))
+        self.search_input.setEnabled(False)
+        self.clear_button.setEnabled(False)
+        self.clear_button.setVisible(False)
+        self.walk_in_radio.setEnabled(False)
+        self.customer_radio.setEnabled(False)
+        self._refresh_customer_state()
+
+    def unlock_customer(self) -> None:
+        self._locked = False
+        self.search_input.setEnabled(True)
+        self.walk_in_radio.setEnabled(True)
+        self.customer_radio.setEnabled(True)
         self._sync_mode()
 
     def _sync_mode(self) -> None:
+        if self._locked:
+            self._refresh_customer_state()
+            self.customer_changed.emit()
+            return
+        if self._compact:
+            self.search_input.setEnabled(True)
+            self._refresh_customer_state()
+            self.customer_changed.emit()
+            return
+
         is_customer = self.customer_radio.isChecked()
         self.search_input.setEnabled(is_customer)
         if not is_customer:
             self.search_input.clear()
-            self._hide_suggestions()
-        if self.walk_in_radio.isChecked():
+            self.search_input.hide_suggestions()
             self._selected_customer = None
-            self.current_label.setText("Khách lẻ")
-            self.balance_label.setText("")
+        self._refresh_customer_state()
         self.customer_changed.emit()
 
-    def _update_suggestions(self) -> None:
-        query = self.search_input.text().strip().lower()
-        self._suggestion_popup.clear()
-        if not self.customer_radio.isChecked() or not query:
-            self._hide_suggestions()
+    def _handle_search_text_edited(self, text: str) -> None:
+        if self._locked:
             return
-        if query.isdigit():
-            matches = [customer for customer in self._customers if customer.phone and query in customer.phone]
-        else:
-            matches = [customer for customer in self._customers if query in customer.customer_name.lower()]
+        previous_customer_id = self.selected_customer_id()
+        if self._selected_customer is not None and text.strip() != self._search_text_for_customer(self._selected_customer):
+            self._selected_customer = None
+        self._update_suggestions(text)
+        self._refresh_customer_state()
+        if previous_customer_id != self.selected_customer_id():
+            self.customer_changed.emit()
 
-        if not matches:
-            self._hide_suggestions()
+    def _update_suggestions(self, text: str | None = None) -> None:
+        query = (self.search_input.text() if text is None else text).strip().lower()
+        if (not self._compact and not self.customer_radio.isChecked()) or not query:
+            self.search_input.hide_suggestions()
             return
 
-        for customer in matches[:20]:
-            phone = customer.phone or "-"
-            label = f"{customer.customer_name} | {phone} | {format_money(customer.current_balance)}"
-            item = QListWidgetItem(label)
-            item.setData(Qt.ItemDataRole.UserRole, customer.id)
-            self._suggestion_popup.addItem(item)
+        matches = [customer for customer in self._customers if query in customer.customer_name.lower()]
+        suggestions = [(customer.customer_name, customer.id) for customer in matches[:20]]
+        self.search_input.set_suggestions(suggestions)
 
-        self._suggestion_popup.setCurrentRow(0)
-        self._position_suggestion_popup()
-        self._suggestion_popup.show()
-        self._suggestion_popup.raise_()
-
-    def _position_suggestion_popup(self) -> None:
-        popup_width = max(self.search_input.width(), scaled(520, self._ui_scale))
-        row_count = min(max(self._suggestion_popup.count(), 1), 6)
-        row_height = self._suggestion_popup.sizeHintForRow(0)
-        if row_height <= 0:
-            row_height = scaled(34, self._ui_scale)
-        frame = self._suggestion_popup.frameWidth() * 2
-        popup_height = row_count * row_height + frame + 4
-        global_pos = self.search_input.mapToGlobal(QPoint(0, self.search_input.height()))
-        self._suggestion_popup.setGeometry(global_pos.x(), global_pos.y(), popup_width, popup_height)
-
-    def _hide_suggestions(self) -> None:
-        self._suggestion_popup.hide()
-        self._suggestion_popup.clearSelection()
-
-    def _move_selection(self, delta: int) -> None:
-        count = self._suggestion_popup.count()
-        if count == 0:
+    def _handle_suggestion_selected(self, customer_id: object) -> None:
+        if self._locked:
             return
-        current_row = self._suggestion_popup.currentRow()
-        if current_row < 0:
-            current_row = 0
-        next_row = max(0, min(count - 1, current_row + delta))
-        self._suggestion_popup.setCurrentRow(next_row)
-
-    def _activate_current_suggestion(self) -> None:
-        item = self._suggestion_popup.currentItem()
-        if item is not None:
-            self._select_suggestion(item)
-
-    def _select_suggestion(self, item: QListWidgetItem) -> None:
-        customer_id = item.data(Qt.ItemDataRole.UserRole)
-        customer = next((customer for customer in self._customers if customer.id == customer_id), None)
+        if customer_id is None:
+            return
+        customer = next((customer for customer in self._customers if customer.id == int(customer_id)), None)
         if customer is None:
             return
-        self._set_selected_customer(customer)
-        self._hide_suggestions()
-
-    def _set_selected_customer(self, customer: CustomerDTO) -> None:
         self._selected_customer = customer
-        self.current_label.setText(
-            f"Khách: {customer.customer_name}" +
-            (f" | SĐT: {customer.phone}" if customer.phone else "")
-        )
-        balance = customer.current_balance
-        color = "#b91c1c" if balance < Decimal("0") else "#14532d"
-        self.balance_label.setText(f"Công nợ hiện tại: <span style='color:{color}'>{balance:,.0f}</span>")
+        self.search_input.setText(self._search_text_for_customer(customer))
+        self.search_input.hide_suggestions()
+        self._refresh_customer_state()
         self.customer_changed.emit()
+
+    def _select_best_match(self) -> None:
+        if self._locked:
+            return
+        query = self.search_input.text().strip().lower()
+        if not query or (not self._compact and not self.customer_radio.isChecked()):
+            return
+        customer = next((candidate for candidate in self._customers if query in candidate.customer_name.lower()), None)
+        if customer is None:
+            return
+        self._selected_customer = customer
+        self.search_input.setText(self._search_text_for_customer(customer))
+        self.search_input.hide_suggestions()
+        self._refresh_customer_state()
+        self.customer_changed.emit()
+
+    def _clear_customer(self) -> None:
+        if self._locked:
+            return
+        self.search_input.clear()
+        self.search_input.hide_suggestions()
+        self._selected_customer = None
+        if not self._compact:
+            self.walk_in_radio.setChecked(True)
+        self._refresh_customer_state()
+        self.customer_changed.emit()
+
+    def _refresh_customer_state(self) -> None:
+        if self.selected_customer_id() is None:
+            if not self._compact and self.walk_in_radio.isChecked():
+                self.current_label.setText("Khách lẻ")
+                self.balance_label.setText("")
+            elif self.search_input.text().strip():
+                if not self._compact:
+                    self.current_label.setText("Chưa chọn khách từ danh sách gợi ý")
+                self.balance_label.setText("")
+            else:
+                if not self._compact:
+                    self.current_label.setText("Khách lẻ")
+                self.balance_label.setText("")
+            self.clear_button.setVisible(False)
+            return
+
+        customer = self._selected_customer
+        if customer is None:
+            self.clear_button.setVisible(False)
+            self.balance_label.setText("")
+            return
+
+        if not self._compact:
+            self.current_label.setText(
+                f"Khách: {customer.customer_name}"
+                + (f" | SĐT: {customer.phone}" if customer.phone else "")
+            )
+
+        balance = customer.current_balance
+        if balance >= Decimal("0"):
+            self.balance_label.setText(f"Công nợ hiện tại: {balance:,.0f}")
+        else:
+            self.balance_label.setText(f"Shop đang nợ khách: {abs(balance):,.0f}")
+        self.clear_button.setVisible(True)
+
+    @staticmethod
+    def _search_text_for_customer(customer: CustomerDTO) -> str:
+        return customer.customer_name

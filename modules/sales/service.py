@@ -86,21 +86,47 @@ class SalesService:
         invoice_id: int,
         *,
         items: list[Mapping[str, object]],
+        invoice_datetime: datetime | None = None,
+        paid_amount: Decimal | int | str | None = None,
         note: str | None = None,
     ) -> Invoice:
         session = self._repository.session
         self._bind_shared_session(session)
         normalized_items = self._normalize_items(items)
+        normalized_invoice_datetime = self._require_datetime(invoice_datetime, "invoice_datetime") if invoice_datetime is not None else None
         transaction_context = session.begin_nested() if session.in_transaction() else session.begin()
 
         with transaction_context:
             invoice = self._repository.get_invoice(invoice_id)
-            preserved_paid_amount = invoice.paid_amount or Decimal("0")
+            preserved_paid_amount = self._normalize_paid_amount(paid_amount) if paid_amount is not None else (invoice.paid_amount or Decimal("0"))
             self._rollback_invoice_effects(invoice)
             invoice.items.clear()
+            if normalized_invoice_datetime is not None:
+                invoice.invoice_datetime = normalized_invoice_datetime
             session.flush()
 
             self._apply_invoice_state(invoice, normalized_items, preserved_paid_amount, note_override=note)
+            session.flush()
+            return invoice
+
+    def update_invoice_datetime(self, invoice_id: int, new_datetime: datetime) -> Invoice:
+        session = self._repository.session
+        self._bind_shared_session(session)
+        transaction_context = session.begin_nested() if session.in_transaction() else session.begin()
+
+        with transaction_context:
+            normalized_datetime = self._require_datetime(new_datetime, "new_datetime")
+            invoice = self._repository.get_invoice(invoice_id)
+            invoice.invoice_datetime = normalized_datetime
+            if invoice.customer_id is not None:
+                self._customer_service.sync_reference_transaction_datetime(
+                    invoice.customer_id,
+                    "INVOICE",
+                    invoice.id,
+                    normalized_datetime,
+                    sync_source_debt_payments=True,
+                    legacy_source_note=f"Overpayment from invoice {invoice.invoice_code}",
+                )
             session.flush()
             return invoice
 
@@ -159,6 +185,12 @@ class SalesService:
         if invoice.customer_id is None and actual_paid_amount < total_amount:
             raise ValidationError("Khách lẻ phải trả đủ tiền hóa đơn.")
 
+        applied_paid_amount = actual_paid_amount
+        excess_paid_amount = Decimal("0")
+        if invoice.customer_id is not None:
+            applied_paid_amount = min(actual_paid_amount, total_amount)
+            excess_paid_amount = actual_paid_amount - applied_paid_amount
+
         invoice.total_amount = total_amount
         invoice.paid_amount = actual_paid_amount
         if note_override is not None:
@@ -172,15 +204,33 @@ class SalesService:
                 invoice.id,
                 note=f"Invoice charge {invoice.invoice_code}",
                 event_type="INVOICE_CHARGE",
+                transaction_datetime=invoice.invoice_datetime,
+                source_ref_type="INVOICE",
+                source_ref_id=invoice.id,
+                display_order=10,
             )
-            if actual_paid_amount != Decimal("0"):
+            if applied_paid_amount != Decimal("0"):
                 self._customer_service.adjust_balance(
                     invoice.customer_id,
-                    -actual_paid_amount,
+                    -applied_paid_amount,
                     "INVOICE",
                     invoice.id,
                     note=f"Invoice payment {invoice.invoice_code}",
                     event_type="INVOICE_PAYMENT",
+                    transaction_datetime=invoice.invoice_datetime,
+                    source_ref_type="INVOICE",
+                    source_ref_id=invoice.id,
+                    display_order=10,
+                )
+            if excess_paid_amount > Decimal("0"):
+                self._customer_service.pay_debt(
+                    invoice.customer_id,
+                    excess_paid_amount,
+                    note=f"Overpayment from invoice {invoice.invoice_code}",
+                    payment_datetime=invoice.invoice_datetime,
+                    source_ref_type="INVOICE",
+                    source_ref_id=invoice.id,
+                    display_order=20,
                 )
             self._customer_service.increase_sales(invoice.customer_id, total_amount)
 
@@ -189,6 +239,12 @@ class SalesService:
             self._inventory_service.increase_stock(item.product_id, item.quantity, item.unit_type)
 
         if invoice.customer_id is not None:
+            self._customer_service.remove_source_debt_payments(
+                invoice.customer_id,
+                "INVOICE",
+                invoice.id,
+                legacy_note=f"Overpayment from invoice {invoice.invoice_code}",
+            )
             self._customer_service.remove_reference_balance_effect(invoice.customer_id, "INVOICE", invoice.id)
             self._customer_service.decrease_sales(invoice.customer_id, invoice.total_amount)
 
@@ -223,7 +279,7 @@ class SalesService:
         if line.unit_price is not None:
             return line.unit_price
         if line.line_total is not None:
-            return (line.line_total / line.quantity).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+            return (line.line_total / line.quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         return default_price
 
     def _resolve_line_total(self, line: SalesLineInput, resolved_unit_price: Decimal) -> Decimal:
@@ -264,6 +320,11 @@ class SalesService:
         if customer is None:
             return normalized or "Khách lẻ"
         return normalized or customer.customer_name
+
+    def _require_datetime(self, value: object, field_name: str) -> datetime:
+        if not isinstance(value, datetime):
+            raise ValidationError(f"{field_name} phải là datetime hợp lệ.")
+        return value
 
     def _require_int(self, item: Mapping[str, object], key: str) -> int:
         raw_value = item.get(key)

@@ -28,6 +28,19 @@ class SalesRepository:
         statement = select(Invoice).options(selectinload(Invoice.items)).order_by(Invoice.invoice_datetime.desc())
         return self.session.scalars(statement).all()
 
+    def search_invoices_by_code(self, query: str, limit: int = 20) -> Sequence[Invoice]:
+        needle = query.strip()
+        statement = select(Invoice).options(selectinload(Invoice.items)).order_by(Invoice.invoice_datetime.desc()).limit(limit)
+        if needle:
+            statement = (
+                select(Invoice)
+                .options(selectinload(Invoice.items))
+                .where(Invoice.invoice_code.ilike(f"%{needle}%"))
+                .order_by(Invoice.invoice_datetime.desc())
+                .limit(limit)
+            )
+        return self.session.scalars(statement).all()
+
     def search_invoices_by_customer_name(self, query: str, limit: int = 20) -> Sequence[Invoice]:
         needle = query.strip()
         statement = select(Invoice).options(selectinload(Invoice.items)).order_by(Invoice.invoice_datetime.desc()).limit(limit)
@@ -44,9 +57,19 @@ class SalesRepository:
     def get_recent_invoices_by_customer(self, customer_id: int, limit: int = 3) -> Sequence[Invoice]:
         statement = (
             select(Invoice)
+            .options(selectinload(Invoice.items))
             .where(Invoice.customer_id == customer_id)
             .order_by(Invoice.invoice_datetime.desc())
             .limit(limit)
+        )
+        return self.session.scalars(statement).all()
+
+    def list_invoices_by_customer(self, customer_id: int) -> Sequence[Invoice]:
+        statement = (
+            select(Invoice)
+            .options(selectinload(Invoice.items))
+            .where(Invoice.customer_id == customer_id)
+            .order_by(Invoice.invoice_datetime.desc())
         )
         return self.session.scalars(statement).all()
 
