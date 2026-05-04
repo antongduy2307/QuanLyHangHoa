@@ -23,6 +23,14 @@ class OrderLineInput:
     quantity: Decimal
 
 
+@dataclass(frozen=True, slots=True)
+class OrderQuantitySummary:
+    product_id: int
+    product_name: str
+    unit_type: UnitType
+    quantity: Decimal
+
+
 class OrderService:
     def __init__(self, repository: OrderRepository) -> None:
         self._repository = repository
@@ -32,6 +40,28 @@ class OrderService:
 
     def list_active_orders(self) -> Sequence[OrderRequest]:
         return self._repository.list_active_orders()
+
+    def list_active_quantity_summary(self) -> list[OrderQuantitySummary]:
+        totals: dict[tuple[int, UnitType], OrderQuantitySummary] = {}
+        for order in self._repository.list_active_orders():
+            for item in order.items:
+                key = (item.product_id, item.unit_type)
+                existing = totals.get(key)
+                if existing is None:
+                    totals[key] = OrderQuantitySummary(
+                        product_id=item.product_id,
+                        product_name=item.product_name_snapshot,
+                        unit_type=item.unit_type,
+                        quantity=Decimal(str(item.quantity)),
+                    )
+                    continue
+                totals[key] = OrderQuantitySummary(
+                    product_id=existing.product_id,
+                    product_name=existing.product_name,
+                    unit_type=existing.unit_type,
+                    quantity=existing.quantity + Decimal(str(item.quantity)),
+                )
+        return list(totals.values())
 
     def get_order(self, order_id: int) -> OrderRequest:
         return self._repository.get_order(order_id)

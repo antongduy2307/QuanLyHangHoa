@@ -11,7 +11,7 @@ from modules.customer.repository import CustomerRepository
 from modules.customer.service import CustomerService
 from modules.orders.models import OrderRequest
 from modules.orders.repository import OrderRepository
-from modules.orders.service import OrderService
+from modules.orders.service import OrderQuantitySummary, OrderService
 from modules.sales.controller import SalesController, SellableProductOption
 
 
@@ -24,6 +24,12 @@ class OrderController:
         orders = repository.list_active_orders()
         repository.session.close()
         return orders
+
+    def list_active_quantity_summary(self) -> list[OrderQuantitySummary]:
+        service = OrderService(OrderRepository(self._session_factory))
+        rows = service.list_active_quantity_summary()
+        service._repository.session.close()
+        return rows
 
     def get_order(self, order_id: int) -> OrderRequest:
         repository = OrderRepository(self._session_factory)
