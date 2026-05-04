@@ -19,6 +19,7 @@ LOGGER = get_logger(__name__)
 ACTIVE_MODULE_PACKAGES = (
     "modules.inventory",
     "modules.sales",
+    "modules.orders",
     "modules.customer",
     "modules.reporting",
     "modules.settings",

@@ -106,6 +106,24 @@ class AppWindow(QMainWindow):
             self._navigation_tabs.setCurrentIndex(sales_index)
         sales_page.open_return_edit_tab(return_id)
 
+    def open_order_sales_draft(self, order_id: int) -> None:
+        sales_page = self._module_pages.get("sales")
+        if sales_page is None or not hasattr(sales_page, "open_order_sales_draft"):
+            return
+        sales_index = self._navigation_tabs.indexOf(sales_page)
+        if sales_index >= 0:
+            self._navigation_tabs.setCurrentIndex(sales_index)
+        sales_page.open_order_sales_draft(order_id)
+
+    def open_order_editor(self, order_id: int) -> None:
+        sales_page = self._module_pages.get("sales")
+        if sales_page is None or not hasattr(sales_page, "open_order_edit_tab"):
+            return
+        sales_index = self._navigation_tabs.indexOf(sales_page)
+        if sales_index >= 0:
+            self._navigation_tabs.setCurrentIndex(sales_index)
+        sales_page.open_order_edit_tab(order_id)
+
     def _wire_report_refresh_sources(self) -> None:
         if self._reporting_page is None or not hasattr(self._reporting_page, "notify_data_changed"):
             return
@@ -115,6 +133,8 @@ class AppWindow(QMainWindow):
                 continue
             if hasattr(page, "transaction_changed"):
                 page.transaction_changed.connect(self._handle_data_changed_from_pages)
+            if hasattr(page, "order_changed"):
+                page.order_changed.connect(self._handle_data_changed_from_pages)
         if self._history_page is not None:
             self._history_page.history_changed.connect(self._notify_reporting_page_dirty)
 
@@ -135,6 +155,9 @@ class AppWindow(QMainWindow):
             product_list_view = inventory_page.findChild(ProductListView)
             if product_list_view is not None and hasattr(product_list_view, "reload"):
                 product_list_view.reload()
+        orders_page = self._module_pages.get("orders")
+        if orders_page is not None and hasattr(orders_page, "reload"):
+            orders_page.reload()
         self._notify_reporting_page_dirty()
 
     def _apply_ui_scale_preset_to_pages(self, preset: str) -> None:

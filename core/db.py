@@ -29,6 +29,7 @@ SessionFactory: Final[sessionmaker] = sessionmaker(bind=ENGINE, autoflush=False,
 def _import_models() -> None:
     import modules.customer.models  # noqa: F401
     import modules.inventory.models  # noqa: F401
+    import modules.orders.models  # noqa: F401
     import modules.returns.models  # noqa: F401
     import modules.sales.models  # noqa: F401
 

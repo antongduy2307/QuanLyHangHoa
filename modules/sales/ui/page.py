@@ -3,6 +3,8 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QMenu, QStackedWidget, QTabBar, QToolButton, QVBoxLayout, QWidget
 
+from modules.orders.controller import OrderController
+from modules.orders.ui.order_draft_page import OrderDraftPage
 from modules.returns.controller import ReturnController
 from modules.returns.ui.return_page import ReturnPage as ReturnPageView
 from modules.sales.controller import SalesController
@@ -45,9 +47,11 @@ class SalesPage(QWidget):
         return_menu = new_tab_menu.addMenu("Trả hàng mới")
         new_return_invoice_action = return_menu.addAction("Trả theo hóa đơn")
         new_return_quick_action = return_menu.addAction("Trả nhanh")
+        new_order_action = new_tab_menu.addAction("Đặt hàng")
         new_sale_action.triggered.connect(lambda: self._add_sales_tab(make_current=True))
         new_return_invoice_action.triggered.connect(lambda: self._add_return_tab(make_current=True, mode="invoice"))
         new_return_quick_action.triggered.connect(lambda: self._add_return_tab(make_current=True, mode="quick"))
+        new_order_action.triggered.connect(lambda: self._add_order_tab(make_current=True))
         self._new_tab_button.setMenu(new_tab_menu)
 
         self._workspace_tabs = QStackedWidget()
@@ -76,13 +80,36 @@ class SalesPage(QWidget):
             if widget is not None and hasattr(widget, "apply_ui_scale_preset"):
                 widget.apply_ui_scale_preset(preset)
 
-    def _add_sales_tab(self, *, make_current: bool, invoice=None, custom_label: str | None = None) -> None:
+    def _add_sales_tab(
+        self,
+        *,
+        make_current: bool,
+        invoice=None,
+        order_draft: dict[str, object] | None = None,
+        custom_label: str | None = None,
+    ) -> None:
         controller = SalesController(self._session_factory)
-        page = SalesPageView(controller, invoice=invoice, on_edit_completed=lambda: self._close_workspace_widget(page))
+        order_controller = OrderController(self._session_factory) if order_draft is not None else None
+        page = SalesPageView(
+            controller,
+            invoice=invoice,
+            order_draft=order_draft,
+            order_controller=order_controller,
+            on_edit_completed=lambda: self._close_workspace_widget(page),
+        )
         page.setProperty("workspace_mode", "sales")
         page.setProperty("workspace_custom_label", custom_label)
         page.transaction_changed.connect(self._emit_transaction_changed)
+        page.order_changed.connect(self._emit_order_changed)
         self._add_workspace_tab(page, mode="sales", make_current=make_current)
+
+    def _add_order_tab(self, *, make_current: bool, order=None, custom_label: str | None = None) -> None:
+        controller = OrderController(self._session_factory)
+        page = OrderDraftPage(controller, order=order, on_edit_completed=lambda: self._close_workspace_widget(page))
+        page.setProperty("workspace_mode", "order")
+        page.setProperty("workspace_custom_label", custom_label)
+        page.order_changed.connect(self._emit_order_changed)
+        self._add_workspace_tab(page, mode="order", make_current=make_current)
 
     def _add_return_tab(
         self,
@@ -140,6 +167,7 @@ class SalesPage(QWidget):
     def _renumber_tabs(self) -> None:
         sales_counter = 0
         return_counter = 0
+        order_counter = 0
         for index in range(self._workspace_tabs.count()):
             widget = self._workspace_tabs.widget(index)
             custom_label = widget.property("workspace_custom_label") if widget is not None else None
@@ -151,15 +179,20 @@ class SalesPage(QWidget):
             if mode == "sales":
                 sales_counter += 1
                 label = f"Bán hàng {sales_counter}"
-            else:
+            elif mode == "return":
                 return_counter += 1
                 label = f"Trả hàng {return_counter}"
+            else:
+                order_counter += 1
+                label = f"Đặt hàng {order_counter}"
             self._workspace_tab_bar.setTabText(index, label)
 
     def _workspace_mode_at(self, index: int) -> str:
         widget = self._workspace_tabs.widget(index)
         mode = widget.property("workspace_mode") if widget is not None else None
-        return "return" if mode == "return" else "sales"
+        if mode in {"return", "order"}:
+            return str(mode)
+        return "sales"
 
     def _current_workspace(self) -> QWidget | None:
         return self._workspace_tabs.currentWidget()
@@ -189,6 +222,9 @@ class SalesPage(QWidget):
     def _emit_transaction_changed(self) -> None:
         self.transaction_changed.emit()
 
+    def _emit_order_changed(self) -> None:
+        self.transaction_changed.emit()
+
     def open_invoice_edit_tab(self, invoice_id: int) -> None:
         controller = SalesController(self._session_factory)
         invoice = controller.get_invoice_detail(invoice_id)
@@ -209,6 +245,24 @@ class SalesPage(QWidget):
             edit_return=return_invoice,
             edit_detail=detail,
             custom_label=self._truncate_tab_label("Sửa trả hàng", return_invoice.return_code),
+        )
+
+    def open_order_sales_draft(self, order_id: int) -> None:
+        controller = OrderController(self._session_factory)
+        order = controller.get_order(order_id)
+        self._add_sales_tab(
+            make_current=True,
+            order_draft=controller.order_to_sales_payload(order),
+            custom_label=self._truncate_tab_label("Bán từ đặt hàng", order.order_code),
+        )
+
+    def open_order_edit_tab(self, order_id: int) -> None:
+        controller = OrderController(self._session_factory)
+        order = controller.get_order(order_id)
+        self._add_order_tab(
+            make_current=True,
+            order=order,
+            custom_label=self._truncate_tab_label("Sửa đặt hàng", order.order_code),
         )
 
     def _sync_top_row_state(self) -> None:

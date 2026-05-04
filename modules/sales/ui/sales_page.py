@@ -33,12 +33,15 @@ from shared.widgets.numeric_inputs import SelectAllSpinBox
 
 class SalesPage(QWidget):
     transaction_changed = pyqtSignal()
+    order_changed = pyqtSignal()
 
     def __init__(
         self,
         controller: SalesController,
         *,
         invoice: Invoice | None = None,
+        order_draft: dict[str, object] | None = None,
+        order_controller: object | None = None,
         on_edit_completed: Callable[[], None] | None = None,
     ) -> None:
         super().__init__()
@@ -48,6 +51,8 @@ class SalesPage(QWidget):
         self._editing_invoice_id: int | None = None
         self._editing_customer: CustomerDTO | None = None
         self._editing_walk_in = False
+        self._source_order_id: int | None = None
+        self._order_controller = order_controller
         self._on_edit_completed = on_edit_completed
 
         self._items_table = InvoiceItemsTable()
@@ -135,6 +140,8 @@ class SalesPage(QWidget):
         self._refresh_amounts()
         if invoice is not None:
             self._load_invoice_for_edit(invoice)
+        elif order_draft is not None:
+            self._load_order_draft(order_draft)
 
     def apply_ui_scale_preset(self, preset: str) -> None:
         self._ui_scale = get_ui_scale_factor(preset)
@@ -274,6 +281,9 @@ class SalesPage(QWidget):
                 payment_method=None,
                 note=self._note_input.toPlainText().strip() or None,
             )
+            if self._source_order_id is not None and self._order_controller is not None:
+                self._order_controller.mark_converted(self._source_order_id, invoice.id)
+                self.order_changed.emit()
             MessageBox.info(self, "Thành công", f"Đã tạo hóa đơn {invoice.invoice_code}")
             self.transaction_changed.emit()
             self.reload_data()
@@ -341,4 +351,21 @@ class SalesPage(QWidget):
             None,
         )
         self._customer_picker.lock_customer(None if self._editing_walk_in else self._editing_customer)
+        self._refresh_amounts()
+
+    def _load_order_draft(self, order_draft: dict[str, object]) -> None:
+        self._source_order_id = int(order_draft["source_order_id"])
+        self._items_table.clear_items()
+        for item in list(order_draft.get("items", [])):
+            if isinstance(item, dict):
+                self._items_table.add_or_merge_item(item)
+        self._note_input.setText(str(order_draft.get("note") or ""))
+        customer_id = order_draft.get("customer_id")
+        customer = next(
+            (candidate for candidate in self._controller.list_customers() if candidate.id == customer_id),
+            None,
+        )
+        if customer is not None:
+            self._customer_picker.lock_customer(customer)
+            self._customer_picker.unlock_customer()
         self._refresh_amounts()
