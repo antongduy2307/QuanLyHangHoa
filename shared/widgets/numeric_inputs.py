@@ -238,3 +238,11 @@ class SelectAllDecimalInput(QLineEdit):
         if isinstance(value, Decimal):
             return value
         return Decimal(str(value))
+
+
+class SelectAllQuantityInput(SelectAllDecimalInput):
+    @staticmethod
+    def _format_number(value: Decimal) -> str:
+        normalized = value.quantize(Decimal("0.001"))
+        text = f"{normalized:,.3f}".rstrip("0").rstrip(".")
+        return text or "0"

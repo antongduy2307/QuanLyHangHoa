@@ -46,8 +46,13 @@ class InventoryController:
         quantity = self.get_current_quantity(product.id)
         unit_mode = product.unit_mode if isinstance(product.unit_mode, UnitMode) else UnitMode(product.unit_mode)
         if unit_mode == UnitMode.BAO_KG:
-            return f"{quantity.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)} bao"
-        return f"{int(quantity.to_integral_value())} bịch"
+            return f"{self._format_quantity(quantity, Decimal('0.01'))} bao"
+        return f"{self._format_quantity(quantity, Decimal('0.001'))} bịch"
+
+    @staticmethod
+    def _format_quantity(quantity: Decimal, quantum: Decimal) -> str:
+        text = f"{quantity.quantize(quantum, rounding=ROUND_HALF_UP):,}".rstrip("0").rstrip(".")
+        return text or "0"
 
     def get_unit_display(self, product: InventoryProductDTO) -> str:
         summary = product.enabled_price_summary.upper()

@@ -60,7 +60,7 @@ class InventoryRepository:
         balance = InventoryBalance(
             product_id=product.id,
             on_hand_bao_decimal=Decimal("0") if product.unit_mode == UnitMode.BAO_KG else None,
-            on_hand_bich_integer=0 if product.unit_mode == UnitMode.BICH else None,
+            on_hand_bich_integer=Decimal("0") if product.unit_mode == UnitMode.BICH else None,
         )
         product.inventory_balance = balance
         self.session.add(balance)

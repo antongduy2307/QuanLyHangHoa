@@ -45,9 +45,9 @@ class OrdersPage(QWidget):
         self._summary_sort_combo.addItem("Sắp xếp: Tên hàng", "name")
         self._summary_sort_combo.currentIndexChanged.connect(self._render_summary_rows)
 
-        self._summary_table = QTableWidget(0, 4)
-        self._summary_table.setHorizontalHeaderLabels(["Mã hàng", "Tên hàng", "Đơn vị", "Tổng số lượng cần làm"])
-        self._summary_table.setProperty("column_minimum_widths", {0: 120, 1: 280, 2: 120, 3: 190})
+        self._summary_table = QTableWidget(0, 5)
+        self._summary_table.setHorizontalHeaderLabels(["Mã hàng", "Tên hàng", "Đơn vị", "Tổng số lượng cần làm", "Tồn kho hiện tại"])
+        self._summary_table.setProperty("column_minimum_widths", {0: 120, 1: 280, 2: 120, 3: 190, 4: 160})
         configure_table_widget(self._summary_table, "orders.quantity_summary")
 
         summary_controls = QHBoxLayout()
@@ -117,10 +117,11 @@ class OrdersPage(QWidget):
                 row.product_name,
                 row.unit_type.value,
                 self._format_quantity(row.quantity),
+                "-" if row.stock_available is None else self._format_quantity(row.stock_available),
             ]
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
-                if column in {2, 3}:
+                if column in {2, 3, 4}:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self._summary_table.setItem(row_index, column, item)
 

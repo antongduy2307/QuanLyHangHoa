@@ -89,7 +89,7 @@ class Product(Base):
         self,
         *,
         on_hand_bao_decimal: Decimal | None,
-        on_hand_bich_integer: int | None,
+        on_hand_bich_integer: Decimal | int | None,
     ) -> None:
         """Local domain helper for canonical inventory storage.
 
@@ -153,7 +153,7 @@ class InventoryBalance(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id", ondelete="CASCADE"), unique=True)
     on_hand_bao_decimal: Mapped[Decimal | None] = mapped_column(Numeric(QUANTITY_PRECISION, QUANTITY_SCALE), nullable=True)
-    on_hand_bich_integer: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    on_hand_bich_integer: Mapped[Decimal | None] = mapped_column(Numeric(QUANTITY_PRECISION, QUANTITY_SCALE), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     product: Mapped[Product] = relationship(back_populates="inventory_balance")

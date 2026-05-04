@@ -26,7 +26,7 @@ def _build_on_hand_display(product: Product) -> str:
         return "0"
     if product.unit_mode == UnitMode.BAO_KG:
         return f"{_format_decimal(balance.on_hand_bao_decimal)} bao"
-    return f"{balance.on_hand_bich_integer or 0} bịch"
+    return f"{_format_decimal(balance.on_hand_bich_integer)} bịch"
 
 
 

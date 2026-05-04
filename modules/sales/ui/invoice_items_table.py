@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
 
 from core.config import MAX_MONEY_INPUT
 from core.enums import UnitType
-from shared.widgets.numeric_inputs import SelectAllDecimalInput, SelectAllSpinBox
+from shared.widgets.numeric_inputs import SelectAllDecimalInput, SelectAllQuantityInput
 from shared.widgets.table_helpers import configure_table_cell_widget, configure_table_widget
 
 
@@ -122,9 +122,9 @@ class InvoiceItemsTable(QTableWidget):
                 configure_table_cell_widget(unit_combo, height=34)
                 self.setCellWidget(row, 2, unit_combo)
 
-                quantity_spin = SelectAllSpinBox()
-                quantity_spin.setRange(1, 999999999)
-                quantity_spin.setValue(int(Decimal(str(item["quantity"]))))
+                quantity_spin = SelectAllQuantityInput()
+                quantity_spin.setRange(Decimal("0.001"), Decimal("999999999"))
+                quantity_spin.setValue(Decimal(str(item["quantity"])))
                 quantity_spin.editingFinished.connect(
                     lambda row_index=row, spin=quantity_spin: self._handle_quantity_finished(row_index, spin.value())
                 )
@@ -172,11 +172,11 @@ class InvoiceItemsTable(QTableWidget):
         item["line_total"] = Decimal(str(item["quantity"])) * Decimal(str(item["unit_price"]))
         self._render()
 
-    def _handle_quantity_finished(self, row_index: int, value: int) -> None:
+    def _handle_quantity_finished(self, row_index: int, value: Decimal) -> None:
         if self._syncing or not (0 <= row_index < len(self._items)):
             return
         item = self._items[row_index]
-        quantity = Decimal(value)
+        quantity = Decimal(str(value))
         item["quantity"] = quantity
         item["line_total"] = quantity * Decimal(str(item["unit_price"]))
         self._render()

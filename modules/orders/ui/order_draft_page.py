@@ -189,7 +189,7 @@ class OrderDraftPage(QWidget):
         if order.required_delivery_datetime is not None:
             self._delivery_enabled.setChecked(True)
             self._delivery_datetime_input.setDateTime(QDateTime(order.required_delivery_datetime))
-        customer = next((customer for customer in self._controller.list_customers() if customer.id == order.customer_id), None)
+        customer = next((customer for customer in self._controller.list_customers(include_inactive=True) if customer.id == order.customer_id), None)
         if customer is not None:
             self._customer_picker.lock_customer(customer)
             self._customer_picker.unlock_customer()

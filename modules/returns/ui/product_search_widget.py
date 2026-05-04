@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPushButton, QVBoxLa
 from core.enums import UnitType
 from modules.returns.controller import QuickReturnProductOption
 from shared.widgets.autocomplete_line_edit import AutocompleteLineEdit
-from shared.widgets.numeric_inputs import SelectAllSpinBox
+from shared.widgets.numeric_inputs import SelectAllQuantityInput
 
 
 class QuickReturnProductSearchWidget(QWidget):
@@ -37,8 +37,8 @@ class QuickReturnProductSearchWidget(QWidget):
 
         self.unit_combo = QComboBox()
         self.unit_combo.currentIndexChanged.connect(self._update_price_label)
-        self.quantity_input = SelectAllSpinBox()
-        self.quantity_input.setRange(0, 999999999)
+        self.quantity_input = SelectAllQuantityInput()
+        self.quantity_input.setRange(Decimal("0"), Decimal("999999999"))
         self.price_label = QLabel("Giá: -")
 
         add_button = QPushButton("Thêm")
@@ -136,7 +136,7 @@ class QuickReturnProductSearchWidget(QWidget):
         if self._selected_product is None:
             return
         unit_type = self.unit_combo.currentData()
-        quantity = Decimal(self.quantity_input.value())
+        quantity = Decimal(str(self.quantity_input.value()))
         if unit_type is None or quantity <= Decimal("0"):
             return
         self.item_added.emit(self._build_payload(self._selected_product, unit_type, quantity))

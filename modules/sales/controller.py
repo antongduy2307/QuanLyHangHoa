@@ -60,9 +60,9 @@ class SalesController:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self._session_factory = session_factory
 
-    def list_customers(self) -> Sequence[CustomerDTO]:
+    def list_customers(self, *, include_inactive: bool = False) -> Sequence[CustomerDTO]:
         service = CustomerService(CustomerRepository(self._session_factory))
-        return service.list_customers()
+        return service.list_customers(include_inactive=include_inactive)
 
     def list_sellable_products(self) -> list[SellableProductOption]:
         repository = InventoryRepository(self._session_factory)

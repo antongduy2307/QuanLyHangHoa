@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from contextlib import nullcontext
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
@@ -19,6 +20,12 @@ LOGGER = get_logger(__name__)
 OPENING_BALANCE_DATETIME = datetime(1900, 1, 1, 0, 0, 0)
 
 
+@dataclass(frozen=True, slots=True)
+class CustomerDeleteResult:
+    customer_id: int
+    action: str
+
+
 class CustomerService:
     def __init__(self, repository: CustomerRepository) -> None:
         self._repository = repository
@@ -26,24 +33,29 @@ class CustomerService:
     def use_session(self, session: Session) -> None:
         self._repository.use_session(session)
 
-    def list_customers(self) -> Sequence[CustomerDTO]:
-        return [to_dto(customer) for customer in self._repository.list_customers()]
+    def list_customers(self, *, include_inactive: bool = False) -> Sequence[CustomerDTO]:
+        return [to_dto(customer) for customer in self._repository.list_customers(include_inactive=include_inactive)]
 
     def get_customer(self, customer_id: int) -> Customer:
         return self._repository.get_customer(customer_id)
 
-    def delete_customer(self, customer_id: int) -> None:
+    def get_delete_mode(self, customer_id: int) -> str:
+        customer = self._repository.get_customer(customer_id)
+        return "deactivate" if self._repository.has_business_history(customer.id) else "hard_delete"
+
+    def delete_customer(self, customer_id: int) -> CustomerDeleteResult:
         session = self._repository.session
         transaction_context = nullcontext() if session.in_transaction() else session.begin()
 
         with transaction_context:
             customer = self._repository.get_customer(customer_id)
             if self._repository.has_business_history(customer_id):
-                raise ValidationError(
-                    "Không thể xóa khách hàng đã phát sinh hóa đơn, trả hàng hoặc lịch sử công nợ."
-                )
+                customer.is_active = False
+                session.flush()
+                return CustomerDeleteResult(customer_id=customer.id, action="deactivated")
             session.delete(customer)
             session.flush()
+            return CustomerDeleteResult(customer_id=customer_id, action="hard_deleted")
 
     def create_customer(
         self,

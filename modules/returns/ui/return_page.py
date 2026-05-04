@@ -194,7 +194,7 @@ class ReturnPage(QWidget):
 
     def _reload_mode_data(self) -> None:
         if self._mode == "quick":
-            customers = list(self._controller.list_quick_return_customers())
+            customers = list(self._controller.list_quick_return_customers(include_inactive=True))
             self._customer_picker.reload_data(customers)
             self._quick_products = list(self._controller.list_quick_return_products())
             if self._editing_return is not None:
@@ -378,7 +378,7 @@ class ReturnPage(QWidget):
         if return_invoice.customer_id is None:
             self._customer_picker.lock_customer(None)
         else:
-            customers = list(self._controller.list_quick_return_customers())
+            customers = list(self._controller.list_quick_return_customers(include_inactive=True))
             self._customer_picker.reload_data(customers)
             self._customer_picker.lock_customer(next((customer for customer in customers if customer.id == return_invoice.customer_id), None))
 

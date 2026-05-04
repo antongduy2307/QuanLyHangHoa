@@ -201,21 +201,31 @@ QPushButton {{
         if self._controller is None:
             return
         customer = self._detail.customer
+        delete_mode = self._controller.get_delete_mode(customer.id)
+        if delete_mode == "deactivate":
+            confirm_message = (
+                "Khách hàng này đã có lịch sử giao dịch. Không thể xóa vĩnh viễn, "
+                "hệ thống sẽ chuyển khách sang trạng thái ngừng sử dụng và ẩn khỏi danh sách mặc định. "
+                "Bạn có muốn tiếp tục không?"
+            )
+        else:
+            confirm_message = f"Xóa vĩnh viễn khách hàng '{customer.customer_name}'?"
         confirmed = QMessageBox.question(
             self,
             "Xác nhận xóa",
-            (
-                f"Xóa khách hàng '{customer.customer_name}'?\n\n"
-                "Khách chưa phát sinh nghiệp vụ sẽ bị xóa vĩnh viễn. "
-                "Khách đã có hóa đơn, trả hàng hoặc lịch sử công nợ sẽ bị chặn xóa."
-            ),
+            confirm_message,
         )
         if confirmed != QMessageBox.StandardButton.Yes:
             return
         try:
-            self._controller.delete_customer(customer.id)
+            result = self._controller.delete_customer(customer.id)
             self._handle_updated()
-            MessageBox.info(self, "Thành công", "Đã xóa khách hàng.")
+            message = (
+                "Đã chuyển khách hàng sang trạng thái ngừng sử dụng. Lịch sử giao dịch vẫn được giữ lại."
+                if result.action == "deactivated"
+                else "Đã xóa khách hàng."
+            )
+            MessageBox.info(self, "Thành công", message)
             self.accept()
         except Exception as exc:
             MessageBox.error(self, "Không xóa được khách hàng", str(exc))

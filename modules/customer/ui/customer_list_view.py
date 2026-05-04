@@ -330,20 +330,30 @@ QLabel#pagerLabel {
 
     def _delete_customer(self) -> None:
         customer = self._detail.customer
+        delete_mode = self._controller.get_delete_mode(customer.id)
+        if delete_mode == "deactivate":
+            confirm_message = (
+                "Khách hàng này đã có lịch sử giao dịch. Không thể xóa vĩnh viễn, "
+                "hệ thống sẽ chuyển khách sang trạng thái ngừng sử dụng và ẩn khỏi danh sách mặc định. "
+                "Bạn có muốn tiếp tục không?"
+            )
+        else:
+            confirm_message = f"Xóa vĩnh viễn khách hàng '{customer.customer_name}'?"
         confirmed = QMessageBox.question(
             self,
             "Xác nhận xóa",
-            (
-                f"Xóa khách hàng '{customer.customer_name}'?\n\n"
-                "Khách chưa phát sinh nghiệp vụ sẽ bị xóa vĩnh viễn. "
-                "Khách đã có hóa đơn, trả hàng hoặc lịch sử công nợ sẽ bị chặn xóa."
-            ),
+            confirm_message,
         )
         if confirmed != QMessageBox.StandardButton.Yes:
             return
         try:
-            self._controller.delete_customer(customer.id)
-            MessageBox.info(self, "Thành công", "Đã xóa khách hàng.")
+            result = self._controller.delete_customer(customer.id)
+            message = (
+                "Đã chuyển khách hàng sang trạng thái ngừng sử dụng. Lịch sử giao dịch vẫn được giữ lại."
+                if result.action == "deactivated"
+                else "Đã xóa khách hàng."
+            )
+            MessageBox.info(self, "Thành công", message)
             self._on_changed()
         except Exception as exc:
             MessageBox.error(self, "Không xóa được khách hàng", str(exc))
@@ -430,6 +440,9 @@ class CustomerListView(QWidget):
         self._only_debt_checkbox = QCheckBox("Chỉ hiện khách đang nợ")
         self._only_debt_checkbox.toggled.connect(self._apply_filter)
 
+        self._include_inactive_checkbox = QCheckBox("Hiện khách ngừng sử dụng")
+        self._include_inactive_checkbox.toggled.connect(self._apply_filter)
+
         self._table = QTableWidget(0, 4)
         self._table.setHorizontalHeaderLabels(["Tên khách", "Điện thoại", "Công nợ", "Tổng mua"])
         configure_table_widget(self._table, "customer.list")
@@ -454,6 +467,7 @@ class CustomerListView(QWidget):
         side_layout.addSpacing(10)
         side_layout.addWidget(QLabel("Bộ lọc"))
         side_layout.addWidget(self._only_debt_checkbox)
+        side_layout.addWidget(self._include_inactive_checkbox)
         side_layout.addStretch()
         self._side_panel.setMaximumWidth(188)
 
@@ -516,7 +530,13 @@ QHeaderView::section {
 
     def reload(self) -> None:
         try:
-            self._customers = list(self._controller.list_customers(self._current_sort_option(), self._only_debt_checkbox.isChecked()))
+            self._customers = list(
+                self._controller.list_customers(
+                    self._current_sort_option(),
+                    self._only_debt_checkbox.isChecked(),
+                    self._include_inactive_checkbox.isChecked(),
+                )
+            )
             self._apply_filter()
         except Exception as exc:
             MessageBox.error(self, "Lỗi tải dữ liệu", str(exc))
@@ -528,7 +548,12 @@ QHeaderView::section {
         query = self._search_input.text().strip()
         sort_option = self._current_sort_option()
         only_positive_debt = self._only_debt_checkbox.isChecked()
-        filtered = self._controller.search_customers(query, sort_option, only_positive_debt) if query else self._controller.list_customers(sort_option, only_positive_debt)
+        include_inactive = self._include_inactive_checkbox.isChecked()
+        filtered = (
+            self._controller.search_customers(query, sort_option, only_positive_debt, include_inactive)
+            if query
+            else self._controller.list_customers(sort_option, only_positive_debt, include_inactive)
+        )
         self._customers = filtered
         if self._expanded_customer_id is not None and not any(customer.id == self._expanded_customer_id for customer in filtered):
             self._expanded_customer_id = None
@@ -564,7 +589,8 @@ QHeaderView::section {
 
         for index, customer in enumerate(customers):
             actual_row = index + summary_row_count + (1 if expanded_index >= 0 and index > expanded_index else 0)
-            self._table.setItem(actual_row, 0, QTableWidgetItem(customer.customer_name))
+            name = customer.customer_name if customer.is_active else f"{customer.customer_name} (ngừng sử dụng)"
+            self._table.setItem(actual_row, 0, QTableWidgetItem(name))
             self._table.setItem(actual_row, 1, QTableWidgetItem(customer.phone or "-"))
             balance_item = QTableWidgetItem(format_money(customer.current_balance))
             if customer.current_balance < Decimal("0"):
@@ -573,6 +599,12 @@ QHeaderView::section {
                 balance_item.setForeground(QColor("#0f766e"))
             self._table.setItem(actual_row, 2, balance_item)
             self._table.setItem(actual_row, 3, QTableWidgetItem(format_money(customer.total_sales)))
+            if not customer.is_active:
+                for column in range(self._table.columnCount()):
+                    item = self._table.item(actual_row, column)
+                    if item is not None:
+                        item.setBackground(QColor("#f1f5f9"))
+                        item.setForeground(QColor("#64748b"))
             self._table.item(actual_row, 0).setData(Qt.ItemDataRole.UserRole, customer.id)
 
         if expanded_index >= 0:

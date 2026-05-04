@@ -149,9 +149,9 @@ class ReturnController:
             selected_quantities=current_quantities,
         )
 
-    def list_quick_return_customers(self) -> Sequence[CustomerDTO]:
+    def list_quick_return_customers(self, *, include_inactive: bool = False) -> Sequence[CustomerDTO]:
         service = CustomerService(CustomerRepository(self._session_factory))
-        customers = service.list_customers()
+        customers = service.list_customers(include_inactive=include_inactive)
         service._repository.session.close()
         return customers
 

@@ -12,6 +12,7 @@ from core.enums import UnitType
 from core.exceptions import ValidationError
 from modules.customer.repository import CustomerRepository
 from modules.inventory.repository import InventoryRepository
+from modules.inventory.service import InventoryService
 from modules.orders.models import OrderRequest, OrderRequestItem
 from modules.orders.repository import OrderRepository
 
@@ -29,6 +30,7 @@ class OrderQuantitySummary:
     product_name: str
     unit_type: UnitType
     quantity: Decimal
+    stock_available: Decimal | None = None
 
 
 class OrderService:
@@ -43,6 +45,9 @@ class OrderService:
 
     def list_active_quantity_summary(self) -> list[OrderQuantitySummary]:
         totals: dict[tuple[int, UnitType], OrderQuantitySummary] = {}
+        inventory_repository = InventoryRepository(self._repository._session_factory)
+        inventory_repository.use_session(self._repository.session)
+        inventory_service = InventoryService(inventory_repository)
         for order in self._repository.list_active_orders():
             for item in order.items:
                 key = (item.product_id, item.unit_type)
@@ -53,6 +58,7 @@ class OrderService:
                         product_name=item.product_name_snapshot,
                         unit_type=item.unit_type,
                         quantity=Decimal(str(item.quantity)),
+                        stock_available=self._get_stock_available(inventory_service, item.product_id, item.unit_type),
                     )
                     continue
                 totals[key] = OrderQuantitySummary(
@@ -60,8 +66,18 @@ class OrderService:
                     product_name=existing.product_name,
                     unit_type=existing.unit_type,
                     quantity=existing.quantity + Decimal(str(item.quantity)),
+                    stock_available=existing.stock_available,
                 )
         return list(totals.values())
+
+    @staticmethod
+    def _get_stock_available(inventory_service: InventoryService, product_id: int | None, unit_type: UnitType) -> Decimal | None:
+        if product_id is None:
+            return None
+        try:
+            return inventory_service.get_available_quantity(int(product_id), unit_type)
+        except Exception:
+            return None
 
     def get_order(self, order_id: int) -> OrderRequest:
         return self._repository.get_order(order_id)

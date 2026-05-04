@@ -39,6 +39,7 @@ class Customer(Base):
     current_balance: Mapped[Decimal] = mapped_column(Numeric(AMOUNT_PRECISION, AMOUNT_SCALE), default=Decimal("0"), server_default="0")
     total_sales: Mapped[Decimal] = mapped_column(Numeric(AMOUNT_PRECISION, AMOUNT_SCALE), default=Decimal("0"), server_default="0")
     is_walk_in: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 

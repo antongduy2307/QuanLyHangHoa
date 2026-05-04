@@ -16,3 +16,4 @@ class CustomerDTO:
     is_walk_in: bool
     created_at: datetime
     note: str | None = None
+    is_active: bool = True

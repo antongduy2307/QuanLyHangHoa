@@ -23,8 +23,11 @@ class CustomerRepository:
     def use_session(self, session: Session) -> None:
         self._session = session
 
-    def list_customers(self) -> Sequence[Customer]:
-        statement = select(Customer).order_by(Customer.customer_name.asc())
+    def list_customers(self, *, include_inactive: bool = False) -> Sequence[Customer]:
+        statement = select(Customer)
+        if not include_inactive:
+            statement = statement.where(Customer.is_active.is_(True))
+        statement = statement.order_by(Customer.customer_name.asc())
         return self.session.scalars(statement).all()
 
     def get_customer(self, customer_id: int) -> Customer:

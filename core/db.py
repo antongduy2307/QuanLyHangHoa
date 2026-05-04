@@ -51,6 +51,19 @@ def _ensure_customer_note_column() -> None:
             connection.execute(text("ALTER TABLE customers ADD COLUMN note TEXT"))
 
 
+def _ensure_customer_active_column() -> None:
+    with ENGINE.begin() as connection:
+        table_info = connection.execute(text("PRAGMA table_info(customers)")).mappings().all()
+        column_names = {str(row["name"]) for row in table_info}
+        try:
+            if "is_active" not in column_names:
+                connection.execute(text("ALTER TABLE customers ADD COLUMN is_active BOOLEAN DEFAULT 1"))
+            connection.execute(text("UPDATE customers SET is_active = 1 WHERE is_active IS NULL"))
+        except OperationalError as exc:
+            if "readonly" not in str(exc).lower():
+                raise
+
+
 def _ensure_customer_balance_ledger_transaction_datetime_column() -> None:
     with ENGINE.begin() as connection:
         table_info = connection.execute(text("PRAGMA table_info(customer_balance_ledgers)")).mappings().all()
@@ -142,6 +155,7 @@ def init_db() -> None:
     Base.metadata.create_all(bind=ENGINE)
     _ensure_customer_address_column()
     _ensure_customer_note_column()
+    _ensure_customer_active_column()
     _ensure_customer_balance_ledger_transaction_datetime_column()
     _ensure_customer_balance_ledger_ordering_columns()
     migrate_customer_invoice_payments_to_debt_payment_v1(

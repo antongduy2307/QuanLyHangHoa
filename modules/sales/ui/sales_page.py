@@ -347,7 +347,7 @@ class SalesPage(QWidget):
         self._paid_amount_input.setValue(int(invoice.paid_amount or Decimal("0")))
         self._create_button.setText("Cập nhật")
         self._editing_customer = next(
-            (customer for customer in self._controller.list_customers() if customer.id == invoice.customer_id),
+            (customer for customer in self._controller.list_customers(include_inactive=True) if customer.id == invoice.customer_id),
             None,
         )
         self._customer_picker.lock_customer(None if self._editing_walk_in else self._editing_customer)
@@ -362,7 +362,7 @@ class SalesPage(QWidget):
         self._note_input.setText(str(order_draft.get("note") or ""))
         customer_id = order_draft.get("customer_id")
         customer = next(
-            (candidate for candidate in self._controller.list_customers() if candidate.id == customer_id),
+            (candidate for candidate in self._controller.list_customers(include_inactive=True) if candidate.id == customer_id),
             None,
         )
         if customer is not None:

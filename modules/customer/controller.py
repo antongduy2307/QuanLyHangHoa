@@ -12,7 +12,7 @@ from modules.customer.dto import CustomerDTO
 from modules.customer.mappers import to_dto
 from modules.customer.models import CustomerBalanceLedger
 from modules.customer.repository import CustomerRepository
-from modules.customer.service import CustomerService
+from modules.customer.service import CustomerDeleteResult, CustomerService
 from modules.returns.models import ReturnInvoice
 from modules.returns.repository import ReturnsRepository
 from modules.sales.models import Invoice
@@ -78,13 +78,19 @@ class CustomerController:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self._session_factory = session_factory
 
-    def list_customers(self, sort_option: str = "name_asc", only_positive_debt: bool = False) -> list[CustomerDTO]:
-        customers = self._load_customers()
+    def list_customers(self, sort_option: str = "name_asc", only_positive_debt: bool = False, include_inactive: bool = False) -> list[CustomerDTO]:
+        customers = self._load_customers(include_inactive=include_inactive)
         customers = self._apply_debt_filter(customers, only_positive_debt)
         return self._sort_customers(customers, sort_option)
 
-    def search_customers(self, query: str, sort_option: str = "name_asc", only_positive_debt: bool = False) -> list[CustomerDTO]:
-        customers = self._load_customers()
+    def search_customers(
+        self,
+        query: str,
+        sort_option: str = "name_asc",
+        only_positive_debt: bool = False,
+        include_inactive: bool = False,
+    ) -> list[CustomerDTO]:
+        customers = self._load_customers(include_inactive=include_inactive)
         needle = query.strip().lower()
         if needle:
             customers = [customer for customer in customers if needle in customer.customer_name.lower()]
@@ -112,10 +118,19 @@ class CustomerController:
         service._repository.session.close()
         return dto
 
-    def delete_customer(self, customer_id: int) -> None:
+    def get_delete_mode(self, customer_id: int) -> str:
         service = CustomerService(CustomerRepository(self._session_factory))
-        service.delete_customer(customer_id)
-        service._repository.session.close()
+        try:
+            return service.get_delete_mode(customer_id)
+        finally:
+            service._repository.session.close()
+
+    def delete_customer(self, customer_id: int) -> CustomerDeleteResult:
+        service = CustomerService(CustomerRepository(self._session_factory))
+        try:
+            return service.delete_customer(customer_id)
+        finally:
+            service._repository.session.close()
 
     def update_customer(
         self,
@@ -350,16 +365,16 @@ class CustomerController:
         if not normalized_phone:
             return False
         repository = CustomerRepository(self._session_factory)
-        customers = repository.list_customers()
+        customers = repository.list_customers(include_inactive=True)
         repository.session.close()
         for customer in customers:
             if customer.phone == normalized_phone and customer.id != excluding_customer_id:
                 return True
         return False
 
-    def _load_customers(self) -> list[CustomerDTO]:
+    def _load_customers(self, *, include_inactive: bool = False) -> list[CustomerDTO]:
         repository = CustomerRepository(self._session_factory)
-        customers = repository.list_customers()
+        customers = repository.list_customers(include_inactive=include_inactive)
         repository.session.close()
         return [to_dto(customer) for customer in customers]
 

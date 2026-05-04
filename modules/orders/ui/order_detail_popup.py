@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import QCheckBox, QDialog, QHBoxLayout, QLabel, QMessageBox
 from modules.orders.controller import OrderController
 from modules.orders.models import OrderRequest
 from shared.formatting.dates import format_datetime
+from shared.formatting.quantity import format_quantity
 from shared.widgets.message_box import MessageBox
 from shared.widgets.table_helpers import configure_table_widget
 
@@ -71,7 +72,7 @@ class OrderDetailPopup(QDialog):
         for row, item in enumerate(order.items):
             self._items_table.setItem(row, 0, QTableWidgetItem(item.product_name_snapshot))
             self._items_table.setItem(row, 1, QTableWidgetItem(item.unit_type.value))
-            quantity_item = QTableWidgetItem(f"{item.quantity:,.0f}")
+            quantity_item = QTableWidgetItem(format_quantity(item.quantity))
             quantity_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self._items_table.setItem(row, 2, quantity_item)
 

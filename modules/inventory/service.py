@@ -94,7 +94,7 @@ class InventoryService:
             balance = InventoryBalance(
                 product_id=product.id,
                 on_hand_bao_decimal=Decimal("0") if unit_mode == UnitMode.BAO_KG else None,
-                on_hand_bich_integer=0 if unit_mode == UnitMode.BICH else None,
+                on_hand_bich_integer=Decimal("0") if unit_mode == UnitMode.BICH else None,
             )
             balance.validate_for_product(product)
             product.inventory_balance = balance
@@ -186,7 +186,7 @@ class InventoryService:
                 return bao_quantity
             return self.bao_to_kg(bao_quantity)
 
-        return Decimal(balance.on_hand_bich_integer or 0)
+        return Decimal(str(balance.on_hand_bich_integer or 0))
 
     def increase_stock(self, product_id: int, quantity: Decimal | int | str, unit_type: UnitType) -> InventoryBalance:
         return self._apply_stock_change(product_id, quantity, unit_type, increase=True)
@@ -269,10 +269,7 @@ class InventoryService:
             balance.on_hand_bao_decimal = (balance.on_hand_bao_decimal or Decimal("0")) + (bao_delta * sign)
             return balance
 
-        if normalized_quantity != normalized_quantity.to_integral_value():
-            raise ValidationError("Tồn kho BỊCH chỉ chấp nhận số nguyên.")
-
-        balance.on_hand_bich_integer = (balance.on_hand_bich_integer or 0) + int(normalized_quantity * sign)
+        balance.on_hand_bich_integer = Decimal(str(balance.on_hand_bich_integer or 0)) + (normalized_quantity * sign)
         return balance
 
     def _generate_receipt_code(self) -> str:
@@ -339,20 +336,17 @@ class InventoryService:
     def _get_canonical_balance_quantity(self, product: Product, balance: InventoryBalance) -> Decimal:
         if product.unit_mode == UnitMode.BAO_KG:
             return balance.on_hand_bao_decimal or Decimal("0")
-        return Decimal(balance.on_hand_bich_integer or 0)
+        return Decimal(str(balance.on_hand_bich_integer or 0))
 
     def _set_canonical_balance(self, product: Product, balance: InventoryBalance, quantity: Decimal) -> None:
         if product.unit_mode == UnitMode.BAO_KG:
             balance.on_hand_bao_decimal = quantity
             return
 
-        if quantity != quantity.to_integral_value():
-            raise ValidationError("Tồn kho BỊCH chỉ chấp nhận số nguyên.")
-        balance.on_hand_bich_integer = int(quantity)
+        balance.on_hand_bich_integer = quantity
 
     def _validate_canonical_quantity(self, product: Product, quantity: Decimal) -> None:
-        if product.unit_mode == UnitMode.BICH and quantity != quantity.to_integral_value():
-            raise ValidationError("Tồn kho BỊCH chỉ chấp nhận số nguyên.")
+        del product, quantity
 
     def _require_int(self, item: Mapping[str, object], key: str) -> int:
         raw_value = item.get(key)
