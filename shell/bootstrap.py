@@ -21,6 +21,7 @@ ACTIVE_MODULE_PACKAGES = (
     "modules.sales",
     "modules.orders",
     "modules.customer",
+    "modules.attendance",
     "modules.reporting",
     "modules.settings",
 )
