@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QCheckBox, QHBoxLayout, QLineEdit, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 
@@ -13,6 +13,8 @@ from shared.widgets.table_helpers import configure_table_widget
 
 
 class EmployeeManagementTab(QWidget):
+    employees_changed = pyqtSignal()
+
     def __init__(self, service: AttendanceEmployeeService) -> None:
         super().__init__()
         self._service = service
@@ -131,6 +133,7 @@ class EmployeeManagementTab(QWidget):
             )
             self.reload()
             self._restore_selection(employee.id)
+            self.employees_changed.emit()
             MessageBox.info(self, "Thành công", "Đã thêm nhân viên.")
         except AppError as exc:
             MessageBox.warning(self, "Không thêm được nhân viên", str(exc))
@@ -152,6 +155,7 @@ class EmployeeManagementTab(QWidget):
             )
             self.reload()
             self._restore_selection(updated.id)
+            self.employees_changed.emit()
             MessageBox.info(self, "Thành công", "Đã cập nhật nhân viên.")
         except AppError as exc:
             MessageBox.warning(self, "Không cập nhật được nhân viên", str(exc))
@@ -172,6 +176,7 @@ class EmployeeManagementTab(QWidget):
         try:
             result = self._service.delete_or_deactivate_employee(employee.id)
             self.reload()
+            self.employees_changed.emit()
             if result.deleted_without_history:
                 MessageBox.info(self, "Thành công", "Đã xóa nhân viên.")
             else:

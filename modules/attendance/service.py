@@ -1,14 +1,25 @@
 from __future__ import annotations
 
+import calendar
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import date
 
 from sqlalchemy.orm import Session, sessionmaker
 
 from core.exceptions import NotFoundError, ValidationError
 from modules.attendance.db import AttendanceSessionLocal
-from modules.attendance.models import Employee, Team
-from modules.attendance.repository import AttendanceEmployeeRepository
+from modules.attendance.dto import (
+    AttendanceEmployeeRow,
+    AttendanceSavePayload,
+    AttendanceSaveResult,
+    BagTypeOption,
+    DayEntryDTO,
+    WorkLogValue,
+    WorkTypeOption,
+)
+from modules.attendance.models import CutLog, DailyRecord, DailyRecordStatus, Employee, Team, WorkInputType, WorkLog
+from modules.attendance.repository import AttendanceDayEntryRepository, AttendanceEmployeeRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,3 +118,256 @@ class AttendanceEmployeeService:
             return Team(team)
         except ValueError as exc:
             raise ValidationError("invalid team") from exc
+
+
+GLOVE_WORK_NAMES = {"Phụ găng 1 máy", "Phụ găng 2 máy"}
+
+
+class AttendanceDayEntryService:
+    def __init__(
+        self,
+        repository: AttendanceDayEntryRepository | None = None,
+        session_factory: sessionmaker[Session] = AttendanceSessionLocal,
+    ) -> None:
+        self._session_factory = session_factory
+        self._repository = repository or AttendanceDayEntryRepository(session_factory)
+
+    def period_bounds_for_date(self, selected_date: date) -> tuple[date, date]:
+        if selected_date.day <= 10:
+            return selected_date.replace(day=1), selected_date.replace(day=10)
+        if selected_date.day <= 20:
+            return selected_date.replace(day=11), selected_date.replace(day=20)
+        return (
+            selected_date.replace(day=21),
+            selected_date.replace(day=calendar.monthrange(selected_date.year, selected_date.month)[1]),
+        )
+
+    def ensure_period_for_date(self, selected_date: date):
+        with self._session_factory() as session:
+            with session.begin():
+                return self._ensure_period_for_date(session, selected_date)
+
+    def list_attendance_employees_for_date(self, selected_date: date) -> list[AttendanceEmployeeRow]:
+        with self._session_factory() as session:
+            employees = self._repository.list_active_employees(session)
+            records = self._repository.list_daily_records_for_date(session, selected_date)
+            status_by_employee_id = {
+                record.employee_id: self.attendance_status_from_record(record)
+                for record in records
+            }
+            return [
+                AttendanceEmployeeRow(
+                    id=employee.id,
+                    name=employee.name,
+                    team=employee.team,
+                    status_label=status_by_employee_id.get(employee.id, "Chưa chấm"),
+                )
+                for employee in employees
+            ]
+
+    def get_daily_record(self, employee_id: int, selected_date: date) -> DailyRecord | None:
+        with self._session_factory() as session:
+            return self._repository.get_daily_record(session, employee_id, selected_date)
+
+    def get_day_entry(self, employee_id: int, selected_date: date) -> DayEntryDTO:
+        with self._session_factory() as session:
+            employee = self._repository.get_employee(session, employee_id)
+            record = self._repository.get_daily_record(session, employee_id, selected_date)
+            work_logs = list(record.work_logs) if record is not None else []
+            cut_logs = list(record.cut_logs) if record is not None else []
+            work_type_ids = {log.work_type_id for log in work_logs}
+            bag_type_ids = {log.bag_type_id for log in cut_logs}
+            work_types = self._repository.list_work_types_for_entry(session, work_type_ids)
+            bag_types = self._repository.list_bag_types_for_entry(session, bag_type_ids)
+            return DayEntryDTO(
+                employee_id=employee.id,
+                employee_name=employee.name,
+                team=employee.team,
+                selected_date=selected_date,
+                status_label="Chưa chấm" if record is None else self.attendance_status_from_record(record),
+                record_status=None if record is None else record.status,
+                is_absent=False if record is None else record.is_absent,
+                total_amount_snapshot=0 if record is None else record.total_amount_snapshot,
+                work_types=[
+                    WorkTypeOption(
+                        id=work_type.id,
+                        name=work_type.name,
+                        input_type=work_type.input_type,
+                        unit_price=work_type.unit_price,
+                        is_active=work_type.is_active,
+                    )
+                    for work_type in work_types
+                ],
+                bag_types=[
+                    BagTypeOption(
+                        id=bag_type.id,
+                        name=bag_type.name,
+                        unit_price=bag_type.unit_price,
+                        is_active=bag_type.is_active,
+                    )
+                    for bag_type in bag_types
+                ],
+                work_logs=[
+                    WorkLogValue(
+                        work_type_id=log.work_type_id,
+                        quantity=log.quantity,
+                        unit_price_snapshot=log.unit_price_snapshot,
+                        amount_snapshot=log.amount_snapshot,
+                    )
+                    for log in work_logs
+                ],
+                cut_logs=[
+                    CutLogValue(
+                        bag_type_id=log.bag_type_id,
+                        quantity=log.quantity,
+                        unit_price_snapshot=log.unit_price_snapshot,
+                        amount_snapshot=log.amount_snapshot,
+                    )
+                    for log in cut_logs
+                ],
+            )
+
+    def save_attendance(self, payload: AttendanceSavePayload, *, finalize: bool) -> AttendanceSaveResult:
+        with self._session_factory() as session:
+            with session.begin():
+                employee = self._repository.get_employee(session, payload.employee_id)
+                if not employee.is_active:
+                    raise ValidationError("employee is inactive")
+
+                period = self._ensure_period_for_date(session, payload.selected_date)
+                record = self._repository.get_daily_record(session, employee.id, payload.selected_date)
+                if record is None:
+                    record = self._repository.create_daily_record(
+                        session,
+                        employee_id=employee.id,
+                        selected_date=payload.selected_date,
+                        period_id=period.id,
+                    )
+                    record.employee = employee
+                    record.period = period
+                elif record.period.locked:
+                    raise ValidationError("cannot modify daily record in a locked period")
+
+                record.status = DailyRecordStatus.DRAFT
+                record.work_logs.clear()
+                record.cut_logs.clear()
+                session.flush()
+
+                if payload.is_absent:
+                    record.is_absent = True
+                    record.total_amount_snapshot = 0
+                else:
+                    record.is_absent = False
+                    if employee.team == Team.BLOW:
+                        self._apply_blow_payload(session, record, payload)
+                    elif employee.team == Team.CUT:
+                        self._apply_cut_payload(session, record, payload)
+                    else:
+                        raise ValidationError("invalid employee team")
+
+                record.total_amount_snapshot = self._calculate_daily_total(record)
+                if payload.is_absent:
+                    record.total_amount_snapshot = 0
+                record.status = DailyRecordStatus.DONE if finalize else DailyRecordStatus.DRAFT
+                session.flush()
+                return AttendanceSaveResult(
+                    record_id=record.id,
+                    status=record.status,
+                    is_absent=record.is_absent,
+                    total_amount_snapshot=record.total_amount_snapshot,
+                )
+
+    def record_status_label(self, employee_id: int, selected_date: date) -> str:
+        with self._session_factory() as session:
+            record = self._repository.get_daily_record(session, employee_id, selected_date)
+            if record is None:
+                return "Chưa chấm"
+            return self.attendance_status_from_record(record)
+
+    def attendance_status_from_record(self, record: DailyRecord) -> str:
+        if record.is_absent:
+            return "Nghỉ"
+        if record.status == DailyRecordStatus.DONE:
+            return "Đã lưu"
+        return "Nháp"
+
+    def _ensure_period_for_date(self, session: Session, selected_date: date):
+        period = self._repository.get_period_for_date(session, selected_date)
+        if period is not None:
+            return period
+        start_date, end_date = self.period_bounds_for_date(selected_date)
+        return self._repository.create_period(session, start_date=start_date, end_date=end_date)
+
+    def _apply_blow_payload(self, session: Session, record: DailyRecord, payload: AttendanceSavePayload) -> None:
+        if payload.cut_work:
+            raise ValidationError("cut payload is invalid for blow team")
+        if not payload.blow_work:
+            raise ValidationError("blow team daily record must contain at least one work log")
+
+        seen_work_type_ids: set[int] = set()
+        selected_glove_names: set[str] = set()
+        for item in payload.blow_work:
+            if item.work_type_id in seen_work_type_ids:
+                raise ValidationError("duplicate work type")
+            seen_work_type_ids.add(item.work_type_id)
+
+            work_type = self._repository.get_work_type(session, item.work_type_id)
+            if not work_type.is_active:
+                raise ValidationError("work type is inactive")
+            if work_type.team != Team.BLOW:
+                raise ValidationError("work type must belong to blow team")
+            if work_type.name in GLOVE_WORK_NAMES:
+                selected_glove_names.add(work_type.name)
+
+            quantity = self._resolve_work_quantity(work_type.input_type, item.quantity)
+            amount = quantity * work_type.unit_price
+            record.work_logs.append(
+                WorkLog(
+                    work_type_id=work_type.id,
+                    quantity=quantity,
+                    unit_price_snapshot=work_type.unit_price,
+                    amount_snapshot=amount,
+                )
+            )
+
+        if len(selected_glove_names) > 1:
+            raise ValidationError("cannot use both glove work types in the same daily record")
+
+    def _apply_cut_payload(self, session: Session, record: DailyRecord, payload: AttendanceSavePayload) -> None:
+        if payload.blow_work:
+            raise ValidationError("blow payload is invalid for cut team")
+
+        merged_quantities: dict[int, int] = {}
+        for item in payload.cut_work:
+            if item.quantity < 0:
+                raise ValidationError("quantity must be non-negative")
+            if item.quantity == 0:
+                continue
+            merged_quantities[item.bag_type_id] = merged_quantities.get(item.bag_type_id, 0) + item.quantity
+
+        for bag_type_id, quantity in merged_quantities.items():
+            bag_type = self._repository.get_bag_type(session, bag_type_id)
+            if not bag_type.is_active:
+                raise ValidationError("bag type is inactive")
+            record.cut_logs.append(
+                CutLog(
+                    bag_type_id=bag_type.id,
+                    quantity=quantity,
+                    unit_price_snapshot=bag_type.unit_price,
+                    amount_snapshot=quantity * bag_type.unit_price,
+                )
+            )
+
+    def _resolve_work_quantity(self, input_type: WorkInputType, quantity: int | None) -> int:
+        if input_type == WorkInputType.TICK:
+            return 1
+        if input_type == WorkInputType.QUANTITY:
+            if quantity is None:
+                raise ValidationError("quantity is required for quantity work type")
+            if quantity <= 0:
+                raise ValidationError("quantity must be greater than zero")
+            return quantity
+        raise ValidationError("unsupported work input type")
+
+    def _calculate_daily_total(self, record: DailyRecord) -> int:
+        return sum(log.amount_snapshot for log in record.work_logs) + sum(log.amount_snapshot for log in record.cut_logs)
