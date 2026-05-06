@@ -302,8 +302,6 @@ class AttendanceDayEntryService:
     def _apply_blow_payload(self, session: Session, record: DailyRecord, payload: AttendanceSavePayload) -> None:
         if payload.cut_work:
             raise ValidationError("cut payload is invalid for blow team")
-        if not payload.blow_work:
-            raise ValidationError("blow team daily record must contain at least one work log")
 
         seen_work_type_ids: set[int] = set()
         selected_glove_names: set[str] = set()
@@ -321,6 +319,8 @@ class AttendanceDayEntryService:
                 selected_glove_names.add(work_type.name)
 
             quantity = self._resolve_work_quantity(work_type.input_type, item.quantity)
+            if quantity == 0:
+                continue
             amount = quantity * work_type.unit_price
             record.work_logs.append(
                 WorkLog(
@@ -365,8 +365,8 @@ class AttendanceDayEntryService:
         if input_type == WorkInputType.QUANTITY:
             if quantity is None:
                 raise ValidationError("quantity is required for quantity work type")
-            if quantity <= 0:
-                raise ValidationError("quantity must be greater than zero")
+            if quantity < 0:
+                raise ValidationError("quantity must be non-negative")
             return quantity
         raise ValidationError("unsupported work input type")
 

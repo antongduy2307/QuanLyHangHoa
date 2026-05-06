@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QAbstractItemView, QComboBox, QHBoxLayout, QHeaderView, QLabel, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 
 from core.exceptions import AppError
 from modules.attendance.models import Team
@@ -36,6 +37,9 @@ class AttendanceReportTab(QWidget):
 
         self.table = QTableWidget(0, 0)
         configure_table_widget(self.table, "attendance.report.table")
+        self.table.horizontalHeader().hide()
+        self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.table.setWordWrap(False)
 
         controls = QHBoxLayout()
         controls.addWidget(QLabel("Tổ"))
@@ -97,28 +101,85 @@ class AttendanceReportTab(QWidget):
         self.workdays_label.setText(f"Tổng ngày công có tiền: {model.total_workdays}")
         self.total_amount_label.setText(f"Tổng tiền: {model.total_amount:,}")
 
-        headers = self._flatten_headers(model)
-        self.table.setColumnCount(len(headers))
-        self.table.setHorizontalHeaderLabels(headers)
-        self.table.setRowCount(len(model.rows))
+        column_count = self._column_count(model)
+        self.table.clearSpans()
+        self.table.clear()
+        self.table.setColumnCount(column_count)
+        self.table.setRowCount(len(model.rows) + 2)
+        self._render_grouped_headers(model)
         for row_index, row in enumerate(model.rows):
+            table_row = row_index + 2
             for column_index, value in enumerate(row.values):
                 item = QTableWidgetItem(value)
                 if column_index > 0:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                self.table.setItem(row_index, column_index, item)
+                self.table.setItem(table_row, column_index, item)
+        self._apply_column_widths(model)
 
-    def _flatten_headers(self, model: ReportRenderModel) -> list[str]:
-        headers = ["Ngày"]
+    def _column_count(self, model: ReportRenderModel) -> int:
+        count = 2
         for group in model.employee_groups:
-            for column in group.columns:
-                headers.append(f"{group.employee_name} - {column}")
-        headers.append("Tổng tiền cả ngày")
-        return headers
+            count += len(group.columns)
+        return count
+
+    def _render_grouped_headers(self, model: ReportRenderModel) -> None:
+        self._set_header_item(0, 0, "Ngày")
+        self.table.setSpan(0, 0, 2, 1)
+        column_index = 1
+        for group in model.employee_groups:
+            span = len(group.columns)
+            self._set_header_item(0, column_index, group.employee_name)
+            if span > 1:
+                self.table.setSpan(0, column_index, 1, span)
+            for offset, label in enumerate(group.columns):
+                self._set_header_item(1, column_index + offset, label)
+            column_index += span
+        self._set_header_item(0, column_index, "Tổng tiền cả ngày")
+        self.table.setSpan(0, column_index, 2, 1)
+        self.table.setRowHeight(0, 30)
+        self.table.setRowHeight(1, 28)
+
+    def _set_header_item(self, row: int, column: int, text: str) -> None:
+        item = QTableWidgetItem(text)
+        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        font = QFont(item.font())
+        font.setBold(True)
+        item.setFont(font)
+        item.setForeground(QColor("#3f2a1d"))
+        item.setBackground(QColor("#EFE3D5" if row == 0 else "#F6EFE8"))
+        self.table.setItem(row, column, item)
+
+    def _apply_column_widths(self, model: ReportRenderModel) -> None:
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table.setColumnWidth(0, 72)
+        column_index = 1
+        total_columns: set[int] = set()
+        for group in model.employee_groups:
+            for label in group.columns:
+                if label == "Tổng":
+                    self.table.setColumnWidth(column_index, 112)
+                    total_columns.add(column_index)
+                else:
+                    self.table.setColumnWidth(column_index, 72)
+                column_index += 1
+        self.table.setColumnWidth(column_index, 142)
+        total_columns.add(column_index)
+        if self.table.columnCount() <= 8:
+            for index in range(self.table.columnCount()):
+                if index == 0:
+                    continue
+                header.setSectionResizeMode(index, QHeaderView.ResizeMode.Stretch)
+        else:
+            for index in total_columns:
+                header.setSectionResizeMode(index, QHeaderView.ResizeMode.ResizeToContents)
 
     def _clear_report(self) -> None:
         self.employee_count_label.setText("Tổng nhân viên: 0")
         self.workdays_label.setText("Tổng ngày công có tiền: 0")
         self.total_amount_label.setText("Tổng tiền: 0")
+        self.table.clearSpans()
+        self.table.clear()
         self.table.setRowCount(0)
         self.table.setColumnCount(0)

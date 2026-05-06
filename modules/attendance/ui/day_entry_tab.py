@@ -35,7 +35,7 @@ class AttendanceDayEntryTab(QWidget):
         self._service = service
         self._employees: list[AttendanceEmployeeRow] = []
         self._current_entry: DayEntryDTO | None = None
-        self._blow_controls: dict[int, tuple[QCheckBox, QSpinBox | None]] = {}
+        self._blow_controls: dict[int, tuple[QCheckBox | None, QSpinBox | None]] = {}
         self._cut_controls: dict[int, QSpinBox] = {}
         self._glove_work_ids_by_name: dict[str, int] = {}
 
@@ -216,18 +216,20 @@ class AttendanceDayEntryTab(QWidget):
         log_by_work_type = {log.work_type_id: log for log in entry.work_logs}
         row = 0
         for work_type in entry.work_types:
-            checkbox = QCheckBox(f"{work_type.name} ({work_type.unit_price:,})")
-            checkbox.setChecked(work_type.id in log_by_work_type)
-            checkbox.toggled.connect(self._update_total_preview)
+            checkbox: QCheckBox | None = None
             spinbox: QSpinBox | None = None
-            layout.addWidget(checkbox, row, 0)
             if work_type.input_type == WorkInputType.QUANTITY:
+                layout.addWidget(QLabel(f"{work_type.name} ({work_type.unit_price:,})"), row, 0)
                 spinbox = QSpinBox()
                 spinbox.setRange(0, 100000)
-                spinbox.setValue(log_by_work_type.get(work_type.id).quantity if work_type.id in log_by_work_type else 1)
+                spinbox.setValue(log_by_work_type.get(work_type.id).quantity if work_type.id in log_by_work_type else 0)
                 spinbox.valueChanged.connect(self._update_total_preview)
                 layout.addWidget(spinbox, row, 1)
             else:
+                checkbox = QCheckBox(f"{work_type.name} ({work_type.unit_price:,})")
+                checkbox.setChecked(work_type.id in log_by_work_type)
+                checkbox.toggled.connect(self._update_total_preview)
+                layout.addWidget(checkbox, row, 0)
                 if work_type.name in {"Phụ găng 1 máy", "Phụ găng 2 máy"}:
                     self._glove_work_ids_by_name[work_type.name] = work_type.id
                     checkbox.toggled.connect(lambda checked, name=work_type.name: self._handle_glove_toggled(name, checked))
@@ -269,7 +271,8 @@ class AttendanceDayEntryTab(QWidget):
 
     def _apply_absent_state(self, is_absent: bool) -> None:
         for checkbox, spinbox in self._blow_controls.values():
-            checkbox.setDisabled(is_absent)
+            if checkbox is not None:
+                checkbox.setDisabled(is_absent)
             if spinbox is not None:
                 spinbox.setDisabled(is_absent)
         for spinbox in self._cut_controls.values():
@@ -285,10 +288,13 @@ class AttendanceDayEntryTab(QWidget):
         if entry.team == Team.BLOW and not self.absent_checkbox.isChecked():
             for work_type in entry.work_types:
                 checkbox, spinbox = self._blow_controls[work_type.id]
-                if not checkbox.isChecked():
+                if work_type.input_type == WorkInputType.QUANTITY:
+                    quantity = spinbox.value() if spinbox is not None else 0
+                    if quantity > 0:
+                        blow_work.append(BlowWorkInput(work_type_id=work_type.id, quantity=quantity))
                     continue
-                quantity = None if spinbox is None else spinbox.value()
-                blow_work.append(BlowWorkInput(work_type_id=work_type.id, quantity=quantity))
+                if checkbox is not None and checkbox.isChecked():
+                    blow_work.append(BlowWorkInput(work_type_id=work_type.id, quantity=None))
         if entry.team == Team.CUT and not self.absent_checkbox.isChecked():
             for bag_type_id, spinbox in self._cut_controls.items():
                 if spinbox.value() > 0:
@@ -325,10 +331,13 @@ class AttendanceDayEntryTab(QWidget):
         if entry.team == Team.BLOW:
             work_type_by_id = {work_type.id: work_type for work_type in entry.work_types}
             for work_type_id, (checkbox, spinbox) in self._blow_controls.items():
-                if not checkbox.isChecked():
-                    continue
                 work_type = work_type_by_id[work_type_id]
-                quantity = 1 if work_type.input_type == WorkInputType.TICK else (spinbox.value() if spinbox is not None else 0)
+                if work_type.input_type == WorkInputType.TICK:
+                    if checkbox is None or not checkbox.isChecked():
+                        continue
+                    quantity = 1
+                else:
+                    quantity = spinbox.value() if spinbox is not None else 0
                 total += quantity * work_type.unit_price
         else:
             bag_type_by_id = {bag_type.id: bag_type for bag_type in entry.bag_types}

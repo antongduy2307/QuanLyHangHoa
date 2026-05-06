@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+import re
+import unicodedata
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload, sessionmaker
@@ -61,6 +63,10 @@ WORK_CODE_BY_NAME = {
     "Phụ cắt": "PC",
     "Phụ găng 1 máy": "PG1",
     "Phụ găng 2 máy": "PG2",
+}
+NORMALIZED_WORK_CODE_BY_NAME = {
+    re.sub(r"\s+", " ", unicodedata.normalize("NFC", name).strip()).casefold(): code
+    for name, code in WORK_CODE_BY_NAME.items()
 }
 DEFAULT_BLOW_CODE_ORDER = ["TM", "MN", "MT", "PC", "PG1", "PG2"]
 
@@ -194,7 +200,9 @@ class AttendanceReportService:
                 if self._has_value(raw_value):
                     used_labels.add(label)
         if team == Team.BLOW:
-            return [label for label in DEFAULT_BLOW_CODE_ORDER if label in used_labels]
+            ordered_labels = [label for label in DEFAULT_BLOW_CODE_ORDER if label in used_labels]
+            ordered_labels.extend(sorted(used_labels - set(ordered_labels)))
+            return ordered_labels
         ordered = [self._abbreviate_bag_label(bag_type.name) for bag_type in session.scalars(select(BagType).order_by(BagType.id.asc())).all()]
         ordered.extend(sorted(used_labels - set(ordered)))
         return [label for label in ordered if label in used_labels]
@@ -241,7 +249,8 @@ class AttendanceReportService:
             raise ValidationError("invalid team") from exc
 
     def _work_code(self, work_name: str) -> str:
-        return WORK_CODE_BY_NAME.get(work_name, work_name)
+        normalized_name = re.sub(r"\s+", " ", unicodedata.normalize("NFC", work_name).strip()).casefold()
+        return NORMALIZED_WORK_CODE_BY_NAME.get(normalized_name, work_name)
 
     def _abbreviate_bag_label(self, bag_type_name: str) -> str:
         for token in bag_type_name.replace("-", " ").split():

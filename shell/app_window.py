@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QProgressDialog
 from core.config import Settings
 from core.logging import get_logger
 from modules.diagnostics.service import DiagnosticsService
+from modules.settings.backup_service import UserBackupService
 from modules.settings.service import get_ui_scale_preset
 from modules.update.service import UpdateCheckResult, UpdateDownloadResult, UpdateService
 from modules.update.ui.update_dialog import UpdateDialog
@@ -30,10 +31,12 @@ class AppWindow(QMainWindow):
 
         self._settings = settings
         self._diagnostics_service = DiagnosticsService(settings, app)
+        self._backup_service = UserBackupService(settings)
         self.setWindowTitle(title)
         self.resize(1200, 720)
         self._module_pages: dict[str, object] = {}
         self._history_page: HistoryPage | None = None
+        self._attendance_page: object | None = None
         self._reporting_page: object | None = None
         self._settings_page: object | None = None
         self._active_check_origin: str | None = None
@@ -48,19 +51,31 @@ class AppWindow(QMainWindow):
 
         tabs = NavigationTabs()
         self._navigation_tabs = tabs
+        history_inserted = False
         for module_spec in modules:
+            if module_spec.key in {"attendance", "settings"} and not history_inserted:
+                self._history_page = HistoryPage()
+                tabs.add_page("Lịch sử", self._history_page)
+                self._apply_ui_scale_to_page(self._history_page, initial_ui_scale_preset)
+                history_inserted = True
             page = module_spec.page_factory()
             self._module_pages[module_spec.key] = page
+            if module_spec.key == "attendance":
+                self._attendance_page = page
             if module_spec.key == "reporting":
                 self._reporting_page = page
             if module_spec.key == "settings":
                 self._settings_page = page
                 if hasattr(page, "check_updates_requested"):
                     page.check_updates_requested.connect(self._run_manual_update_check)
+                if hasattr(page, "backup_requested"):
+                    page.backup_requested.connect(self._create_user_backup)
                 if hasattr(page, "open_logs_requested"):
                     page.open_logs_requested.connect(self._open_logs_directory)
                 if hasattr(page, "export_diagnostics_requested"):
                     page.export_diagnostics_requested.connect(self._export_diagnostics)
+                if hasattr(page, "attendance_config_changed"):
+                    page.attendance_config_changed.connect(self._refresh_attendance_page)
                 if hasattr(page, "set_update_status"):
                     page.set_update_status("Sẵn sàng kiểm tra cập nhật.")
             tabs.add_page(module_spec.label, page)
@@ -68,9 +83,10 @@ class AppWindow(QMainWindow):
             if hasattr(page, "ui_scale_changed"):
                 page.ui_scale_changed.connect(self._apply_ui_scale_preset_to_pages)
 
-        self._history_page = HistoryPage()
-        tabs.add_page("Lịch sử", self._history_page)
-        self._apply_ui_scale_to_page(self._history_page, initial_ui_scale_preset)
+        if not history_inserted:
+            self._history_page = HistoryPage()
+            tabs.add_page("Lịch sử", self._history_page)
+            self._apply_ui_scale_to_page(self._history_page, initial_ui_scale_preset)
         self.setCentralWidget(tabs)
 
         self._wire_report_refresh_sources()
@@ -141,6 +157,10 @@ class AppWindow(QMainWindow):
     def _notify_reporting_page_dirty(self) -> None:
         if self._reporting_page is not None and hasattr(self._reporting_page, "notify_data_changed"):
             self._reporting_page.notify_data_changed()
+
+    def _refresh_attendance_page(self) -> None:
+        if self._attendance_page is not None and hasattr(self._attendance_page, "refresh_all"):
+            self._attendance_page.refresh_all()
 
     def _handle_data_changed_from_pages(self) -> None:
         if self._history_page is not None and hasattr(self._history_page, "reload_all_views"):
@@ -308,6 +328,27 @@ class AppWindow(QMainWindow):
             MessageBox.info(self, "Thư mục log", f"Thư mục log nằm tại:\n{log_dir}")
         except Exception as exc:
             MessageBox.error(self, "Không mở được thư mục log", str(exc))
+
+    def _create_user_backup(self) -> None:
+        if self._settings_page is not None and hasattr(self._settings_page, "set_backup_busy"):
+            self._settings_page.set_backup_busy(True)
+        try:
+            result = self._backup_service.create_user_backup()
+            details = [
+                f"Đã tạo file sao lưu tại:\n{result.output_path}",
+                f"Đã sao lưu: {', '.join(result.included_files) if result.included_files else 'không có file DB nào'}",
+            ]
+            if "attendance.db" in result.missing_files:
+                details.append("Chưa có dữ liệu chấm công nên attendance.db chưa được sao lưu.")
+            if "app.db" in result.missing_files:
+                details.append("Không tìm thấy DB chính app.db trong thư mục dữ liệu.")
+            MessageBox.info(self, "Sao lưu dữ liệu thành công", "\n\n".join(details))
+        except Exception as exc:
+            LOGGER.exception("Không tạo được sao lưu dữ liệu")
+            MessageBox.error(self, "Không sao lưu được dữ liệu", str(exc))
+        finally:
+            if self._settings_page is not None and hasattr(self._settings_page, "set_backup_busy"):
+                self._settings_page.set_backup_busy(False)
 
     def _export_diagnostics(self) -> None:
         if self._settings_page is not None and hasattr(self._settings_page, "set_diagnostics_busy"):
