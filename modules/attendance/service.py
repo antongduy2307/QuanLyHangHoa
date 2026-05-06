@@ -14,6 +14,7 @@ from modules.attendance.dto import (
     AttendanceSavePayload,
     AttendanceSaveResult,
     BagTypeOption,
+    CutLogValue,
     DayEntryDTO,
     WorkLogValue,
     WorkTypeOption,
