@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import enum
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Numeric
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy import ForeignKey, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -188,12 +189,16 @@ class BagType(AttendanceBase):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     unit_price: Mapped[int] = mapped_column(Integer, nullable=False)
+    quota_quantity: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0, server_default="0")
+    excess_unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0, server_default="0")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
 
     cut_logs: Mapped[list[CutLog]] = relationship(back_populates="bag_type")
 
     __table_args__ = (
         CheckConstraint("unit_price >= 0", name="ck_bag_type_unit_price_non_negative"),
+        CheckConstraint("quota_quantity >= 0", name="ck_bag_type_quota_quantity_non_negative"),
+        CheckConstraint("excess_unit_price >= 0", name="ck_bag_type_excess_unit_price_non_negative"),
     )
 
 
@@ -205,6 +210,8 @@ class CutLog(AttendanceBase):
     bag_type_id: Mapped[int] = mapped_column(ForeignKey("bag_types.id"), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     unit_price_snapshot: Mapped[int] = mapped_column(Integer, nullable=False)
+    quota_quantity_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    excess_unit_price_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     amount_snapshot: Mapped[int] = mapped_column(Integer, nullable=False)
 
     daily_record: Mapped[DailyRecord] = relationship(back_populates="cut_logs")
@@ -214,5 +221,13 @@ class CutLog(AttendanceBase):
         UniqueConstraint("daily_record_id", "bag_type_id", name="uq_cut_log_daily_record_bag_type"),
         CheckConstraint("quantity >= 0", name="ck_cut_log_quantity_non_negative"),
         CheckConstraint("unit_price_snapshot >= 0", name="ck_cut_log_unit_price_non_negative"),
+        CheckConstraint(
+            "quota_quantity_snapshot IS NULL OR quota_quantity_snapshot >= 0",
+            name="ck_cut_log_quota_quantity_non_negative",
+        ),
+        CheckConstraint(
+            "excess_unit_price_snapshot IS NULL OR excess_unit_price_snapshot >= 0",
+            name="ck_cut_log_excess_unit_price_non_negative",
+        ),
         CheckConstraint("amount_snapshot >= 0", name="ck_cut_log_amount_non_negative"),
     )

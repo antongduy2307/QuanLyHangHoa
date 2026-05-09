@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from decimal import Decimal, ROUND_HALF_UP
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -76,28 +77,53 @@ class AttendanceSettingsService:
                 statement = statement.where(BagType.is_active.is_(True))
             return session.scalars(statement).all()
 
-    def create_bag_type(self, *, name: str, unit_price: int, is_active: bool = True) -> BagType:
+    def create_bag_type(
+        self,
+        *,
+        name: str,
+        quota_quantity: int | Decimal,
+        excess_unit_price: int | Decimal,
+        is_active: bool = True,
+    ) -> BagType:
         normalized_name = self._normalize_name(name)
-        normalized_price = self._validate_price(unit_price)
+        normalized_quota = self._validate_non_negative_decimal(quota_quantity, "Số lượng khoán")
+        normalized_excess_price = self._validate_non_negative_decimal(excess_unit_price, "Thưởng mỗi bao vượt khoán")
         with self._session_factory() as session:
             with session.begin():
                 if self._bag_type_name_exists(session, normalized_name):
                     raise ValidationError("Tên loại bao đã tồn tại.")
-                bag_type = BagType(name=normalized_name, unit_price=normalized_price, is_active=is_active)
+                bag_type = BagType(
+                    name=normalized_name,
+                    unit_price=self._decimal_money_to_int(normalized_excess_price),
+                    quota_quantity=normalized_quota,
+                    excess_unit_price=normalized_excess_price,
+                    is_active=is_active,
+                )
                 session.add(bag_type)
                 session.flush()
                 return bag_type
 
-    def update_bag_type(self, bag_type_id: int, *, name: str, unit_price: int, is_active: bool) -> BagType:
+    def update_bag_type(
+        self,
+        bag_type_id: int,
+        *,
+        name: str,
+        quota_quantity: int | Decimal,
+        excess_unit_price: int | Decimal,
+        is_active: bool,
+    ) -> BagType:
         normalized_name = self._normalize_name(name)
-        normalized_price = self._validate_price(unit_price)
+        normalized_quota = self._validate_non_negative_decimal(quota_quantity, "Số lượng khoán")
+        normalized_excess_price = self._validate_non_negative_decimal(excess_unit_price, "Thưởng mỗi bao vượt khoán")
         with self._session_factory() as session:
             with session.begin():
                 bag_type = self._get_bag_type(session, bag_type_id)
                 if self._bag_type_name_exists(session, normalized_name, exclude_id=bag_type_id):
                     raise ValidationError("Tên loại bao đã tồn tại.")
                 bag_type.name = normalized_name
-                bag_type.unit_price = normalized_price
+                bag_type.unit_price = self._decimal_money_to_int(normalized_excess_price)
+                bag_type.quota_quantity = normalized_quota
+                bag_type.excess_unit_price = normalized_excess_price
                 bag_type.is_active = is_active
                 session.flush()
                 return bag_type
@@ -121,6 +147,15 @@ class AttendanceSettingsService:
         if price < 0:
             raise ValidationError("Đơn giá không được âm.")
         return price
+
+    def _validate_non_negative_decimal(self, value: int | Decimal, field_label: str) -> Decimal:
+        normalized = Decimal(str(value))
+        if normalized < 0:
+            raise ValidationError(f"{field_label} không được âm.")
+        return normalized
+
+    def _decimal_money_to_int(self, value: Decimal) -> int:
+        return int(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
     def _coerce_input_type(self, input_type: WorkInputType | str) -> WorkInputType:
         if isinstance(input_type, WorkInputType):

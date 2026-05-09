@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal, ROUND_HALF_UP
 
 from PyQt6.QtCore import QDate, Qt
 from PyQt6.QtWidgets import (
@@ -13,6 +14,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -70,6 +72,7 @@ class AttendanceDayEntryTab(QWidget):
         self.form_container = QWidget()
         self.form_layout = QVBoxLayout(self.form_container)
         self.form_layout.setContentsMargins(0, 0, 0, 0)
+        self.form_layout.setSpacing(8)
 
         self.save_draft_button = QPushButton("Lưu nháp")
         self.finalize_button = QPushButton("Chốt ngày")
@@ -241,19 +244,35 @@ class AttendanceDayEntryTab(QWidget):
 
     def _build_cut_form(self, entry: DayEntryDTO) -> None:
         group = QGroupBox("Sản lượng tổ cắt")
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QGridLayout(group)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setHorizontalSpacing(12)
+        layout.setVerticalSpacing(6)
         layout.addWidget(QLabel("Loại bao"), 0, 0)
         layout.addWidget(QLabel("Số lượng"), 0, 1)
         log_by_bag_type = {log.bag_type_id: log for log in entry.cut_logs}
         for row, bag_type in enumerate(entry.bag_types, start=1):
-            layout.addWidget(QLabel(f"{bag_type.name} ({bag_type.unit_price:,})"), row, 0)
+            layout.addWidget(
+                QLabel(
+                    f"{bag_type.name} (Khoán: {self._format_decimal(bag_type.quota_quantity)}, "
+                    f"Vượt: {self._format_money_decimal(bag_type.excess_unit_price)})"
+                ),
+                row,
+                0,
+            )
             spinbox = QSpinBox()
+            spinbox.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+            spinbox.setFixedHeight(28)
             spinbox.setRange(0, 100000)
             spinbox.setValue(log_by_bag_type.get(bag_type.id).quantity if bag_type.id in log_by_bag_type else 0)
             spinbox.valueChanged.connect(self._update_total_preview)
             layout.addWidget(spinbox, row, 1)
+            layout.setRowMinimumHeight(row, 30)
             self._cut_controls[bag_type.id] = spinbox
-        self.form_layout.addWidget(group)
+        layout.setRowStretch(len(entry.bag_types) + 1, 1)
+        self.form_layout.addWidget(group, 0, Qt.AlignmentFlag.AlignTop)
+        self.form_layout.addStretch(1)
         self._update_total_preview()
 
     def _handle_glove_toggled(self, selected_name: str, checked: bool) -> None:
@@ -341,9 +360,29 @@ class AttendanceDayEntryTab(QWidget):
                 total += quantity * work_type.unit_price
         else:
             bag_type_by_id = {bag_type.id: bag_type for bag_type in entry.bag_types}
+            active_items: list[tuple[int, Decimal, Decimal]] = []
             for bag_type_id, spinbox in self._cut_controls.items():
-                total += spinbox.value() * bag_type_by_id[bag_type_id].unit_price
+                quantity = spinbox.value()
+                if quantity <= 0:
+                    continue
+                bag_type = bag_type_by_id[bag_type_id]
+                active_items.append((quantity, Decimal(str(bag_type.quota_quantity)), Decimal(str(bag_type.excess_unit_price))))
+            if active_items:
+                total_quantity = sum((Decimal(quantity) for quantity, _quota, _price in active_items), Decimal("0"))
+                item_count = Decimal(len(active_items))
+                quota_avg = sum((quota for _quantity, quota, _price in active_items), Decimal("0")) / item_count
+                excess_price_avg = sum((price for _quantity, _quota, price in active_items), Decimal("0")) / item_count
+                excess_quantity = max(Decimal("0"), total_quantity - quota_avg)
+                total = int((excess_quantity * excess_price_avg).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
         self.total_label.setText(f"{total:,}")
+
+    def _format_decimal(self, value: Decimal) -> str:
+        normalized = Decimal(str(value)).normalize()
+        return format(normalized, "f")
+
+    def _format_money_decimal(self, value: Decimal) -> str:
+        amount = int(Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        return f"{amount:,}"
 
     def _update_action_state(self) -> None:
         enabled = self._current_entry is not None

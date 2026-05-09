@@ -25,6 +25,8 @@ class AttendanceReportTab(QWidget):
         self.view_button = QPushButton("Xem báo cáo")
         self.export_button = QPushButton("Xuất Excel")
         self.print_button = QPushButton("In bảng công")
+        self.team_combo.currentIndexChanged.connect(self._handle_filter_changed)
+        self.period_combo.currentIndexChanged.connect(self._handle_filter_changed)
         self.view_button.clicked.connect(self.refresh_report)
         self.export_button.clicked.connect(lambda: MessageBox.info(self, "Thông báo", "Xuất Excel sẽ được triển khai ở batch sau."))
         self.print_button.clicked.connect(lambda: MessageBox.info(self, "Thông báo", "In bảng công sẽ được triển khai ở batch sau."))
@@ -63,6 +65,12 @@ class AttendanceReportTab(QWidget):
         layout.addWidget(self.table, 1)
 
         self.reload_periods()
+
+    def _handle_filter_changed(self) -> None:
+        if self.period_combo.currentData() is None:
+            self._clear_report()
+            return
+        self.refresh_report()
 
     def reload_periods(self) -> None:
         selected_period_id = self.period_combo.currentData()
@@ -153,27 +161,21 @@ class AttendanceReportTab(QWidget):
     def _apply_column_widths(self, model: ReportRenderModel) -> None:
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        self.table.setColumnWidth(0, 72)
+        self.table.resizeColumnsToContents()
+        self.table.setColumnWidth(0, 68)
         column_index = 1
-        total_columns: set[int] = set()
         for group in model.employee_groups:
             for label in group.columns:
                 if label == "Tổng":
-                    self.table.setColumnWidth(column_index, 112)
-                    total_columns.add(column_index)
+                    self._clamp_column_width(column_index, 92, 128)
                 else:
-                    self.table.setColumnWidth(column_index, 72)
+                    self._clamp_column_width(column_index, 56, 84)
                 column_index += 1
-        self.table.setColumnWidth(column_index, 142)
-        total_columns.add(column_index)
-        if self.table.columnCount() <= 8:
-            for index in range(self.table.columnCount()):
-                if index == 0:
-                    continue
-                header.setSectionResizeMode(index, QHeaderView.ResizeMode.Stretch)
-        else:
-            for index in total_columns:
-                header.setSectionResizeMode(index, QHeaderView.ResizeMode.ResizeToContents)
+        self._clamp_column_width(column_index, 124, 156)
+
+    def _clamp_column_width(self, column: int, minimum: int, maximum: int) -> None:
+        width = self.table.columnWidth(column)
+        self.table.setColumnWidth(column, max(minimum, min(width, maximum)))
 
     def _clear_report(self) -> None:
         self.employee_count_label.setText("Tổng nhân viên: 0")

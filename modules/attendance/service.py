@@ -4,6 +4,7 @@ import calendar
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal, ROUND_HALF_UP
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -203,7 +204,8 @@ class AttendanceDayEntryService:
                     BagTypeOption(
                         id=bag_type.id,
                         name=bag_type.name,
-                        unit_price=bag_type.unit_price,
+                        quota_quantity=bag_type.quota_quantity,
+                        excess_unit_price=bag_type.excess_unit_price,
                         is_active=bag_type.is_active,
                     )
                     for bag_type in bag_types
@@ -222,6 +224,8 @@ class AttendanceDayEntryService:
                         bag_type_id=log.bag_type_id,
                         quantity=log.quantity,
                         unit_price_snapshot=log.unit_price_snapshot,
+                        quota_quantity_snapshot=log.quota_quantity_snapshot,
+                        excess_unit_price_snapshot=log.excess_unit_price_snapshot,
                         amount_snapshot=log.amount_snapshot,
                     )
                     for log in cut_logs
@@ -266,7 +270,8 @@ class AttendanceDayEntryService:
                     else:
                         raise ValidationError("invalid employee team")
 
-                record.total_amount_snapshot = self._calculate_daily_total(record)
+                if employee.team != Team.CUT:
+                    record.total_amount_snapshot = self._calculate_daily_total(record)
                 if payload.is_absent:
                     record.total_amount_snapshot = 0
                 record.status = DailyRecordStatus.DONE if finalize else DailyRecordStatus.DRAFT
@@ -346,16 +351,36 @@ class AttendanceDayEntryService:
                 continue
             merged_quantities[item.bag_type_id] = merged_quantities.get(item.bag_type_id, 0) + item.quantity
 
+        active_items: list[tuple[int, int, Decimal, Decimal, int]] = []
         for bag_type_id, quantity in merged_quantities.items():
             bag_type = self._repository.get_bag_type(session, bag_type_id)
             if not bag_type.is_active:
                 raise ValidationError("bag type is inactive")
+            quota_quantity = Decimal(str(bag_type.quota_quantity))
+            excess_unit_price = Decimal(str(bag_type.excess_unit_price))
+            active_items.append((bag_type.id, quantity, quota_quantity, excess_unit_price, bag_type.unit_price))
+
+        if not active_items:
+            record.total_amount_snapshot = 0
+            return
+
+        total_quantity = sum((Decimal(quantity) for _bag_type_id, quantity, _quota, _price, _legacy_price in active_items), Decimal("0"))
+        item_count = Decimal(len(active_items))
+        quota_avg = sum((quota for _bag_type_id, _quantity, quota, _price, _legacy_price in active_items), Decimal("0")) / item_count
+        excess_price_avg = sum((price for _bag_type_id, _quantity, _quota, price, _legacy_price in active_items), Decimal("0")) / item_count
+        excess_quantity = max(Decimal("0"), total_quantity - quota_avg)
+        total_amount = excess_quantity * excess_price_avg
+        record.total_amount_snapshot = self._decimal_money_to_int(total_amount)
+
+        for bag_type_id, quantity, quota_quantity, excess_unit_price, legacy_unit_price in active_items:
             record.cut_logs.append(
                 CutLog(
-                    bag_type_id=bag_type.id,
+                    bag_type_id=bag_type_id,
                     quantity=quantity,
-                    unit_price_snapshot=bag_type.unit_price,
-                    amount_snapshot=quantity * bag_type.unit_price,
+                    unit_price_snapshot=legacy_unit_price,
+                    quota_quantity_snapshot=quota_quantity,
+                    excess_unit_price_snapshot=excess_unit_price,
+                    amount_snapshot=0,
                 )
             )
 
@@ -372,3 +397,6 @@ class AttendanceDayEntryService:
 
     def _calculate_daily_total(self, record: DailyRecord) -> int:
         return sum(log.amount_snapshot for log in record.work_logs) + sum(log.amount_snapshot for log in record.cut_logs)
+
+    def _decimal_money_to_int(self, value: Decimal) -> int:
+        return int(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))

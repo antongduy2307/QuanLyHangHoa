@@ -17,3 +17,4 @@ desktop_app.spec
 overview_project.md
 _reference_chamcong/*
 !_reference_chamcong/tests/
+*.jpg

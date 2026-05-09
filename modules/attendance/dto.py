@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from decimal import Decimal
 
 from modules.attendance.models import DailyRecordStatus, Team, WorkInputType
 
@@ -27,7 +28,8 @@ class WorkTypeOption:
 class BagTypeOption:
     id: int
     name: str
-    unit_price: int
+    quota_quantity: Decimal
+    excess_unit_price: Decimal
     is_active: bool
 
 
@@ -44,6 +46,8 @@ class CutLogValue:
     bag_type_id: int
     quantity: int
     unit_price_snapshot: int
+    quota_quantity_snapshot: Decimal | None
+    excess_unit_price_snapshot: Decimal | None
     amount_snapshot: int
 
 

@@ -43,7 +43,8 @@ class WorkTypeFormValue:
 @dataclass(frozen=True, slots=True)
 class BagTypeFormValue:
     name: str
-    unit_price: int
+    quota_quantity: int
+    excess_unit_price: int
 
 
 class WorkTypeDialog(QDialog):
@@ -100,14 +101,18 @@ class BagTypeDialog(QDialog):
         self.setWindowTitle("Loại bao tổ cắt")
         self.bag_type_id = None if bag_type is None else bag_type.id
         self.name_edit = QLineEdit()
-        self.price_spinbox = QSpinBox()
-        self.price_spinbox.setRange(0, 1_000_000_000)
-        self.price_spinbox.setSingleStep(1000)
-        self.price_spinbox.setGroupSeparatorShown(True)
+        self.quota_spinbox = QSpinBox()
+        self.quota_spinbox.setRange(0, 1_000_000)
+        self.quota_spinbox.setGroupSeparatorShown(True)
+        self.excess_price_spinbox = QSpinBox()
+        self.excess_price_spinbox.setRange(0, 1_000_000_000)
+        self.excess_price_spinbox.setSingleStep(1000)
+        self.excess_price_spinbox.setGroupSeparatorShown(True)
 
         if bag_type is not None:
             self.name_edit.setText(bag_type.name)
-            self.price_spinbox.setValue(bag_type.unit_price)
+            self.quota_spinbox.setValue(int(bag_type.quota_quantity))
+            self.excess_price_spinbox.setValue(int(bag_type.excess_unit_price))
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
@@ -119,13 +124,15 @@ class BagTypeDialog(QDialog):
 
         layout = QFormLayout(self)
         layout.addRow("Tên loại bao", self.name_edit)
-        layout.addRow("Đơn giá", self.price_spinbox)
+        layout.addRow("Số lượng khoán", self.quota_spinbox)
+        layout.addRow("Thưởng mỗi bao vượt khoán", self.excess_price_spinbox)
         layout.addRow(buttons)
 
     def value(self) -> BagTypeFormValue:
         return BagTypeFormValue(
             name=self.name_edit.text(),
-            unit_price=self.price_spinbox.value(),
+            quota_quantity=self.quota_spinbox.value(),
+            excess_unit_price=self.excess_price_spinbox.value(),
         )
 
 
@@ -155,8 +162,8 @@ class AttendancePriceSettingsTab(QWidget):
         work_layout.addLayout(work_header)
         work_layout.addWidget(self.work_type_table)
 
-        self.bag_type_table = QTableWidget(0, 2)
-        self.bag_type_table.setHorizontalHeaderLabels(["Tên loại bao", "Đơn giá"])
+        self.bag_type_table = QTableWidget(0, 3)
+        self.bag_type_table.setHorizontalHeaderLabels(["Tên loại bao", "Số lượng khoán", "Thưởng mỗi bao vượt khoán"])
         configure_table_widget(self.bag_type_table, "attendance.settings.bag_types")
         self.bag_type_table.itemDoubleClicked.connect(lambda _item: self._edit_bag_type())
 
@@ -203,7 +210,8 @@ class AttendancePriceSettingsTab(QWidget):
             name_item = QTableWidgetItem(bag_type.name)
             name_item.setData(Qt.ItemDataRole.UserRole, bag_type.id)
             self.bag_type_table.setItem(row, 0, name_item)
-            self.bag_type_table.setItem(row, 1, QTableWidgetItem(f"{bag_type.unit_price:,}"))
+            self.bag_type_table.setItem(row, 1, QTableWidgetItem(self._format_decimal(bag_type.quota_quantity)))
+            self.bag_type_table.setItem(row, 2, QTableWidgetItem(f"{int(bag_type.excess_unit_price):,}"))
 
     def _add_work_type(self) -> None:
         dialog = WorkTypeDialog(self)
@@ -264,7 +272,12 @@ class AttendancePriceSettingsTab(QWidget):
             return
         value = dialog.value()
         try:
-            self._service.create_bag_type(name=value.name, unit_price=value.unit_price, is_active=True)
+            self._service.create_bag_type(
+                name=value.name,
+                quota_quantity=value.quota_quantity,
+                excess_unit_price=value.excess_unit_price,
+                is_active=True,
+            )
         except AppError as exc:
             MessageBox.warning(self, "Không lưu được loại bao", str(exc))
             return
@@ -283,7 +296,8 @@ class AttendancePriceSettingsTab(QWidget):
             self._service.update_bag_type(
                 bag_type.id,
                 name=value.name,
-                unit_price=value.unit_price,
+                quota_quantity=value.quota_quantity,
+                excess_unit_price=value.excess_unit_price,
                 is_active=True,
             )
         except AppError as exc:
@@ -333,3 +347,9 @@ class AttendancePriceSettingsTab(QWidget):
             )
             == QMessageBox.StandardButton.Yes
         )
+
+    def _format_decimal(self, value: object) -> str:
+        text = str(value)
+        if "." in text:
+            text = text.rstrip("0").rstrip(".")
+        return text
