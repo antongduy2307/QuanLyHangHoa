@@ -52,6 +52,14 @@ class CutLogValue:
 
 
 @dataclass(frozen=True, slots=True)
+class ExtraCutWorkLogValue:
+    bag_type_id: int
+    quantity: int
+    excess_unit_price_snapshot: Decimal
+    amount_snapshot: int
+
+
+@dataclass(frozen=True, slots=True)
 class DayEntryDTO:
     employee_id: int
     employee_name: str
@@ -65,6 +73,7 @@ class DayEntryDTO:
     bag_types: list[BagTypeOption] = field(default_factory=list)
     work_logs: list[WorkLogValue] = field(default_factory=list)
     cut_logs: list[CutLogValue] = field(default_factory=list)
+    extra_cut_work_logs: list[ExtraCutWorkLogValue] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,12 +89,19 @@ class CutWorkInput:
 
 
 @dataclass(frozen=True, slots=True)
+class ExtraCutWorkInput:
+    bag_type_id: int
+    quantity: int
+
+
+@dataclass(frozen=True, slots=True)
 class AttendanceSavePayload:
     employee_id: int
     selected_date: date
     is_absent: bool = False
     blow_work: list[BlowWorkInput] = field(default_factory=list)
     cut_work: list[CutWorkInput] = field(default_factory=list)
+    extra_cut_work: list[ExtraCutWorkInput] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, selectinload, sessionmaker
 
 from core.exceptions import NotFoundError, ValidationError
 from modules.attendance.db import AttendanceSessionLocal
-from modules.attendance.models import BagType, CutLog, DailyRecord, Employee, Team, WorkInputType, WorkLog, WorkType
+from modules.attendance.models import BagType, CutLog, DailyRecord, Employee, ExtraCutWorkLog, Team, WorkInputType, WorkLog, WorkType
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,7 +68,7 @@ NORMALIZED_WORK_CODE_BY_NAME = {
     re.sub(r"\s+", " ", unicodedata.normalize("NFC", name).strip()).casefold(): code
     for name, code in WORK_CODE_BY_NAME.items()
 }
-DEFAULT_BLOW_CODE_ORDER = ["TM", "MN", "MT", "PC", "PG1", "PG2"]
+DEFAULT_BLOW_CODE_ORDER = ["TM", "MN", "MT", "PC", "PG1", "PG2", "VK"]
 
 
 class AttendanceReportService:
@@ -178,6 +178,7 @@ class AttendanceReportService:
                 .options(
                     selectinload(DailyRecord.work_logs).selectinload(WorkLog.work_type),
                     selectinload(DailyRecord.cut_logs).selectinload(CutLog.bag_type),
+                    selectinload(DailyRecord.extra_cut_work_logs).selectinload(ExtraCutWorkLog.bag_type),
                 )
                 .where(DailyRecord.employee_id.in_(employee_ids))
                 .where(DailyRecord.date >= visible_dates[0])
@@ -215,6 +216,9 @@ class AttendanceReportService:
             for log in record.work_logs:
                 label = self._work_code(log.work_type.name)
                 values[label] = True if log.work_type.input_type == WorkInputType.TICK else log.quantity
+            extra_cut_amount = sum(log.amount_snapshot for log in record.extra_cut_work_logs)
+            if extra_cut_amount > 0:
+                values["VK"] = self._format_money(extra_cut_amount)
             return values
         values = {}
         for log in record.cut_logs:

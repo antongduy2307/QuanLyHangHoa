@@ -127,6 +127,10 @@ class DailyRecord(AttendanceBase):
         back_populates="daily_record",
         cascade="all, delete-orphan",
     )
+    extra_cut_work_logs: Mapped[list[ExtraCutWorkLog]] = relationship(
+        back_populates="daily_record",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         UniqueConstraint("employee_id", "date", name="uq_daily_record_employee_date"),
@@ -194,6 +198,7 @@ class BagType(AttendanceBase):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
 
     cut_logs: Mapped[list[CutLog]] = relationship(back_populates="bag_type")
+    extra_cut_work_logs: Mapped[list[ExtraCutWorkLog]] = relationship(back_populates="bag_type")
 
     __table_args__ = (
         CheckConstraint("unit_price >= 0", name="ck_bag_type_unit_price_non_negative"),
@@ -230,4 +235,27 @@ class CutLog(AttendanceBase):
             name="ck_cut_log_excess_unit_price_non_negative",
         ),
         CheckConstraint("amount_snapshot >= 0", name="ck_cut_log_amount_non_negative"),
+    )
+
+
+class ExtraCutWorkLog(AttendanceBase):
+    __tablename__ = "extra_cut_work_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    daily_record_id: Mapped[int] = mapped_column(ForeignKey("daily_records.id", ondelete="CASCADE"), nullable=False)
+    bag_type_id: Mapped[int] = mapped_column(ForeignKey("bag_types.id"), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    excess_unit_price_snapshot: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    amount_snapshot: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    daily_record: Mapped[DailyRecord] = relationship(back_populates="extra_cut_work_logs")
+    bag_type: Mapped[BagType] = relationship(back_populates="extra_cut_work_logs")
+
+    __table_args__ = (
+        UniqueConstraint("daily_record_id", "bag_type_id", name="uq_extra_cut_work_daily_bag_type"),
+        CheckConstraint("quantity >= 1", name="ck_extra_cut_work_quantity_positive"),
+        CheckConstraint("excess_unit_price_snapshot >= 0", name="ck_extra_cut_work_excess_price_non_negative"),
+        CheckConstraint("amount_snapshot >= 0", name="ck_extra_cut_work_amount_non_negative"),
     )

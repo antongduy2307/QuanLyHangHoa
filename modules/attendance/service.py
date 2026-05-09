@@ -17,10 +17,11 @@ from modules.attendance.dto import (
     BagTypeOption,
     CutLogValue,
     DayEntryDTO,
+    ExtraCutWorkLogValue,
     WorkLogValue,
     WorkTypeOption,
 )
-from modules.attendance.models import CutLog, DailyRecord, DailyRecordStatus, Employee, Team, WorkInputType, WorkLog
+from modules.attendance.models import CutLog, DailyRecord, DailyRecordStatus, Employee, ExtraCutWorkLog, Team, WorkInputType, WorkLog
 from modules.attendance.repository import AttendanceDayEntryRepository, AttendanceEmployeeRepository
 
 
@@ -177,8 +178,10 @@ class AttendanceDayEntryService:
             record = self._repository.get_daily_record(session, employee_id, selected_date)
             work_logs = list(record.work_logs) if record is not None else []
             cut_logs = list(record.cut_logs) if record is not None else []
+            extra_cut_work_logs = list(record.extra_cut_work_logs) if record is not None else []
             work_type_ids = {log.work_type_id for log in work_logs}
             bag_type_ids = {log.bag_type_id for log in cut_logs}
+            bag_type_ids.update(log.bag_type_id for log in extra_cut_work_logs)
             work_types = self._repository.list_work_types_for_entry(session, work_type_ids)
             bag_types = self._repository.list_bag_types_for_entry(session, bag_type_ids)
             return DayEntryDTO(
@@ -230,6 +233,15 @@ class AttendanceDayEntryService:
                     )
                     for log in cut_logs
                 ],
+                extra_cut_work_logs=[
+                    ExtraCutWorkLogValue(
+                        bag_type_id=log.bag_type_id,
+                        quantity=log.quantity,
+                        excess_unit_price_snapshot=log.excess_unit_price_snapshot,
+                        amount_snapshot=log.amount_snapshot,
+                    )
+                    for log in extra_cut_work_logs
+                ],
             )
 
     def save_attendance(self, payload: AttendanceSavePayload, *, finalize: bool) -> AttendanceSaveResult:
@@ -256,6 +268,7 @@ class AttendanceDayEntryService:
                 record.status = DailyRecordStatus.DRAFT
                 record.work_logs.clear()
                 record.cut_logs.clear()
+                record.extra_cut_work_logs.clear()
                 session.flush()
 
                 if payload.is_absent:
@@ -338,10 +351,13 @@ class AttendanceDayEntryService:
 
         if len(selected_glove_names) > 1:
             raise ValidationError("cannot use both glove work types in the same daily record")
+        self._apply_extra_cut_work_payload(session, record, payload)
 
     def _apply_cut_payload(self, session: Session, record: DailyRecord, payload: AttendanceSavePayload) -> None:
         if payload.blow_work:
             raise ValidationError("blow payload is invalid for cut team")
+        if payload.extra_cut_work:
+            raise ValidationError("extra cut payload is invalid for cut team")
 
         merged_quantities: dict[int, int] = {}
         for item in payload.cut_work:
@@ -396,7 +412,35 @@ class AttendanceDayEntryService:
         raise ValidationError("unsupported work input type")
 
     def _calculate_daily_total(self, record: DailyRecord) -> int:
-        return sum(log.amount_snapshot for log in record.work_logs) + sum(log.amount_snapshot for log in record.cut_logs)
+        return (
+            sum(log.amount_snapshot for log in record.work_logs)
+            + sum(log.amount_snapshot for log in record.cut_logs)
+            + sum(log.amount_snapshot for log in record.extra_cut_work_logs)
+        )
+
+    def _apply_extra_cut_work_payload(self, session: Session, record: DailyRecord, payload: AttendanceSavePayload) -> None:
+        merged_quantities: dict[int, int] = {}
+        for item in payload.extra_cut_work:
+            if item.quantity < 0:
+                raise ValidationError("quantity must be non-negative")
+            if item.quantity == 0:
+                continue
+            merged_quantities[item.bag_type_id] = merged_quantities.get(item.bag_type_id, 0) + item.quantity
+
+        for bag_type_id, quantity in merged_quantities.items():
+            bag_type = self._repository.get_bag_type(session, bag_type_id)
+            if not bag_type.is_active:
+                raise ValidationError("bag type is inactive")
+            excess_unit_price = Decimal(str(bag_type.excess_unit_price))
+            amount = self._decimal_money_to_int(Decimal(quantity) * excess_unit_price)
+            record.extra_cut_work_logs.append(
+                ExtraCutWorkLog(
+                    bag_type_id=bag_type.id,
+                    quantity=quantity,
+                    excess_unit_price_snapshot=excess_unit_price,
+                    amount_snapshot=amount,
+                )
+            )
 
     def _decimal_money_to_int(self, value: Decimal) -> int:
         return int(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))

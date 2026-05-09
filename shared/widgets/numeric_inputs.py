@@ -31,11 +31,14 @@ class SelectAllSpinBox(QLineEdit):
         self.setValue(self._value)
 
     def setValue(self, value: int) -> None:
+        previous = self._value
         normalized = self._clamp(int(value))
         self._value = normalized
         formatted = self._format_number(normalized)
         if self.text() != formatted:
             self._set_formatted_text(formatted)
+        if normalized != previous:
+            self.valueChanged.emit(self._value)
 
     def value(self) -> int:
         return self._value
@@ -55,6 +58,11 @@ class SelectAllSpinBox(QLineEdit):
             return
         parsed = self._parse_text(text)
         if parsed is None:
+            if text.strip() == "":
+                normalized = 0 if self._minimum <= 0 <= self._maximum else self._minimum
+                if normalized != self._value:
+                    self._value = normalized
+                    self.valueChanged.emit(self._value)
             return
 
         normalized = self._clamp(parsed)
@@ -71,10 +79,13 @@ class SelectAllSpinBox(QLineEdit):
         if parsed is None:
             parsed = 0 if self._minimum <= 0 <= self._maximum else self._minimum
         normalized = self._clamp(parsed)
+        previous = self._value
         self._value = normalized
         formatted = self._format_number(normalized)
         if self.text() != formatted:
             self._set_formatted_text(formatted)
+        if normalized != previous:
+            self.valueChanged.emit(self._value)
 
     def _update_validator(self) -> None:
         allow_negative = self._minimum < 0

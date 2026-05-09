@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, selectinload, sessionmaker
 
 from core.exceptions import NotFoundError
 from modules.attendance.db import AttendanceSessionLocal
-from modules.attendance.models import BagType, CutLog, DailyRecord, Employee, Period, Team, WorkLog, WorkType
+from modules.attendance.models import BagType, CutLog, DailyRecord, Employee, ExtraCutWorkLog, Period, Team, WorkLog, WorkType
 
 
 class AttendanceEmployeeRepository:
@@ -123,6 +123,7 @@ class AttendanceDayEntryRepository:
                 selectinload(DailyRecord.period),
                 selectinload(DailyRecord.work_logs).selectinload(WorkLog.work_type),
                 selectinload(DailyRecord.cut_logs).selectinload(CutLog.bag_type),
+                selectinload(DailyRecord.extra_cut_work_logs).selectinload(ExtraCutWorkLog.bag_type),
             )
             .where(
                 DailyRecord.employee_id == employee_id,

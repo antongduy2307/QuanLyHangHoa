@@ -3,19 +3,22 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
-from PyQt6.QtCore import QDate, Qt
+from PyQt6.QtCore import QDate, QStringListModel, Qt
 from PyQt6.QtWidgets import (
+    QCompleter,
     QCheckBox,
     QDateEdit,
     QFormLayout,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
-    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -23,12 +26,13 @@ from PyQt6.QtWidgets import (
 )
 
 from core.exceptions import AppError
-from modules.attendance.dto import AttendanceEmployeeRow, AttendanceSavePayload, BlowWorkInput, CutWorkInput, DayEntryDTO
+from modules.attendance.dto import AttendanceEmployeeRow, AttendanceSavePayload, BlowWorkInput, CutWorkInput, DayEntryDTO, ExtraCutWorkInput
 from modules.attendance.models import Team, WorkInputType
 from modules.attendance.service import AttendanceDayEntryService
 from modules.attendance.ui.dialogs import team_to_label
 from shared.widgets.message_box import MessageBox
-from shared.widgets.table_helpers import configure_table_widget
+from shared.widgets.numeric_inputs import SelectAllSpinBox
+from shared.widgets.table_helpers import configure_table_cell_widget, configure_table_widget
 
 
 class AttendanceDayEntryTab(QWidget):
@@ -37,8 +41,19 @@ class AttendanceDayEntryTab(QWidget):
         self._service = service
         self._employees: list[AttendanceEmployeeRow] = []
         self._current_entry: DayEntryDTO | None = None
-        self._blow_controls: dict[int, tuple[QCheckBox | None, QSpinBox | None]] = {}
-        self._cut_controls: dict[int, QSpinBox] = {}
+        self._blow_controls: dict[int, tuple[QCheckBox | None, SelectAllSpinBox | None]] = {}
+        self._cut_controls: dict[int, SelectAllSpinBox] = {}
+        self.cut_search_input: QLineEdit | None = None
+        self.cut_add_button: QPushButton | None = None
+        self.cut_table: QTableWidget | None = None
+        self._cut_completion_ids_by_label: dict[str, int] = {}
+        self.extra_cut_checkbox: QCheckBox | None = None
+        self.extra_cut_group: QGroupBox | None = None
+        self.extra_cut_search_input: QLineEdit | None = None
+        self.extra_cut_add_button: QPushButton | None = None
+        self.extra_cut_table: QTableWidget | None = None
+        self._extra_cut_controls: dict[int, SelectAllSpinBox] = {}
+        self._extra_cut_completion_ids_by_label: dict[str, int] = {}
         self._glove_work_ids_by_name: dict[str, int] = {}
 
         self.date_edit = QDateEdit()
@@ -73,6 +88,13 @@ class AttendanceDayEntryTab(QWidget):
         self.form_layout = QVBoxLayout(self.form_container)
         self.form_layout.setContentsMargins(0, 0, 0, 0)
         self.form_layout.setSpacing(8)
+        self.form_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+
+        self.form_scroll_area = QScrollArea()
+        self.form_scroll_area.setWidgetResizable(True)
+        self.form_scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.form_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.form_scroll_area.setWidget(self.form_container)
 
         self.save_draft_button = QPushButton("Lưu nháp")
         self.finalize_button = QPushButton("Chốt ngày")
@@ -99,7 +121,7 @@ class AttendanceDayEntryTab(QWidget):
         right_layout = QVBoxLayout()
         right_layout.addWidget(summary_group)
         right_layout.addWidget(self.absent_checkbox)
-        right_layout.addWidget(self.form_container, 1)
+        right_layout.addWidget(self.form_scroll_area, 1)
         right_layout.addLayout(actions)
 
         root_layout = QHBoxLayout(self)
@@ -194,6 +216,16 @@ class AttendanceDayEntryTab(QWidget):
         self._clear_form_layout()
         self._blow_controls.clear()
         self._cut_controls.clear()
+        self._extra_cut_controls.clear()
+        self.cut_search_input = None
+        self.cut_add_button = None
+        self.cut_table = None
+        self.extra_cut_checkbox = None
+        self.extra_cut_group = None
+        self.extra_cut_search_input = None
+        self.extra_cut_add_button = None
+        self.extra_cut_table = None
+        self._extra_cut_completion_ids_by_label.clear()
         self._glove_work_ids_by_name.clear()
         if entry.team == Team.BLOW:
             self._build_blow_form(entry)
@@ -215,18 +247,25 @@ class AttendanceDayEntryTab(QWidget):
 
     def _build_blow_form(self, entry: DayEntryDTO) -> None:
         group = QGroupBox("Việc tổ thổi")
+        group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         layout = QGridLayout(group)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setHorizontalSpacing(10)
+        layout.setVerticalSpacing(4)
         log_by_work_type = {log.work_type_id: log for log in entry.work_logs}
         row = 0
         for work_type in entry.work_types:
             checkbox: QCheckBox | None = None
-            spinbox: QSpinBox | None = None
+            spinbox: SelectAllSpinBox | None = None
             if work_type.input_type == WorkInputType.QUANTITY:
                 layout.addWidget(QLabel(f"{work_type.name} ({work_type.unit_price:,})"), row, 0)
-                spinbox = QSpinBox()
+                spinbox = SelectAllSpinBox()
                 spinbox.setRange(0, 100000)
+                spinbox.setMinimumWidth(120)
+                spinbox.setMaximumWidth(160)
+                spinbox.setFixedHeight(34)
                 spinbox.setValue(log_by_work_type.get(work_type.id).quantity if work_type.id in log_by_work_type else 0)
-                spinbox.valueChanged.connect(self._update_total_preview)
+                spinbox.valueChanged.connect(lambda _value: self._update_total_preview())
                 layout.addWidget(spinbox, row, 1)
             else:
                 checkbox = QCheckBox(f"{work_type.name} ({work_type.unit_price:,})")
@@ -240,40 +279,400 @@ class AttendanceDayEntryTab(QWidget):
             self._blow_controls[work_type.id] = (checkbox, spinbox)
             row += 1
         self.form_layout.addWidget(group)
+        self._build_extra_cut_form(entry)
         self._update_total_preview()
+
+    def _build_extra_cut_form(self, entry: DayEntryDTO) -> None:
+        self.extra_cut_checkbox = QCheckBox("Có làm thêm việc cắt")
+        self.extra_cut_checkbox.toggled.connect(self._toggle_extra_cut_section)
+        self.form_layout.addWidget(self.extra_cut_checkbox)
+
+        self.extra_cut_group = QGroupBox("Việc cắt làm thêm")
+        self.extra_cut_group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        layout = QVBoxLayout(self.extra_cut_group)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+
+        self.extra_cut_search_input = QLineEdit()
+        self.extra_cut_search_input.setPlaceholderText("Tìm loại bao")
+        self.extra_cut_search_input.textEdited.connect(self._update_extra_cut_suggestions)
+        self.extra_cut_search_input.returnPressed.connect(self._add_best_extra_cut_bag_match)
+        completer = QCompleter(self.extra_cut_search_input)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        completer.setModel(QStringListModel([], completer))
+        completer.activated[str].connect(self._add_extra_cut_bag_by_label)
+        self.extra_cut_search_input.setCompleter(completer)
+
+        self.extra_cut_add_button = QPushButton("Thêm")
+        self.extra_cut_add_button.clicked.connect(self._add_best_extra_cut_bag_match)
+
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(self.extra_cut_search_input, 1)
+        search_layout.addWidget(self.extra_cut_add_button)
+        layout.addLayout(search_layout)
+
+        self.extra_cut_table = QTableWidget(0, 3)
+        self.extra_cut_table.setHorizontalHeaderLabels(["Loại bao", "Số lượng", ""])
+        self.extra_cut_table.verticalHeader().setVisible(False)
+        self.extra_cut_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.extra_cut_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.extra_cut_table.setAlternatingRowColors(True)
+        self.extra_cut_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.extra_cut_table.verticalHeader().setDefaultSectionSize(max(self.extra_cut_table.verticalHeader().defaultSectionSize(), 56))
+        self.extra_cut_table.verticalHeader().setMinimumSectionSize(max(self.extra_cut_table.verticalHeader().minimumSectionSize(), 56))
+        header = self.extra_cut_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        header.setStretchLastSection(False)
+        self.extra_cut_table.setColumnWidth(1, 124)
+        self.extra_cut_table.setColumnWidth(2, 82)
+        layout.addWidget(self.extra_cut_table)
+
+        for log in entry.extra_cut_work_logs:
+            self._add_extra_cut_bag_row(log.bag_type_id, quantity=log.quantity)
+        self._resize_extra_cut_table_to_contents()
+
+        has_extra_cut = bool(entry.extra_cut_work_logs)
+        self.extra_cut_checkbox.setChecked(has_extra_cut)
+        self._sync_extra_cut_section_visibility()
+        self.form_layout.addWidget(self.extra_cut_group)
+
+    def _toggle_extra_cut_section(self, checked: bool) -> None:
+        self._sync_extra_cut_section_visibility()
+        if checked and self.extra_cut_group is not None:
+            self.form_scroll_area.ensureWidgetVisible(self.extra_cut_group)
+        self._update_total_preview()
+
+    def _sync_extra_cut_section_visibility(self) -> None:
+        if self.extra_cut_group is not None:
+            checked = self.extra_cut_checkbox is not None and self.extra_cut_checkbox.isChecked()
+            self.extra_cut_group.setVisible(checked and not self.absent_checkbox.isChecked())
+            self.extra_cut_group.adjustSize()
+        self.form_container.adjustSize()
+
+    def _resize_extra_cut_table_to_contents(self) -> None:
+        if self.extra_cut_table is None:
+            return
+        max_visible_rows = 8
+        row_count = self.extra_cut_table.rowCount()
+        visible_rows = max(1, min(row_count, max_visible_rows))
+        header_height = self.extra_cut_table.horizontalHeader().height()
+        row_height = self.extra_cut_table.verticalHeader().defaultSectionSize()
+        frame_height = self.extra_cut_table.frameWidth() * 2
+        height = header_height + (visible_rows * row_height) + frame_height + 4
+        self.extra_cut_table.setFixedHeight(height)
+        scrollbar_policy = (
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            if row_count <= max_visible_rows
+            else Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self.extra_cut_table.setVerticalScrollBarPolicy(scrollbar_policy)
+        if self.extra_cut_group is not None:
+            self.extra_cut_group.adjustSize()
+        self.form_container.adjustSize()
+
+    def _update_extra_cut_suggestions(self, text: str) -> None:
+        if self.extra_cut_search_input is None:
+            return
+        query = text.strip().casefold()
+        if not query:
+            self._set_extra_cut_suggestions([])
+            return
+        matches = [bag_type for bag_type in self._available_cut_bag_types() if query in bag_type.name.casefold()]
+        self._set_extra_cut_suggestions([(self._extra_cut_bag_label(bag_type), bag_type.id) for bag_type in matches[:20]])
+
+    def _set_extra_cut_suggestions(self, suggestions: list[tuple[str, int]]) -> None:
+        if self.extra_cut_search_input is None:
+            return
+        self._extra_cut_completion_ids_by_label = dict(suggestions)
+        completer = self.extra_cut_search_input.completer()
+        if completer is None:
+            return
+        model = completer.model()
+        if isinstance(model, QStringListModel):
+            model.setStringList([label for label, _bag_type_id in suggestions])
+
+    def _add_extra_cut_bag_by_label(self, label: str) -> None:
+        bag_type_id = self._extra_cut_completion_ids_by_label.get(label)
+        if bag_type_id is not None:
+            self._add_extra_cut_bag_by_id(bag_type_id)
+
+    def _add_best_extra_cut_bag_match(self) -> None:
+        if self.extra_cut_search_input is None:
+            return
+        query = self.extra_cut_search_input.text().strip().casefold()
+        if not query:
+            return
+        bag_type = next((candidate for candidate in self._available_cut_bag_types() if query in candidate.name.casefold()), None)
+        if bag_type is None:
+            return
+        self._add_extra_cut_bag_by_id(bag_type.id)
+
+    def _add_extra_cut_bag_by_id(self, bag_type_id: object) -> None:
+        try:
+            resolved_id = int(bag_type_id)
+        except (TypeError, ValueError):
+            return
+        if resolved_id in self._extra_cut_controls:
+            self._focus_extra_cut_bag_row(resolved_id)
+            self._reset_extra_cut_search()
+            return
+        self._add_extra_cut_bag_row(resolved_id, quantity=1)
+        self._focus_extra_cut_bag_row(resolved_id)
+        self._reset_extra_cut_search()
+        self._update_total_preview()
+
+    def _add_extra_cut_bag_row(self, bag_type_id: int, *, quantity: int) -> None:
+        entry = self._current_entry
+        if entry is None or self.extra_cut_table is None:
+            return
+        bag_type = next((candidate for candidate in entry.bag_types if candidate.id == bag_type_id), None)
+        if bag_type is None:
+            return
+
+        row = self.extra_cut_table.rowCount()
+        self.extra_cut_table.insertRow(row)
+        bag_item = QTableWidgetItem(self._extra_cut_bag_label(bag_type))
+        bag_item.setData(Qt.ItemDataRole.UserRole, bag_type.id)
+        self.extra_cut_table.setItem(row, 0, bag_item)
+
+        quantity_input = SelectAllSpinBox()
+        quantity_input.setRange(0, 100000)
+        quantity_input.setValue(quantity)
+        quantity_input.valueChanged.connect(lambda _value: self._update_total_preview())
+        configure_table_cell_widget(quantity_input, height=34)
+        self.extra_cut_table.setCellWidget(row, 1, quantity_input)
+        self._extra_cut_controls[bag_type.id] = quantity_input
+
+        delete_button = QPushButton("Xóa")
+        delete_button.clicked.connect(lambda _checked=False, selected_id=bag_type.id: self._remove_extra_cut_bag_row(selected_id))
+        configure_table_cell_widget(delete_button, compact=True, height=34)
+        self.extra_cut_table.setCellWidget(row, 2, delete_button)
+        self._resize_extra_cut_table_to_contents()
+
+    def _remove_extra_cut_bag_row(self, bag_type_id: int) -> None:
+        if self.extra_cut_table is None:
+            return
+        row = self._extra_cut_bag_row(bag_type_id)
+        if row is None:
+            return
+        self._extra_cut_controls.pop(bag_type_id, None)
+        self.extra_cut_table.removeRow(row)
+        self._resize_extra_cut_table_to_contents()
+        self._update_total_preview()
+
+    def _focus_extra_cut_bag_row(self, bag_type_id: int) -> None:
+        if self.extra_cut_table is None:
+            return
+        row = self._extra_cut_bag_row(bag_type_id)
+        if row is None:
+            return
+        self.extra_cut_table.selectRow(row)
+        self.extra_cut_table.scrollToItem(self.extra_cut_table.item(row, 0))
+        quantity_input = self._extra_cut_controls.get(bag_type_id)
+        if quantity_input is not None:
+            quantity_input.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _extra_cut_bag_row(self, bag_type_id: int) -> int | None:
+        if self.extra_cut_table is None:
+            return None
+        for row in range(self.extra_cut_table.rowCount()):
+            item = self.extra_cut_table.item(row, 0)
+            if item is not None and item.data(Qt.ItemDataRole.UserRole) == bag_type_id:
+                return row
+        return None
+
+    def _reset_extra_cut_search(self) -> None:
+        if self.extra_cut_search_input is None:
+            return
+        self.extra_cut_search_input.clear()
+        self._set_extra_cut_suggestions([])
+
+    def _extra_cut_bag_label(self, bag_type) -> str:
+        return f"{bag_type.name} (Vượt: {self._format_money_decimal(bag_type.excess_unit_price)})"
 
     def _build_cut_form(self, entry: DayEntryDTO) -> None:
         group = QGroupBox("Sản lượng tổ cắt")
-        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        layout = QGridLayout(group)
+        layout = QVBoxLayout(group)
         layout.setContentsMargins(10, 10, 10, 10)
-        layout.setHorizontalSpacing(12)
-        layout.setVerticalSpacing(6)
-        layout.addWidget(QLabel("Loại bao"), 0, 0)
-        layout.addWidget(QLabel("Số lượng"), 0, 1)
+        layout.setSpacing(8)
+
+        self.cut_search_input = QLineEdit()
+        self.cut_search_input.setPlaceholderText("Tìm loại bao")
+        self.cut_search_input.textEdited.connect(self._update_cut_suggestions)
+        self.cut_search_input.returnPressed.connect(self._add_best_cut_bag_match)
+        completer = QCompleter(self.cut_search_input)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        completer.setModel(QStringListModel([], completer))
+        completer.activated[str].connect(self._add_cut_bag_by_label)
+        self.cut_search_input.setCompleter(completer)
+
+        self.cut_add_button = QPushButton("Thêm")
+        self.cut_add_button.clicked.connect(self._add_best_cut_bag_match)
+
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(self.cut_search_input, 1)
+        search_layout.addWidget(self.cut_add_button)
+        layout.addLayout(search_layout)
+
+        self.cut_table = QTableWidget(0, 3)
+        self.cut_table.setHorizontalHeaderLabels(["Loại bao", "Số lượng", ""])
+        self.cut_table.verticalHeader().setVisible(False)
+        self.cut_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.cut_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.cut_table.setAlternatingRowColors(True)
+        self.cut_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.cut_table.setMinimumHeight(128)
+        self.cut_table.setMaximumHeight(260)
+        self.cut_table.verticalHeader().setDefaultSectionSize(max(self.cut_table.verticalHeader().defaultSectionSize(), 56))
+        self.cut_table.verticalHeader().setMinimumSectionSize(max(self.cut_table.verticalHeader().minimumSectionSize(), 56))
+        header = self.cut_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        header.setStretchLastSection(False)
+        self.cut_table.setColumnWidth(1, 124)
+        self.cut_table.setColumnWidth(2, 82)
+        layout.addWidget(self.cut_table)
+
         log_by_bag_type = {log.bag_type_id: log for log in entry.cut_logs}
-        for row, bag_type in enumerate(entry.bag_types, start=1):
-            layout.addWidget(
-                QLabel(
-                    f"{bag_type.name} (Khoán: {self._format_decimal(bag_type.quota_quantity)}, "
-                    f"Vượt: {self._format_money_decimal(bag_type.excess_unit_price)})"
-                ),
-                row,
-                0,
-            )
-            spinbox = QSpinBox()
-            spinbox.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-            spinbox.setFixedHeight(28)
-            spinbox.setRange(0, 100000)
-            spinbox.setValue(log_by_bag_type.get(bag_type.id).quantity if bag_type.id in log_by_bag_type else 0)
-            spinbox.valueChanged.connect(self._update_total_preview)
-            layout.addWidget(spinbox, row, 1)
-            layout.setRowMinimumHeight(row, 30)
-            self._cut_controls[bag_type.id] = spinbox
-        layout.setRowStretch(len(entry.bag_types) + 1, 1)
-        self.form_layout.addWidget(group, 0, Qt.AlignmentFlag.AlignTop)
+        for bag_type in entry.bag_types:
+            if bag_type.id in log_by_bag_type:
+                self._add_cut_bag_row(bag_type.id, quantity=log_by_bag_type[bag_type.id].quantity)
+
+        self.form_layout.addWidget(group)
         self.form_layout.addStretch(1)
         self._update_total_preview()
+
+    def _update_cut_suggestions(self, text: str) -> None:
+        if self.cut_search_input is None:
+            return
+        query = text.strip().casefold()
+        if not query:
+            self._set_cut_suggestions([])
+            return
+        matches = [bag_type for bag_type in self._available_cut_bag_types() if query in bag_type.name.casefold()]
+        self._set_cut_suggestions([(self._cut_bag_label(bag_type), bag_type.id) for bag_type in matches[:20]])
+
+    def _set_cut_suggestions(self, suggestions: list[tuple[str, int]]) -> None:
+        if self.cut_search_input is None:
+            return
+        self._cut_completion_ids_by_label = dict(suggestions)
+        completer = self.cut_search_input.completer()
+        if completer is None:
+            return
+        model = completer.model()
+        if isinstance(model, QStringListModel):
+            model.setStringList([label for label, _bag_type_id in suggestions])
+
+    def _add_cut_bag_by_label(self, label: str) -> None:
+        bag_type_id = self._cut_completion_ids_by_label.get(label)
+        if bag_type_id is not None:
+            self._add_cut_bag_by_id(bag_type_id)
+
+    def _add_best_cut_bag_match(self) -> None:
+        if self.cut_search_input is None:
+            return
+        query = self.cut_search_input.text().strip().casefold()
+        if not query:
+            return
+        bag_type = next((candidate for candidate in self._available_cut_bag_types() if query in candidate.name.casefold()), None)
+        if bag_type is None:
+            return
+        self._add_cut_bag_by_id(bag_type.id)
+
+    def _add_cut_bag_by_id(self, bag_type_id: object) -> None:
+        try:
+            resolved_id = int(bag_type_id)
+        except (TypeError, ValueError):
+            return
+        if resolved_id in self._cut_controls:
+            self._focus_cut_bag_row(resolved_id)
+            self._reset_cut_search()
+            return
+        self._add_cut_bag_row(resolved_id, quantity=1)
+        self._focus_cut_bag_row(resolved_id)
+        self._reset_cut_search()
+        self._update_total_preview()
+
+    def _add_cut_bag_row(self, bag_type_id: int, *, quantity: int) -> None:
+        entry = self._current_entry
+        if entry is None or self.cut_table is None:
+            return
+        bag_type = next((candidate for candidate in entry.bag_types if candidate.id == bag_type_id), None)
+        if bag_type is None:
+            return
+
+        row = self.cut_table.rowCount()
+        self.cut_table.insertRow(row)
+        bag_item = QTableWidgetItem(self._cut_bag_label(bag_type))
+        bag_item.setData(Qt.ItemDataRole.UserRole, bag_type.id)
+        self.cut_table.setItem(row, 0, bag_item)
+
+        quantity_input = SelectAllSpinBox()
+        quantity_input.setRange(0, 100000)
+        quantity_input.setValue(quantity)
+        quantity_input.valueChanged.connect(lambda _value: self._update_total_preview())
+        configure_table_cell_widget(quantity_input, height=34)
+        self.cut_table.setCellWidget(row, 1, quantity_input)
+        self._cut_controls[bag_type.id] = quantity_input
+
+        delete_button = QPushButton("Xóa")
+        delete_button.clicked.connect(lambda _checked=False, selected_id=bag_type.id: self._remove_cut_bag_row(selected_id))
+        configure_table_cell_widget(delete_button, compact=True, height=34)
+        self.cut_table.setCellWidget(row, 2, delete_button)
+
+    def _remove_cut_bag_row(self, bag_type_id: int) -> None:
+        if self.cut_table is None:
+            return
+        row = self._cut_bag_row(bag_type_id)
+        if row is None:
+            return
+        self._cut_controls.pop(bag_type_id, None)
+        self.cut_table.removeRow(row)
+        self._update_total_preview()
+
+    def _focus_cut_bag_row(self, bag_type_id: int) -> None:
+        if self.cut_table is None:
+            return
+        row = self._cut_bag_row(bag_type_id)
+        if row is None:
+            return
+        self.cut_table.selectRow(row)
+        self.cut_table.scrollToItem(self.cut_table.item(row, 0))
+        spinbox = self._cut_controls.get(bag_type_id)
+        if spinbox is not None:
+            spinbox.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _cut_bag_row(self, bag_type_id: int) -> int | None:
+        if self.cut_table is None:
+            return None
+        for row in range(self.cut_table.rowCount()):
+            item = self.cut_table.item(row, 0)
+            if item is not None and item.data(Qt.ItemDataRole.UserRole) == bag_type_id:
+                return row
+        return None
+
+    def _reset_cut_search(self) -> None:
+        if self.cut_search_input is None:
+            return
+        self.cut_search_input.clear()
+        self._set_cut_suggestions([])
+
+    def _available_cut_bag_types(self):
+        entry = self._current_entry
+        if entry is None:
+            return []
+        return [bag_type for bag_type in entry.bag_types if bag_type.is_active]
+
+    def _cut_bag_label(self, bag_type) -> str:
+        return (
+            f"{bag_type.name} (Khoán: {self._format_decimal(bag_type.quota_quantity)}, "
+            f"Vượt: {self._format_money_decimal(bag_type.excess_unit_price)})"
+        )
 
     def _handle_glove_toggled(self, selected_name: str, checked: bool) -> None:
         if not checked:
@@ -296,6 +695,31 @@ class AttendanceDayEntryTab(QWidget):
                 spinbox.setDisabled(is_absent)
         for spinbox in self._cut_controls.values():
             spinbox.setDisabled(is_absent)
+        for spinbox in self._extra_cut_controls.values():
+            spinbox.setDisabled(is_absent)
+        if self.extra_cut_checkbox is not None:
+            self.extra_cut_checkbox.setDisabled(is_absent)
+        if self.extra_cut_search_input is not None:
+            self.extra_cut_search_input.setDisabled(is_absent)
+            if is_absent:
+                completer = self.extra_cut_search_input.completer()
+                if completer is not None:
+                    completer.popup().hide()
+        if self.extra_cut_add_button is not None:
+            self.extra_cut_add_button.setDisabled(is_absent)
+        if self.extra_cut_table is not None:
+            self.extra_cut_table.setDisabled(is_absent)
+        self._sync_extra_cut_section_visibility()
+        if self.cut_search_input is not None:
+            self.cut_search_input.setDisabled(is_absent)
+            if is_absent:
+                completer = self.cut_search_input.completer()
+                if completer is not None:
+                    completer.popup().hide()
+        if self.cut_add_button is not None:
+            self.cut_add_button.setDisabled(is_absent)
+        if self.cut_table is not None:
+            self.cut_table.setDisabled(is_absent)
         self._update_total_preview()
 
     def _collect_payload(self) -> AttendanceSavePayload | None:
@@ -304,6 +728,7 @@ class AttendanceDayEntryTab(QWidget):
             return None
         blow_work: list[BlowWorkInput] = []
         cut_work: list[CutWorkInput] = []
+        extra_cut_work: list[ExtraCutWorkInput] = []
         if entry.team == Team.BLOW and not self.absent_checkbox.isChecked():
             for work_type in entry.work_types:
                 checkbox, spinbox = self._blow_controls[work_type.id]
@@ -314,6 +739,10 @@ class AttendanceDayEntryTab(QWidget):
                     continue
                 if checkbox is not None and checkbox.isChecked():
                     blow_work.append(BlowWorkInput(work_type_id=work_type.id, quantity=None))
+            if self.extra_cut_checkbox is not None and self.extra_cut_checkbox.isChecked():
+                for bag_type_id, spinbox in self._extra_cut_controls.items():
+                    if spinbox.value() > 0:
+                        extra_cut_work.append(ExtraCutWorkInput(bag_type_id=bag_type_id, quantity=spinbox.value()))
         if entry.team == Team.CUT and not self.absent_checkbox.isChecked():
             for bag_type_id, spinbox in self._cut_controls.items():
                 if spinbox.value() > 0:
@@ -324,6 +753,7 @@ class AttendanceDayEntryTab(QWidget):
             is_absent=self.absent_checkbox.isChecked(),
             blow_work=blow_work,
             cut_work=cut_work,
+            extra_cut_work=extra_cut_work,
         )
 
     def _save_current(self, *, finalize: bool) -> None:
@@ -358,6 +788,16 @@ class AttendanceDayEntryTab(QWidget):
                 else:
                     quantity = spinbox.value() if spinbox is not None else 0
                 total += quantity * work_type.unit_price
+            if self.extra_cut_checkbox is not None and self.extra_cut_checkbox.isChecked():
+                bag_type_by_id = {bag_type.id: bag_type for bag_type in entry.bag_types}
+                extra_cut_total = Decimal("0")
+                for bag_type_id, spinbox in self._extra_cut_controls.items():
+                    quantity = spinbox.value()
+                    if quantity <= 0:
+                        continue
+                    bag_type = bag_type_by_id[bag_type_id]
+                    extra_cut_total += Decimal(quantity) * Decimal(str(bag_type.excess_unit_price))
+                total += int(extra_cut_total.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
         else:
             bag_type_by_id = {bag_type.id: bag_type for bag_type in entry.bag_types}
             active_items: list[tuple[int, Decimal, Decimal]] = []
