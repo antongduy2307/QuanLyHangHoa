@@ -18,3 +18,12 @@ overview_project.md
 _reference_chamcong/*
 !_reference_chamcong/tests/
 *.jpg
+
+!desktop_app.spec
+!installer/
+installer/*
+installer/dist/
+!installer/QuanLyHangHoa.iss
+!docs/
+docs/*
+!docs/RELEASE.md

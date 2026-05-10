@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from PyQt6.QtGui import QColor, QFont
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QAbstractItemView, QComboBox, QHBoxLayout, QHeaderView, QLabel, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
+from PyQt6.QtCore import QDate, Qt
+from PyQt6.QtWidgets import QAbstractItemView, QComboBox, QDateEdit, QHBoxLayout, QHeaderView, QLabel, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget
 
 from core.exceptions import AppError
 from modules.attendance.models import Team
-from modules.attendance.report_service import AttendanceReportService, ReportPeriodOption, ReportRenderModel
+from modules.attendance.report_service import AttendanceReportService, MonthlyReportRenderModel, ReportPeriodOption, ReportRenderModel
 from shared.widgets.message_box import MessageBox
 from shared.widgets.table_helpers import configure_table_widget, disable_full_width_resize
 
@@ -52,6 +52,30 @@ class AttendanceReportTab(QWidget):
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.table.setWordWrap(False)
 
+        self.month_team_combo = QComboBox()
+        self.month_team_combo.addItem("Tổ thổi", Team.BLOW.value)
+        self.month_team_combo.addItem("Tổ cắt", Team.CUT.value)
+        self.month_date_edit = QDateEdit(QDate.currentDate())
+        self.month_date_edit.setCalendarPopup(True)
+        self.month_date_edit.setDisplayFormat("MM/yyyy")
+        self.month_view_button = QPushButton("Xem báo cáo")
+        self.month_team_combo.currentIndexChanged.connect(self.refresh_monthly_report)
+        self.month_date_edit.dateChanged.connect(self.refresh_monthly_report)
+        self.month_view_button.clicked.connect(self.refresh_monthly_report)
+
+        self.month_employee_count_label = QLabel("Tổng nhân viên: 0")
+        self.month_workdays_label = QLabel("Tổng ngày công có tiền: 0")
+        self.month_total_amount_label = QLabel("Tổng tiền: 0")
+        self.month_empty_label = QLabel("")
+        self.month_empty_label.setWordWrap(True)
+
+        self.month_table = QTableWidget(0, 0)
+        configure_table_widget(self.month_table, "attendance.report.monthly.table")
+        disable_full_width_resize(self.month_table)
+        self.month_table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.month_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.month_table.setWordWrap(False)
+
         controls = QHBoxLayout()
         controls.addWidget(QLabel("Tổ"))
         controls.addWidget(self.team_combo)
@@ -67,13 +91,43 @@ class AttendanceReportTab(QWidget):
         summary.addWidget(self.total_amount_label)
         summary.addStretch()
 
+        ten_day_page = QWidget()
+        ten_day_layout = QVBoxLayout(ten_day_page)
+        ten_day_layout.addLayout(controls)
+        ten_day_layout.addLayout(summary)
+        ten_day_layout.addWidget(self.empty_label)
+        ten_day_layout.addWidget(self.table, 1)
+
+        month_controls = QHBoxLayout()
+        month_controls.addWidget(QLabel("Tổ"))
+        month_controls.addWidget(self.month_team_combo)
+        month_controls.addWidget(QLabel("Tháng"))
+        month_controls.addWidget(self.month_date_edit)
+        month_controls.addWidget(self.month_view_button)
+        month_controls.addStretch()
+
+        month_summary = QHBoxLayout()
+        month_summary.addWidget(self.month_employee_count_label)
+        month_summary.addWidget(self.month_workdays_label)
+        month_summary.addWidget(self.month_total_amount_label)
+        month_summary.addStretch()
+
+        monthly_page = QWidget()
+        monthly_layout = QVBoxLayout(monthly_page)
+        monthly_layout.addLayout(month_controls)
+        monthly_layout.addLayout(month_summary)
+        monthly_layout.addWidget(self.month_empty_label)
+        monthly_layout.addWidget(self.month_table, 1)
+
+        self.report_tabs = QTabWidget()
+        self.report_tabs.addTab(ten_day_page, "10 ngày")
+        self.report_tabs.addTab(monthly_page, "30 ngày")
+
         layout = QVBoxLayout(self)
-        layout.addLayout(controls)
-        layout.addLayout(summary)
-        layout.addWidget(self.empty_label)
-        layout.addWidget(self.table, 1)
+        layout.addWidget(self.report_tabs, 1)
 
         self.reload_periods()
+        self.refresh_monthly_report()
 
     def _handle_filter_changed(self) -> None:
         if self.period_combo.currentData() is None:
@@ -111,6 +165,42 @@ class AttendanceReportTab(QWidget):
             self._render_report(model)
         except AppError as exc:
             MessageBox.error(self, "Không tải được báo cáo chấm công", str(exc))
+
+    def refresh_monthly_report(self) -> None:
+        try:
+            model = self._service.build_monthly_report(
+                team=str(self.month_team_combo.currentData()),
+                month_date=self.month_date_edit.date().toPyDate(),
+            )
+            self._render_monthly_report(model)
+        except AppError as exc:
+            MessageBox.error(self, "Không tải được báo cáo tháng", str(exc))
+
+    def _render_monthly_report(self, model: MonthlyReportRenderModel) -> None:
+        month_label = model.month_start.strftime("%m/%Y")
+        self.month_empty_label.setText("" if model.rows else f"Không có dữ liệu chấm công trong tháng {month_label}.")
+        self.month_employee_count_label.setText(f"Tổng nhân viên: {model.employee_count}")
+        self.month_workdays_label.setText(f"Tổng ngày công có tiền: {model.total_workdays}")
+        self.month_total_amount_label.setText(f"Tổng tiền: {model.total_amount:,}")
+
+        self.month_table.clearSpans()
+        self.month_table.clear()
+        self.month_table.setColumnCount(len(model.columns))
+        self.month_table.setRowCount(len(model.rows))
+        self.month_table.setHorizontalHeaderLabels(model.columns)
+        for row_index, row in enumerate(model.rows):
+            for column_index, value in enumerate(row.values):
+                item = QTableWidgetItem(value)
+                alignment = Qt.AlignmentFlag.AlignLeft if column_index == 0 else Qt.AlignmentFlag.AlignRight
+                item.setTextAlignment(alignment | Qt.AlignmentFlag.AlignVCenter)
+                if row.is_total:
+                    font = QFont(item.font())
+                    font.setBold(True)
+                    item.setFont(font)
+                    item.setForeground(QColor("#3f2a1d"))
+                    item.setBackground(QColor("#F1E2D1"))
+                self.month_table.setItem(row_index, column_index, item)
+        self._apply_monthly_column_widths(model)
 
     def _render_report(self, model: ReportRenderModel) -> None:
         self.empty_label.setText("" if model.rows else "Không có ngày nào trong kỳ cần hiển thị.")
@@ -224,6 +314,25 @@ class AttendanceReportTab(QWidget):
             column,
             max(OVERALL_TOTAL_COLUMN_MIN_WIDTH, min(content_width, OVERALL_TOTAL_COLUMN_MAX_WIDTH)),
         )
+
+    def _apply_monthly_column_widths(self, model: MonthlyReportRenderModel) -> None:
+        header = self.month_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(False)
+        header.setMinimumSectionSize(8)
+        self.month_table.resizeColumnsToContents()
+        if not model.columns:
+            return
+        self._clamp_monthly_column_width(0, 140, 220)
+        for column, label in enumerate(model.columns[1:], start=1):
+            if label in {"VK", "Tổng tiền"}:
+                self._clamp_monthly_column_width(column, 96, 160)
+            else:
+                self._clamp_monthly_column_width(column, 56, 96)
+
+    def _clamp_monthly_column_width(self, column: int, minimum: int, maximum: int) -> None:
+        width = self.month_table.columnWidth(column)
+        self.month_table.setColumnWidth(column, max(minimum, min(width, maximum)))
 
     def _display_row_values(self, model: ReportRenderModel, values: list[str]) -> list[str]:
         display_values = [values[0] if values else ""]

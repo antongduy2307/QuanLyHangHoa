@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from calendar import monthrange
 import re
 import unicodedata
 
@@ -53,6 +54,26 @@ class ReportRenderModel:
     employee_groups: list[ReportEmployeeGroup] = field(default_factory=list)
     columns: list[ReportColumn] = field(default_factory=list)
     rows: list[ReportRow] = field(default_factory=list)
+    total_amount: int = 0
+    total_workdays: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class MonthlyReportRow:
+    employee_name: str
+    values: list[str]
+    total_amount: int
+    is_total: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class MonthlyReportRenderModel:
+    team: Team
+    month_start: date
+    month_end: date
+    employee_count: int
+    columns: list[str] = field(default_factory=list)
+    rows: list[MonthlyReportRow] = field(default_factory=list)
     total_amount: int = 0
     total_workdays: int = 0
 
@@ -163,6 +184,71 @@ class AttendanceReportService:
                 total_workdays=total_workdays,
             )
 
+    def build_monthly_report(self, *, team: Team | str, month_date: date) -> MonthlyReportRenderModel:
+        resolved_team = self._coerce_team(team)
+        month_start, month_end = self.month_date_range(month_date)
+        dates = self._date_range(month_start, month_end)
+        with self._session_factory() as session:
+            employees = self._list_report_employees(session, resolved_team, month_start, month_end)
+            records = self._list_records(session, [employee.id for employee in employees], dates)
+            records_by_employee: dict[int, list[DailyRecord]] = {employee.id: [] for employee in employees}
+            for record in records:
+                records_by_employee.setdefault(record.employee_id, []).append(record)
+
+            used_labels: set[str] = set()
+            employee_values: dict[int, dict[str, int]] = {}
+            employee_totals: dict[int, int] = {}
+            total_workdays = 0
+            for employee in employees:
+                values: dict[str, int] = {}
+                total_amount = 0
+                for record in records_by_employee.get(employee.id, []):
+                    if record.is_absent:
+                        continue
+                    for label, amount in self._monthly_values_for_record(resolved_team, record).items():
+                        values[label] = values.get(label, 0) + amount
+                        if amount:
+                            used_labels.add(label)
+                    record_amount = int(record.total_amount_snapshot)
+                    total_amount += record_amount
+                    if record_amount > 0:
+                        total_workdays += 1
+                employee_values[employee.id] = values
+                employee_totals[employee.id] = total_amount
+
+            detail_labels = self._monthly_detail_labels(resolved_team, used_labels, session)
+            rows: list[MonthlyReportRow] = []
+            detail_totals = {label: 0 for label in detail_labels}
+            total_amount_all = 0
+            for employee in employees:
+                values = [employee.name]
+                totals = employee_values.get(employee.id, {})
+                for label in detail_labels:
+                    raw_value = totals.get(label, 0)
+                    detail_totals[label] += raw_value
+                    values.append(self._format_monthly_detail_value(label, raw_value))
+                employee_total = employee_totals.get(employee.id, 0)
+                total_amount_all += employee_total
+                values.append(self._format_money(employee_total))
+                rows.append(MonthlyReportRow(employee_name=employee.name, values=values, total_amount=employee_total))
+
+            total_values = ["Tổng"]
+            for label in detail_labels:
+                total_values.append(self._format_monthly_detail_value(label, detail_totals.get(label, 0)))
+            total_values.append(self._format_money(total_amount_all))
+            rows.append(MonthlyReportRow(employee_name="Tổng", values=total_values, total_amount=total_amount_all, is_total=True))
+
+            return MonthlyReportRenderModel(
+                team=resolved_team,
+                month_start=month_start,
+                month_end=month_end,
+                employee_count=len(employees),
+                columns=["Tên nhân viên", *detail_labels, "Tổng tiền"],
+                rows=rows,
+                total_amount=total_amount_all,
+                total_workdays=total_workdays,
+            )
+
     def _list_report_employees(self, session: Session, team: Team, start_date: date, end_date: date) -> list[Employee]:
         history_employee_ids = set(
             session.scalars(
@@ -240,12 +326,53 @@ class AttendanceReportService:
         visible_end = min(end_date, today)
         if visible_end < start_date:
             return []
+        return self._date_range(start_date, visible_end)
+
+    def _date_range(self, start_date: date, end_date: date) -> list[date]:
         days: list[date] = []
         cursor = start_date
-        while cursor <= visible_end:
+        while cursor <= end_date:
             days.append(cursor)
             cursor += timedelta(days=1)
         return days
+
+    def month_date_range(self, month_date: date) -> tuple[date, date]:
+        last_day = monthrange(month_date.year, month_date.month)[1]
+        return date(month_date.year, month_date.month, 1), date(month_date.year, month_date.month, last_day)
+
+    def _monthly_values_for_record(self, team: Team, record: DailyRecord) -> dict[str, int]:
+        if team == Team.BLOW:
+            values: dict[str, int] = {}
+            for log in record.work_logs:
+                label = self._work_code(log.work_type.name)
+                amount = 1 if log.work_type.input_type == WorkInputType.TICK else int(log.quantity)
+                values[label] = values.get(label, 0) + amount
+            extra_cut_amount = sum(int(log.amount_snapshot) for log in record.extra_cut_work_logs)
+            if extra_cut_amount > 0:
+                values["VK"] = values.get("VK", 0) + extra_cut_amount
+            return values
+
+        values = {}
+        for log in record.cut_logs:
+            label = self._abbreviate_bag_label(log.bag_type.name)
+            values[label] = values.get(label, 0) + int(log.quantity)
+        return values
+
+    def _monthly_detail_labels(self, team: Team, used_labels: set[str], session: Session) -> list[str]:
+        if team == Team.BLOW:
+            ordered_labels = [label for label in DEFAULT_BLOW_CODE_ORDER if label in used_labels]
+            ordered_labels.extend(sorted(used_labels - set(ordered_labels)))
+            return ordered_labels
+        ordered = [self._abbreviate_bag_label(bag_type.name) for bag_type in session.scalars(select(BagType).order_by(BagType.id.asc())).all()]
+        ordered.extend(sorted(used_labels - set(ordered)))
+        return [label for label in ordered if label in used_labels]
+
+    def _format_monthly_detail_value(self, label: str, raw_value: int) -> str:
+        if raw_value == 0:
+            return ""
+        if label == "VK":
+            return self._format_money(raw_value)
+        return str(raw_value)
 
     def _period_total_row_values(
         self,
