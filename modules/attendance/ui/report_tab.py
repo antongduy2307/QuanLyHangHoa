@@ -8,7 +8,10 @@ from core.exceptions import AppError
 from modules.attendance.models import Team
 from modules.attendance.report_service import AttendanceReportService, ReportPeriodOption, ReportRenderModel
 from shared.widgets.message_box import MessageBox
-from shared.widgets.table_helpers import configure_table_widget
+from shared.widgets.table_helpers import configure_table_widget, disable_full_width_resize
+
+
+REPORT_GROUP_SPACER_WIDTH = 12
 
 
 class AttendanceReportTab(QWidget):
@@ -39,8 +42,10 @@ class AttendanceReportTab(QWidget):
 
         self.table = QTableWidget(0, 0)
         configure_table_widget(self.table, "attendance.report.table")
+        disable_full_width_resize(self.table)
         self.table.horizontalHeader().hide()
         self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.table.setWordWrap(False)
 
         controls = QHBoxLayout()
@@ -117,10 +122,19 @@ class AttendanceReportTab(QWidget):
         self._render_grouped_headers(model)
         for row_index, row in enumerate(model.rows):
             table_row = row_index + 2
-            for column_index, value in enumerate(row.values):
+            for column_index, value in enumerate(self._display_row_values(model, row.values)):
                 item = QTableWidgetItem(value)
                 if column_index > 0:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                if self._is_group_spacer_column(model, column_index):
+                    item.setBackground(QColor("#F8F4EF"))
+                if row.is_total:
+                    font = QFont(item.font())
+                    font.setBold(True)
+                    item.setFont(font)
+                    item.setForeground(QColor("#3f2a1d"))
+                    if not self._is_group_spacer_column(model, column_index):
+                        item.setBackground(QColor("#F1E2D1"))
                 self.table.setItem(table_row, column_index, item)
         self._apply_column_widths(model)
 
@@ -128,13 +142,18 @@ class AttendanceReportTab(QWidget):
         count = 2
         for group in model.employee_groups:
             count += len(group.columns)
+        count += max(0, len(model.employee_groups) - 1)
         return count
 
     def _render_grouped_headers(self, model: ReportRenderModel) -> None:
         self._set_header_item(0, 0, "Ngày")
         self.table.setSpan(0, 0, 2, 1)
         column_index = 1
-        for group in model.employee_groups:
+        for group_index, group in enumerate(model.employee_groups):
+            if group_index > 0:
+                self._set_spacer_item(0, column_index)
+                self.table.setSpan(0, column_index, 2, 1)
+                column_index += 1
             span = len(group.columns)
             self._set_header_item(0, column_index, group.employee_name)
             if span > 1:
@@ -158,13 +177,24 @@ class AttendanceReportTab(QWidget):
         item.setBackground(QColor("#EFE3D5" if row == 0 else "#F6EFE8"))
         self.table.setItem(row, column, item)
 
+    def _set_spacer_item(self, row: int, column: int) -> None:
+        item = QTableWidgetItem("")
+        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        item.setBackground(QColor("#F8F4EF"))
+        self.table.setItem(row, column, item)
+
     def _apply_column_widths(self, model: ReportRenderModel) -> None:
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(False)
+        header.setMinimumSectionSize(8)
         self.table.resizeColumnsToContents()
         self.table.setColumnWidth(0, 68)
         column_index = 1
-        for group in model.employee_groups:
+        for group_index, group in enumerate(model.employee_groups):
+            if group_index > 0:
+                self.table.setColumnWidth(column_index, REPORT_GROUP_SPACER_WIDTH)
+                column_index += 1
             for label in group.columns:
                 if label == "Tổng":
                     self._clamp_column_width(column_index, 92, 128)
@@ -176,6 +206,31 @@ class AttendanceReportTab(QWidget):
     def _clamp_column_width(self, column: int, minimum: int, maximum: int) -> None:
         width = self.table.columnWidth(column)
         self.table.setColumnWidth(column, max(minimum, min(width, maximum)))
+
+    def _display_row_values(self, model: ReportRenderModel, values: list[str]) -> list[str]:
+        display_values = [values[0] if values else ""]
+        source_index = 1
+        for group_index, group in enumerate(model.employee_groups):
+            if group_index > 0:
+                display_values.append("")
+            group_width = len(group.columns)
+            display_values.extend(values[source_index : source_index + group_width])
+            source_index += group_width
+        if source_index < len(values):
+            display_values.append(values[source_index])
+        return display_values
+
+    def _is_group_spacer_column(self, model: ReportRenderModel, column: int) -> bool:
+        if column <= 0:
+            return False
+        column_index = 1
+        for group_index, group in enumerate(model.employee_groups):
+            if group_index > 0:
+                if column == column_index:
+                    return True
+                column_index += 1
+            column_index += len(group.columns)
+        return False
 
     def _clear_report(self) -> None:
         self.employee_count_label.setText("Tổng nhân viên: 0")

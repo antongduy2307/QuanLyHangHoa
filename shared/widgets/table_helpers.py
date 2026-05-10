@@ -323,6 +323,14 @@ def reset_table_widths(table: QTableWidget | QTableView) -> None:
         controller.reset_to_default()
 
 
+def disable_full_width_resize(table: QTableWidget | QTableView) -> None:
+    controller = getattr(table, '_full_width_resize_controller', None)
+    if controller is None:
+        return
+    controller._cleanup_filters()
+    setattr(table, '_full_width_resize_controller', None)
+
+
 
 def _setup_resizable_table(table: QTableWidget | QTableView, persistence_key: str | None = None) -> None:
     if getattr(table, '_full_width_resize_controller', None) is not None:

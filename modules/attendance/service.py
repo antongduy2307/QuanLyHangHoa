@@ -9,6 +9,8 @@ from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy.orm import Session, sessionmaker
 
 from core.exceptions import NotFoundError, ValidationError
+from modules.attendance.blow_work import calculate_blow_work_amount
+from modules.attendance.cut_bonus import CutBonusItem, calculate_cut_employee_bonus
 from modules.attendance.db import AttendanceSessionLocal
 from modules.attendance.dto import (
     AttendanceEmployeeRow,
@@ -339,7 +341,7 @@ class AttendanceDayEntryService:
             quantity = self._resolve_work_quantity(work_type.input_type, item.quantity)
             if quantity == 0:
                 continue
-            amount = quantity * work_type.unit_price
+            amount = calculate_blow_work_amount(work_type.input_type, quantity, work_type.unit_price)
             record.work_logs.append(
                 WorkLog(
                     work_type_id=work_type.id,
@@ -380,12 +382,10 @@ class AttendanceDayEntryService:
             record.total_amount_snapshot = 0
             return
 
-        total_quantity = sum((Decimal(quantity) for _bag_type_id, quantity, _quota, _price, _legacy_price in active_items), Decimal("0"))
-        item_count = Decimal(len(active_items))
-        quota_avg = sum((quota for _bag_type_id, _quantity, quota, _price, _legacy_price in active_items), Decimal("0")) / item_count
-        excess_price_avg = sum((price for _bag_type_id, _quantity, _quota, price, _legacy_price in active_items), Decimal("0")) / item_count
-        excess_quantity = max(Decimal("0"), total_quantity - quota_avg)
-        total_amount = excess_quantity * excess_price_avg
+        total_amount = calculate_cut_employee_bonus(
+            CutBonusItem(quantity=quantity, quota_quantity=quota_quantity, excess_unit_price=excess_unit_price)
+            for _bag_type_id, quantity, quota_quantity, excess_unit_price, _legacy_price in active_items
+        )
         record.total_amount_snapshot = self._decimal_money_to_int(total_amount)
 
         for bag_type_id, quantity, quota_quantity, excess_unit_price, legacy_unit_price in active_items:

@@ -42,6 +42,7 @@ class ReportRow:
     date_label: str
     values: list[str]
     total_amount: int
+    is_total: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +125,7 @@ class AttendanceReportService:
             rows: list[ReportRow] = []
             total_amount = 0
             total_workdays = 0
+            employee_period_totals = {employee.id: 0 for employee in employees}
             for day in visible_dates:
                 values = [day.strftime("%d/%m")]
                 day_total = 0
@@ -134,12 +136,21 @@ class AttendanceReportService:
                     for label in group.work_labels:
                         values.append(self._format_work_value(work_values.get(label)))
                     values.append(self._format_money(amount))
+                    employee_period_totals[group.employee_id] += amount
                     day_total += amount
                     if amount > 0:
                         total_workdays += 1
                 values.append(self._format_money(day_total))
                 total_amount += day_total
                 rows.append(ReportRow(date_label=day.strftime("%d/%m"), values=values, total_amount=day_total))
+            rows.append(
+                ReportRow(
+                    date_label="Tổng",
+                    values=self._period_total_row_values(employee_groups, employee_period_totals, total_amount),
+                    total_amount=total_amount,
+                    is_total=True,
+                )
+            )
 
             return ReportRenderModel(
                 team=resolved_team,
@@ -235,6 +246,20 @@ class AttendanceReportService:
             days.append(cursor)
             cursor += timedelta(days=1)
         return days
+
+    def _period_total_row_values(
+        self,
+        employee_groups: list[ReportEmployeeGroup],
+        employee_period_totals: dict[int, int],
+        total_amount: int,
+    ) -> list[str]:
+        values = ["Tổng"]
+        for group in employee_groups:
+            for _label in group.work_labels:
+                values.append("")
+            values.append(self._format_money(employee_period_totals.get(group.employee_id, 0)))
+        values.append(self._format_money(total_amount))
+        return values
 
     def _to_period_option(self, period) -> ReportPeriodOption:
         return ReportPeriodOption(

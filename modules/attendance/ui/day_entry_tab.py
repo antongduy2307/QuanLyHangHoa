@@ -26,6 +26,8 @@ from PyQt6.QtWidgets import (
 )
 
 from core.exceptions import AppError
+from modules.attendance.blow_work import BLOW_QUANTITY_WORK_QUOTA, calculate_blow_work_amount
+from modules.attendance.cut_bonus import CutBonusItem, calculate_cut_employee_bonus
 from modules.attendance.dto import AttendanceEmployeeRow, AttendanceSavePayload, BlowWorkInput, CutWorkInput, DayEntryDTO, ExtraCutWorkInput
 from modules.attendance.models import Team, WorkInputType
 from modules.attendance.service import AttendanceDayEntryService
@@ -258,7 +260,7 @@ class AttendanceDayEntryTab(QWidget):
             checkbox: QCheckBox | None = None
             spinbox: SelectAllSpinBox | None = None
             if work_type.input_type == WorkInputType.QUANTITY:
-                layout.addWidget(QLabel(f"{work_type.name} ({work_type.unit_price:,})"), row, 0)
+                layout.addWidget(QLabel(f"{work_type.name} ({work_type.unit_price:,}, khoán {BLOW_QUANTITY_WORK_QUOTA})"), row, 0)
                 spinbox = SelectAllSpinBox()
                 spinbox.setRange(0, 100000)
                 spinbox.setMinimumWidth(120)
@@ -787,7 +789,7 @@ class AttendanceDayEntryTab(QWidget):
                     quantity = 1
                 else:
                     quantity = spinbox.value() if spinbox is not None else 0
-                total += quantity * work_type.unit_price
+                total += calculate_blow_work_amount(work_type.input_type, quantity, work_type.unit_price)
             if self.extra_cut_checkbox is not None and self.extra_cut_checkbox.isChecked():
                 bag_type_by_id = {bag_type.id: bag_type for bag_type in entry.bag_types}
                 extra_cut_total = Decimal("0")
@@ -800,20 +802,21 @@ class AttendanceDayEntryTab(QWidget):
                 total += int(extra_cut_total.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
         else:
             bag_type_by_id = {bag_type.id: bag_type for bag_type in entry.bag_types}
-            active_items: list[tuple[int, Decimal, Decimal]] = []
+            active_items: list[CutBonusItem] = []
             for bag_type_id, spinbox in self._cut_controls.items():
                 quantity = spinbox.value()
                 if quantity <= 0:
                     continue
                 bag_type = bag_type_by_id[bag_type_id]
-                active_items.append((quantity, Decimal(str(bag_type.quota_quantity)), Decimal(str(bag_type.excess_unit_price))))
+                active_items.append(
+                    CutBonusItem(
+                        quantity=quantity,
+                        quota_quantity=Decimal(str(bag_type.quota_quantity)),
+                        excess_unit_price=Decimal(str(bag_type.excess_unit_price)),
+                    )
+                )
             if active_items:
-                total_quantity = sum((Decimal(quantity) for quantity, _quota, _price in active_items), Decimal("0"))
-                item_count = Decimal(len(active_items))
-                quota_avg = sum((quota for _quantity, quota, _price in active_items), Decimal("0")) / item_count
-                excess_price_avg = sum((price for _quantity, _quota, price in active_items), Decimal("0")) / item_count
-                excess_quantity = max(Decimal("0"), total_quantity - quota_avg)
-                total = int((excess_quantity * excess_price_avg).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+                total = int(calculate_cut_employee_bonus(active_items).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
         self.total_label.setText(f"{total:,}")
 
     def _format_decimal(self, value: Decimal) -> str:
