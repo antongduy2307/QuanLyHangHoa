@@ -11,7 +11,11 @@ from shared.widgets.message_box import MessageBox
 from shared.widgets.table_helpers import configure_table_widget, disable_full_width_resize
 
 
-REPORT_GROUP_SPACER_WIDTH = 12
+REPORT_WORK_COLUMN_REFERENCE_WIDTH = 56
+REPORT_GROUP_SPACER_WIDTH = max(12, REPORT_WORK_COLUMN_REFERENCE_WIDTH // 3)
+OVERALL_TOTAL_COLUMN_PADDING = 24
+OVERALL_TOTAL_COLUMN_MIN_WIDTH = 148
+OVERALL_TOTAL_COLUMN_MAX_WIDTH = 220
 
 
 class AttendanceReportTab(QWidget):
@@ -201,11 +205,25 @@ class AttendanceReportTab(QWidget):
                 else:
                     self._clamp_column_width(column_index, 56, 84)
                 column_index += 1
-        self._clamp_column_width(column_index, 124, 156)
+        self._resize_overall_total_column(column_index)
 
     def _clamp_column_width(self, column: int, minimum: int, maximum: int) -> None:
         width = self.table.columnWidth(column)
         self.table.setColumnWidth(column, max(minimum, min(width, maximum)))
+
+    def _resize_overall_total_column(self, column: int) -> None:
+        metrics = self.table.fontMetrics()
+        header_item = self.table.item(0, column)
+        texts = [header_item.text()] if header_item is not None else []
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, column)
+            if item is not None:
+                texts.append(item.text())
+        content_width = max((metrics.horizontalAdvance(text) for text in texts), default=0) + OVERALL_TOTAL_COLUMN_PADDING
+        self.table.setColumnWidth(
+            column,
+            max(OVERALL_TOTAL_COLUMN_MIN_WIDTH, min(content_width, OVERALL_TOTAL_COLUMN_MAX_WIDTH)),
+        )
 
     def _display_row_values(self, model: ReportRenderModel, values: list[str]) -> list[str]:
         display_values = [values[0] if values else ""]

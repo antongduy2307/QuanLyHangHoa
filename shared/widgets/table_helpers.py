@@ -22,6 +22,7 @@ class _FullWidthResizeController(QObject):
         self._persistence_key = persistence_key or table.objectName() or None
         self._adjusting = False
         self._initialized = False
+        self._active = True
         self._using_default_layout = True
         self._min_widths: dict[int, int] = {}
 
@@ -39,6 +40,8 @@ class _FullWidthResizeController(QObject):
         QTimer.singleShot(0, self._finalize_initial_layout)
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if not self._active:
+            return False
         table = self._table_ref()
         viewport = self._viewport_ref()
         if table is None or viewport is None:
@@ -52,6 +55,8 @@ class _FullWidthResizeController(QObject):
         return super().eventFilter(watched, event)
 
     def reset_to_default(self) -> None:
+        if not self._active:
+            return
         self._clear_saved_widths()
         self._using_default_layout = True
         self._initialized = False
@@ -61,6 +66,8 @@ class _FullWidthResizeController(QObject):
         QTimer.singleShot(0, self._finalize_initial_layout)
 
     def _finalize_initial_layout(self) -> None:
+        if not self._active:
+            return
         table = self._table_ref()
         header = self._header_ref()
         viewport = self._viewport_ref()
@@ -201,6 +208,8 @@ class _FullWidthResizeController(QObject):
         self._ensure_full_width()
 
     def _on_section_resized(self, logical_index: int, _old_size: int, new_size: int) -> None:
+        if not self._active:
+            return
         header = self._header_ref()
         if header is None:
             return
@@ -218,6 +227,8 @@ class _FullWidthResizeController(QObject):
         self._save_widths()
 
     def _ensure_full_width(self, exclude: int | None = None) -> None:
+        if not self._active:
+            return
         header = self._header_ref()
         viewport = self._viewport_ref()
         if header is None or viewport is None:
@@ -259,6 +270,8 @@ class _FullWidthResizeController(QObject):
             self._adjusting = False
 
     def _show_header_menu(self, position: QPoint) -> None:
+        if not self._active:
+            return
         header = self._header_ref()
         if header is None:
             return
@@ -275,6 +288,23 @@ class _FullWidthResizeController(QObject):
             table.removeEventFilter(self)
         if viewport is not None:
             viewport.removeEventFilter(self)
+
+    def dispose(self) -> None:
+        self._active = False
+        self._initialized = False
+        header = self._header_ref()
+        if header is not None:
+            try:
+                header.sectionResized.disconnect(self._on_section_resized)
+            except TypeError:
+                pass
+            try:
+                header.customContextMenuRequested.disconnect(self._show_header_menu)
+            except TypeError:
+                pass
+        self._cleanup_filters()
+        self.setParent(None)
+        self.deleteLater()
 
     def _table_ref(self) -> QTableWidget | QTableView | None:
         table = self._table
@@ -327,7 +357,7 @@ def disable_full_width_resize(table: QTableWidget | QTableView) -> None:
     controller = getattr(table, '_full_width_resize_controller', None)
     if controller is None:
         return
-    controller._cleanup_filters()
+    controller.dispose()
     setattr(table, '_full_width_resize_controller', None)
 
 
