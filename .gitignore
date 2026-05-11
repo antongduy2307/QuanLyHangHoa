@@ -1,29 +1,73 @@
-﻿.venv/
-.omx/
+# Python caches
 __pycache__/
 *.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+
+# Test/type-check caches
 .pytest_cache/
 .mypy_cache/
-.env
-data/app.db
-.vscode/
-tests/
-installer/
-build/
-docs/
-dist/
-app.db
-desktop_app.spec
-overview_project.md
-_reference_chamcong/*
-!_reference_chamcong/tests/
-*.jpg
+.ruff_cache/
+.coverage
+htmlcov/
+tests/_*_tmp/
+tests/_tmp/
 
-!desktop_app.spec
-!installer/
-installer/*
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Build outputs
+build/
+dist/
 installer/dist/
-!installer/QuanLyHangHoa.iss
-!docs/
-docs/*
-!docs/RELEASE.md
+*.spec.log
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Runtime files
+logs/
+log/
+backups/
+backup/
+exports/
+export/
+temp/
+tmp/
+downloads/
+update-downloads/
+update_downloads/
+update-temp/
+update_tmp/
+*.log
+*.bak
+*.backup
+
+# App runtime folders that may be created during local development
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/logs/
+data/backups/
+data/exports/
+data/temp/
+data/tmp/
+data/downloads/
+data/update-downloads/
+
+# Tooling/local state
+.omx/
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini

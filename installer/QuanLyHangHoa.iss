@@ -1,7 +1,7 @@
 ﻿#define MyAppName "QuanLyHangHoa"
 #define MyAppExeName "QuanLyHangHoa.exe"
 #ifndef MyAppVersion
-#define MyAppVersion "0.7.2"
+#define MyAppVersion "0.7.3"
 #endif
 #define MyAppPublisher "QuanLyHangHoa"
 #define MyAppDirName "QuanLyHangHoa"

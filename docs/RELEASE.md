@@ -10,7 +10,14 @@ The app version source of truth is:
 core/version.py
 ```
 
-Update `APP_VERSION` before tagging a release. Release tags must use the same version with a leading `v`, for example `v0.7.1`.
+Update `APP_VERSION` before tagging a release. Release tags must use the same version with a leading `v`, for example `v0.7.3`.
+
+The root `version.json` is the update manifest template. Update it for every release:
+
+- `version` must match `APP_VERSION`.
+- `min_required_version` must follow the current minimum supported client policy.
+- `installer_url` must point to the direct GitHub Release installer asset URL after the installer is uploaded.
+- `notes` must summarize the release for update dialogs.
 
 ## Local build
 
@@ -47,7 +54,7 @@ dist\installer\QuanLyHangHoa-Setup-v<version>.exe
 Build a full local release after creating or choosing the tag:
 
 ```powershell
-.\scripts\build_release.ps1 -Tag v0.7.1
+.\scripts\build_release.ps1 -Tag v0.7.3
 ```
 
 ## Version check
@@ -55,7 +62,7 @@ Build a full local release after creating or choosing the tag:
 Check tag/version consistency:
 
 ```powershell
-.\scripts\check_version.ps1 -Tag v0.7.1
+.\scripts\check_version.ps1 -Tag v0.7.3
 ```
 
 The script fails if:
@@ -67,12 +74,13 @@ The script fails if:
 ## GitHub release flow
 
 1. Update `APP_VERSION` in `core/version.py`.
-2. Commit the version change and any release notes.
-3. Create and push the tag:
+2. Update root `version.json`.
+3. Commit the version change, manifest update, and release notes.
+4. Create and push the tag:
 
 ```powershell
-git tag v0.7.1
-git push origin v0.7.1
+git tag v0.7.3
+git push origin v0.7.3
 ```
 
 GitHub Actions will:
@@ -88,6 +96,26 @@ GitHub Actions will:
 9. upload the installer as an Actions artifact
 10. publish the installer and checksum to the GitHub Release
 
+## Manual installer upload
+
+If CI/CD is not configured or fails before publishing:
+
+1. Run `.\scripts\build_release.ps1 -Tag v0.7.3` locally.
+2. Create a GitHub Release for tag `v0.7.3`.
+3. Upload `dist\installer\QuanLyHangHoa-Setup-v0.7.3.exe`.
+4. Upload `SHA256SUMS.txt` if generated.
+5. Update root `version.json` so `installer_url` points to the uploaded installer asset.
+
+## New source repository manifest
+
+Once the new GitHub source repository exists, update `core/config.py` so `DEFAULT_UPDATE_MANIFEST_URL` points to the new repository raw root `version.json` URL:
+
+```text
+https://raw.githubusercontent.com/<OWNER>/<NEW_REPO>/main/version.json
+```
+
+Keep `APP_UPDATE_MANIFEST_URL` override support.
+
 ## Troubleshooting
 
 ### Version mismatch
@@ -97,8 +125,8 @@ If release fails during version check, make the tag match `APP_VERSION`.
 Example:
 
 ```text
-APP_VERSION = "0.7.1"
-tag = v0.7.1
+APP_VERSION = "0.7.3"
+tag = v0.7.3
 ```
 
 ### Inno Setup not found locally
