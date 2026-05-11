@@ -53,7 +53,7 @@ class _ReturnControllerStub:
             ),
         ]
 
-    def list_quick_return_customers(self) -> list[CustomerDTO]:
+    def list_quick_return_customers(self, include_inactive: bool = False) -> list[CustomerDTO]:
         return list(self._customers)
 
     def list_quick_return_products(self) -> list[object]:

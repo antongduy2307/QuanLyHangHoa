@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import QApplication, QPushButton
 
 import core.config
 from core.config import get_settings
+from modules.attendance.db import get_attendance_engine, init_attendance_db, reset_attendance_engine_cache
 from modules.settings.backup_service import UserBackupService
 from modules.settings.service import SettingsService
 from modules.settings.ui.page import SettingsPage
@@ -29,10 +30,13 @@ class SettingsBackupTestCase(unittest.TestCase):
         self._env_patch = patch.dict(os.environ, {"LOCALAPPDATA": str(self._temp_root)}, clear=False)
         self._env_patch.start()
         core.config.get_settings.cache_clear()
+        reset_attendance_engine_cache()
         self.settings = get_settings()
         self.settings.app_data_dir.mkdir(parents=True, exist_ok=True)
 
     def tearDown(self) -> None:
+        get_attendance_engine().dispose()
+        reset_attendance_engine_cache()
         core.config.get_settings.cache_clear()
         self._env_patch.stop()
         shutil.rmtree(self._temp_root, ignore_errors=True)
@@ -87,6 +91,7 @@ class SettingsBackupTestCase(unittest.TestCase):
         self.assertTrue(manifest["warnings"])
 
     def test_general_settings_has_backup_and_diagnostics_buttons(self) -> None:
+        init_attendance_db()
         page = SettingsPage(SettingsService())
         button_texts = {button.text() for button in page.findChildren(QPushButton)}
 

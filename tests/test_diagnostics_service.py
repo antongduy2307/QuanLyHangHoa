@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 import shutil
 import sys
+from tempfile import TemporaryDirectory
 import threading
 import unittest
 from unittest.mock import patch
@@ -21,6 +23,17 @@ class DiagnosticsServiceTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls._app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        self._tmp_dir = TemporaryDirectory()
+        self.test_root = Path(self._tmp_dir.name)
+
+    def tearDown(self) -> None:
+        root_logger = logging.getLogger()
+        for handler in list(root_logger.handlers):
+            root_logger.removeHandler(handler)
+            handler.close()
+        self._tmp_dir.cleanup()
 
     def _build_settings(self, root: Path) -> Settings:
         app_data_dir = root / "appdata"
@@ -41,7 +54,7 @@ class DiagnosticsServiceTestCase(unittest.TestCase):
         )
 
     def _make_test_root(self, name: str) -> Path:
-        root = Path("e:/app_quan_ly_hang_hoa/tests/_diagnostics_tmp") / name
+        root = self.test_root / name
         if root.exists():
             shutil.rmtree(root, ignore_errors=True)
         root.mkdir(parents=True, exist_ok=True)

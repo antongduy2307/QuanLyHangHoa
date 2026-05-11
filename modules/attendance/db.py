@@ -24,6 +24,7 @@ def get_attendance_db_path() -> Path:
 @lru_cache(maxsize=1)
 def get_attendance_engine() -> Engine:
     db_path = get_attendance_db_path().resolve()
+    ensure_directories([db_path.parent])
     return create_engine(f"sqlite+pysqlite:///{db_path.as_posix()}", echo=False)
 
 

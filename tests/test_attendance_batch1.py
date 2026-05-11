@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import QApplication, QTabWidget, QWidget
 from sqlalchemy import inspect
 
 import core.config
-from core.db import ENGINE, init_db
+import core.db
 from modules.attendance.db import (
     AttendanceSessionLocal,
     get_attendance_db_path,
@@ -33,6 +33,7 @@ class AttendanceBatch1TestCase(unittest.TestCase):
         self._env_patch = patch.dict(os.environ, {"LOCALAPPDATA": str(self._temp_root)}, clear=False)
         self._env_patch.start()
         core.config.get_settings.cache_clear()
+        core.db.reset_engine_cache()
         reset_attendance_engine_cache()
 
     def tearDown(self) -> None:
@@ -40,6 +41,7 @@ class AttendanceBatch1TestCase(unittest.TestCase):
         reset_attendance_engine_cache()
         core.config.get_settings.cache_clear()
         self._env_patch.stop()
+        core.db.reset_engine_cache()
         shutil.rmtree(self._temp_root, ignore_errors=True)
 
     def test_init_attendance_db_creates_standalone_schema_and_seed_idempotently(self) -> None:
@@ -69,8 +71,8 @@ class AttendanceBatch1TestCase(unittest.TestCase):
             self.assertEqual(session.query(Employee).count(), 0)
 
     def test_sales_database_does_not_receive_attendance_tables(self) -> None:
-        init_db()
-        core_tables = set(inspect(ENGINE).get_table_names())
+        core.db.init_db()
+        core_tables = set(inspect(core.db.ENGINE).get_table_names())
         self.assertFalse(
             {
                 "employees",

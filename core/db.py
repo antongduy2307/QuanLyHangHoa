@@ -1,9 +1,8 @@
 ﻿from __future__ import annotations
 
-from typing import Final
-
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from core.config import get_settings
@@ -18,11 +17,24 @@ class Base(DeclarativeBase):
 
 def _build_database_url() -> str:
     db_path = get_settings().db_path.resolve()
+    ensure_directories([db_path.parent])
     return f"sqlite+pysqlite:///{db_path.as_posix()}"
 
 
-ENGINE = create_engine(_build_database_url(), echo=False)
-SessionFactory: Final[sessionmaker] = sessionmaker(bind=ENGINE, autoflush=False, expire_on_commit=False)
+def _create_engine() -> Engine:
+    return create_engine(_build_database_url(), echo=False)
+
+
+ENGINE = _create_engine()
+SessionFactory: sessionmaker = sessionmaker(bind=ENGINE, autoflush=False, expire_on_commit=False)
+
+
+def reset_engine_cache() -> None:
+    """Test helper for environment-isolated database paths."""
+    global ENGINE
+    ENGINE.dispose()
+    ENGINE = _create_engine()
+    SessionFactory.configure(bind=ENGINE)
 
 
 
