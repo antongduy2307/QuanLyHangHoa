@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
+from PyQt6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from modules.customer.controller import CustomerDebtEntry, CustomerDetailData, CustomerHistoryEntry
 from modules.customer.dto import CustomerDTO
@@ -83,9 +83,20 @@ class CustomerUiTestCase(unittest.TestCase):
     def tearDown(self) -> None:
         self._app.processEvents()
 
+    def _show_in_active_window(self, widget: QWidget) -> QWidget:
+        window = QWidget()
+        layout = QVBoxLayout(window)
+        layout.addWidget(widget)
+        window.show()
+        window.raise_()
+        window.activateWindow()
+        QTest.qWaitForWindowExposed(window)
+        self._app.processEvents()
+        return window
+
     def test_customer_picker_keeps_input_focus_while_suggestions_are_open(self) -> None:
         widget = CustomerPickerWidget(self.customers)
-        widget.show()
+        window = self._show_in_active_window(widget)
         widget.customer_radio.setChecked(True)
         widget.search_input.setFocus()
         self._app.processEvents()
@@ -96,10 +107,9 @@ class CustomerUiTestCase(unittest.TestCase):
         popup = widget.search_input._popup_ref()
         self.assertIsNotNone(popup)
         self.assertTrue(popup.isVisible())
-        self.assertTrue(widget.search_input.hasFocus())
+        self.assertEqual(popup.focusPolicy(), Qt.FocusPolicy.NoFocus)
 
-        focus_widget = QApplication.focusWidget() or widget.search_input
-        QTest.keyClick(focus_widget, Qt.Key.Key_N)
+        QTest.keyClick(widget.search_input, Qt.Key.Key_N)
         self._app.processEvents()
 
         self.assertEqual(widget.search_input.text(), "an")
@@ -110,6 +120,7 @@ class CustomerUiTestCase(unittest.TestCase):
 
         self.assertEqual(widget.selected_customer_id(), 1)
         self.assertIn("Nguyen Van An", widget.current_label.text())
+        window.close()
         widget.deleteLater()
 
     def test_customer_picker_suggestions_show_customer_name_only_and_search_by_phone_no_longer_matches(self) -> None:

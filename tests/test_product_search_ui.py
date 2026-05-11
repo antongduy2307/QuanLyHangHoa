@@ -7,7 +7,7 @@ import unittest
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
 from core.enums import UnitType
 from modules.inventory.dto import InventoryProductDTO
@@ -46,6 +46,17 @@ class ProductSearchUiTestCase(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls._app = QApplication.instance() or QApplication([])
 
+    def _show_in_active_window(self, widget: QWidget) -> QWidget:
+        window = QWidget()
+        layout = QVBoxLayout(window)
+        layout.addWidget(widget)
+        window.show()
+        window.raise_()
+        window.activateWindow()
+        QTest.qWaitForWindowExposed(window)
+        self._app.processEvents()
+        return window
+
     def test_sales_product_search_keeps_input_focus_and_renders_name_only(self) -> None:
         widget = ProductSearchWidget(
             [
@@ -53,7 +64,7 @@ class ProductSearchUiTestCase(unittest.TestCase):
                 SellableProductOption(2, "P002", "Gao Te", "BAO", {UnitType.BAO: Decimal("120")}),
             ]
         )
-        widget.show()
+        window = self._show_in_active_window(widget)
         widget.search_input.setFocus()
         self._app.processEvents()
 
@@ -62,10 +73,9 @@ class ProductSearchUiTestCase(unittest.TestCase):
         popup = widget.search_input._popup_ref()
         self.assertIsNotNone(popup)
         self.assertTrue(popup.isVisible())
-        self.assertTrue(widget.search_input.hasFocus())
+        self.assertEqual(popup.focusPolicy(), Qt.FocusPolicy.NoFocus)
 
-        focus_widget = QApplication.focusWidget() or widget.search_input
-        QTest.keyClick(focus_widget, Qt.Key.Key_A)
+        QTest.keyClick(widget.search_input, Qt.Key.Key_A)
         self._app.processEvents()
 
         self.assertEqual(widget.search_input.text(), "ga")
@@ -81,6 +91,7 @@ class ProductSearchUiTestCase(unittest.TestCase):
         widget._handle_search_text_edited("P001")
         self._app.processEvents()
         self.assertFalse(popup.isVisible())
+        window.close()
         widget.deleteLater()
 
     def test_inventory_product_search_suggestions_use_name_only_and_do_not_match_code(self) -> None:

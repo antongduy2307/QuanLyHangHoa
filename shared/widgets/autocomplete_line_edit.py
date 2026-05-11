@@ -1,7 +1,7 @@
 ﻿from __future__ import annotations
 
 from PyQt6 import sip
-from PyQt6.QtCore import QEvent, QPoint, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QPoint, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QKeyEvent, QMouseEvent
 from PyQt6.QtWidgets import QApplication, QLineEdit, QListWidget, QListWidgetItem
 
@@ -14,7 +14,11 @@ class AutocompleteLineEdit(QLineEdit):
         self._app = QApplication.instance()
         self._popup: QListWidget | None = QListWidget()
         self._popup_minimum_width = 420
-        self._popup.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool)
+        self._popup.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.Tool
+            | Qt.WindowType.WindowDoesNotAcceptFocus
+        )
         self._popup.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self._popup.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._popup.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -43,7 +47,8 @@ class AutocompleteLineEdit(QLineEdit):
         self._position_popup()
         popup.show()
         popup.raise_()
-        self.setFocus(Qt.FocusReason.OtherFocusReason)
+        self._restore_input_focus()
+        QTimer.singleShot(0, self._restore_input_focus)
 
     def hide_suggestions(self) -> None:
         popup = self._popup_ref()
@@ -156,6 +161,11 @@ class AutocompleteLineEdit(QLineEdit):
 
     def _handle_popup_destroyed(self, *_args: object) -> None:
         self._popup = None
+
+    def _restore_input_focus(self) -> None:
+        if sip.isdeleted(self):
+            return
+        self.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _cleanup_filters(self, *_args: object) -> None:
         if self._app is not None:
