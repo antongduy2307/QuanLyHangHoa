@@ -1,6 +1,6 @@
 {
   "version": "0.7.4",
-  "installer_url": "REPLACE_WITH_GITHUB_RELEASE_INSTALLER_URL",
+  "installer_url": "https://github.com/antongduy2307/QuanLyHangHoa/releases/download/v0.7.4/QuanLyHangHoa-Setup-v0.7.4.exe",
   "notes": [
     "Version 0.7.3 release manifest for the official QuanLyHangHoa source repository.",
     "Replace installer_url with the v0.7.3 GitHub Release installer asset URL before publishing updates."
