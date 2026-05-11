@@ -23,10 +23,9 @@ from core.paths import (
 DEFAULT_APP_NAME = "QuanLyHangHoa"
 DEFAULT_RUNTIME_DIR_NAME = DEFAULT_APP_DIR_NAME
 MAX_MONEY_INPUT = 10_000_000_000_000
-# TODO(new-source-repo): after the clean GitHub source repo exists, change this
-# default to that repo's raw root version.json URL. Keep APP_UPDATE_MANIFEST_URL
-# available as the local/runtime override for tests, staging, and bridge releases.
-DEFAULT_UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/antongduy2307/App_Kiem_soat_hang_hoa_cho_doanh_nghiep/main/version.json"
+# Official update manifest. Keep APP_UPDATE_MANIFEST_URL available as the
+# local/runtime override for tests, staging, and bridge releases.
+DEFAULT_UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/antongduy2307/QuanLyHangHoa/main/version.json"
 DEFAULT_UPDATE_CHECK_TIMEOUT_MS = 10_000
 DEFAULT_UPDATE_DOWNLOAD_TIMEOUT_MS = 180_000
 DEFAULT_UPDATE_DOWNLOAD_RETRY_COUNT = 3

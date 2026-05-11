@@ -19,6 +19,24 @@ The root `version.json` is the update manifest template. Update it for every rel
 - `installer_url` must point to the direct GitHub Release installer asset URL after the installer is uploaded.
 - `notes` must summarize the release for update dialogs.
 
+Official source repository:
+
+```text
+https://github.com/antongduy2307/QuanLyHangHoa
+```
+
+Official update manifest:
+
+```text
+https://raw.githubusercontent.com/antongduy2307/QuanLyHangHoa/main/version.json
+```
+
+Release assets:
+
+```text
+https://github.com/antongduy2307/QuanLyHangHoa/releases
+```
+
 ## Local build
 
 Install dependencies first:
@@ -106,12 +124,12 @@ If CI/CD is not configured or fails before publishing:
 4. Upload `SHA256SUMS.txt` if generated.
 5. Update root `version.json` so `installer_url` points to the uploaded installer asset.
 
-## New source repository manifest
+## Official source repository manifest
 
-Once the new GitHub source repository exists, update `core/config.py` so `DEFAULT_UPDATE_MANIFEST_URL` points to the new repository raw root `version.json` URL:
+`core/config.py` should keep `DEFAULT_UPDATE_MANIFEST_URL` pointed to the official repository raw root `version.json` URL:
 
 ```text
-https://raw.githubusercontent.com/<OWNER>/<NEW_REPO>/main/version.json
+https://raw.githubusercontent.com/antongduy2307/QuanLyHangHoa/main/version.json
 ```
 
 Keep `APP_UPDATE_MANIFEST_URL` override support.

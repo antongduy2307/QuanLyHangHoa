@@ -1,35 +1,46 @@
-# Repository Migration Plan
+# Repository Migration Status
 
-The existing GitHub repository `antongduy2307/App_Kiem_soat_hang_hoa_cho_doanh_nghiep` should be reused as the main source-code repository.
-
-Current installed clients check this update manifest:
+The official GitHub source repository is:
 
 ```text
-https://raw.githubusercontent.com/antongduy2307/App_Kiem_soat_hang_hoa_cho_doanh_nghiep/main/version.json
+https://github.com/antongduy2307/QuanLyHangHoa
 ```
 
-For backward compatibility, `version.json` must remain at the repository root on the `main` branch unless a separate client update migrates `APP_UPDATE_MANIFEST_URL`.
+The official update manifest is:
 
-## Migration Rules
+```text
+https://raw.githubusercontent.com/antongduy2307/QuanLyHangHoa/main/version.json
+```
 
-- Keep the repository owner/name unchanged during the initial migration.
+Release assets should live under:
+
+```text
+https://github.com/antongduy2307/QuanLyHangHoa/releases
+```
+
+## Current Rules
+
 - Keep the default branch named `main`.
 - Keep root `version.json` in place.
-- Do not delete existing installer files during the initial migration.
-- Do not delete existing GitHub Releases or tags.
-- Add the application source code into the existing repository.
-- Track source and release automation files, including:
-  - `core/`
-  - `modules/`
-  - `shared/`
-  - `shell/`
-  - `tests/`
-  - `docs/`
-  - `scripts/`
-  - `.github/`
-  - `desktop_app.spec`
-  - `installer/QuanLyHangHoa.iss`
-  - `requirements.txt`
+- Keep `core/config.py` pointed to the official raw root `version.json`.
+- Keep `APP_UPDATE_MANIFEST_URL` as the runtime override for tests, staging, and bridge releases.
+- Upload installers to GitHub Releases instead of committing installer `.exe` files to the repository.
+- Do not delete the old repository update manifest until installed clients have had time to move to a version that checks the official manifest.
+
+## Files That Should Be Committed
+
+- `core/`
+- `modules/`
+- `shared/`
+- `shell/`
+- `tests/`
+- `docs/`
+- `scripts/`
+- `.github/`
+- `desktop_app.spec`
+- `installer/QuanLyHangHoa.iss`
+- `requirements.txt`
+- root `version.json`
 
 ## Files That Must Not Be Committed
 
@@ -44,12 +55,6 @@ Runtime and generated files should stay out of git:
 - temp/update download folders
 - local editor/OS files
 
-## Installer Hosting Direction
-
-Existing installer files should not be deleted during the first migration because they may be referenced by current `version.json` or GitHub Release history.
-
-For future releases, prefer uploading installers to GitHub Releases instead of committing new installer `.exe` files to the repository root. The root `version.json` should point `installer_url` to a direct downloadable `.exe` URL.
-
 ## CI/CD Direction
 
-CI/CD can later build the PyInstaller app, compile the Inno Setup installer, upload installer artifacts to GitHub Releases, and update or validate release metadata. That work should preserve the root `version.json` compatibility contract.
+CI/CD builds the PyInstaller app, compiles the Inno Setup installer, uploads installer artifacts to GitHub Releases, and validates version/tag consistency. Release workflow publishing should target the current repository by default.

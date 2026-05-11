@@ -2,8 +2,8 @@
   "version": "0.7.3",
   "installer_url": "REPLACE_WITH_GITHUB_RELEASE_INSTALLER_URL",
   "notes": [
-    "Version 0.7.3 release manifest template for the new clean source repository.",
-    "Replace installer_url with the first GitHub Release installer asset URL before publishing updates."
+    "Version 0.7.3 release manifest for the official QuanLyHangHoa source repository.",
+    "Replace installer_url with the v0.7.3 GitHub Release installer asset URL before publishing updates."
   ],
   "min_required_version": "0.7.3"
 }

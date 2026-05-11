@@ -21,7 +21,7 @@ Use this checklist before pushing a release tag or updating the production updat
 - [ ] The raw manifest URL still works:
 
 ```text
-https://raw.githubusercontent.com/antongduy2307/App_Kiem_soat_hang_hoa_cho_doanh_nghiep/main/version.json
+https://raw.githubusercontent.com/antongduy2307/QuanLyHangHoa/main/version.json
 ```
 
 ## Repository Safety

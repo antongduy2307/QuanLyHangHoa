@@ -1,12 +1,22 @@
-# New Source Repository Setup
+# Official Source Repository Setup
 
-This project is being prepared for a brand-new GitHub source repository. The old repository remains separate and should not be reused as the canonical source repository.
+The official GitHub source repository is:
 
-## Create the new GitHub repository
+```text
+https://github.com/antongduy2307/QuanLyHangHoa
+```
 
-1. Create an empty GitHub repository.
-2. Do not initialize it with a README, license, or `.gitignore` if this local repository will be pushed first.
-3. Copy the new repository URL for the local `origin` remote.
+The official update manifest is:
+
+```text
+https://raw.githubusercontent.com/antongduy2307/QuanLyHangHoa/main/version.json
+```
+
+Release assets should live under:
+
+```text
+https://github.com/antongduy2307/QuanLyHangHoa/releases
+```
 
 ## Prepare the local source tree
 
@@ -38,22 +48,24 @@ Do not commit:
 
 ## Verify update metadata
 
-The new source repository must contain `version.json` at the repository root. After pushing, verify that this file is visible at:
+The official source repository must contain `version.json` at the repository root. After pushing, verify that this file is visible at:
 
 ```text
-https://github.com/<OWNER>/<NEW_REPO>/blob/main/version.json
+https://github.com/antongduy2307/QuanLyHangHoa/blob/main/version.json
 ```
 
-After the first GitHub Release has an installer asset, replace `version.json` field `installer_url` with the direct installer download URL.
+After the first GitHub Release has an installer asset, replace `version.json` field `installer_url` with the direct installer download URL, for example:
+
+```text
+https://github.com/antongduy2307/QuanLyHangHoa/releases/download/v0.7.3/QuanLyHangHoa-Setup-v0.7.3.exe
+```
 
 ## Update manifest URL
 
-The app currently defaults to the old repository manifest URL in `core/config.py`. Do not guess the new URL before the new repository exists.
-
-After the new repository is created and `version.json` is present on `main`, update `DEFAULT_UPDATE_MANIFEST_URL` to the new raw URL:
+The app defaults to the official raw root manifest URL in `core/config.py`:
 
 ```text
-https://raw.githubusercontent.com/<OWNER>/<NEW_REPO>/main/version.json
+https://raw.githubusercontent.com/antongduy2307/QuanLyHangHoa/main/version.json
 ```
 
 Keep `APP_UPDATE_MANIFEST_URL` override support for tests, staging, and emergency bridge releases.

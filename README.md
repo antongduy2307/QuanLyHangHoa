@@ -6,6 +6,9 @@ Skeleton desktop app Python theo kien truc modular monolith, dung `PyQt6`, `SQLA
 
 - Version app client duoc khai bao tai `core/version.py` qua `APP_VERSION`.
 - URL manifest update online duoc doc tu `core/config.py` (`APP_UPDATE_MANIFEST_URL` hoac `Settings.update_manifest_url`).
+- Official source repo: `https://github.com/antongduy2307/QuanLyHangHoa`.
+- Official update manifest: `https://raw.githubusercontent.com/antongduy2307/QuanLyHangHoa/main/version.json`.
+- Release assets: `https://github.com/antongduy2307/QuanLyHangHoa/releases`.
 
 ## Kien truc
 
@@ -133,6 +136,12 @@ Manifest JSON toi thieu:
   ],
   "min_required_version": "0.2.5"
 }
+```
+
+Manifest chinh thuc cua repo hien tai nam tai:
+
+```text
+https://raw.githubusercontent.com/antongduy2307/QuanLyHangHoa/main/version.json
 ```
 
 Hanh vi v1:
