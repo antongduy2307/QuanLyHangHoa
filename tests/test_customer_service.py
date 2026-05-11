@@ -188,6 +188,14 @@ class CustomerServiceTestCase(unittest.TestCase):
         self.assertEqual(ledger.amount_delta, Decimal("-25"))
         self.assertEqual(ledger.note, "Khach tra no")
 
+    def test_pay_debt_generates_distinct_reference_ids_for_rapid_payments(self) -> None:
+        first = self.service.pay_debt(self.customer_id, Decimal("25"))
+        second = self.service.pay_debt(self.customer_id, Decimal("5"))
+
+        self.assertNotEqual(first.ref_id, second.ref_id)
+        self.assertEqual(len(self.repository.list_ledgers_by_ref(self.customer_id, "DEBT_PAYMENT", first.ref_id)), 1)
+        self.assertEqual(len(self.repository.list_ledgers_by_ref(self.customer_id, "DEBT_PAYMENT", second.ref_id)), 1)
+
     def test_pay_debt_stores_business_transaction_datetime(self) -> None:
         payment_datetime = datetime(2026, 4, 10, 9, 45, 0)
         ledger = self.service.pay_debt(self.customer_id, Decimal("25"), payment_datetime=payment_datetime)

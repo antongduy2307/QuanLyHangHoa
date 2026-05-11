@@ -5,6 +5,8 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from threading import Lock
+from time import time_ns
 
 from sqlalchemy.orm import Session
 
@@ -18,6 +20,8 @@ from modules.customer.repository import CustomerRepository
 
 LOGGER = get_logger(__name__)
 OPENING_BALANCE_DATETIME = datetime(1900, 1, 1, 0, 0, 0)
+_REF_ID_LOCK = Lock()
+_LAST_GENERATED_REF_ID = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -534,7 +538,13 @@ class CustomerService:
 
     @staticmethod
     def _generate_ref_id() -> int:
-        return int(datetime.now().timestamp() * 1_000_000)
+        global _LAST_GENERATED_REF_ID
+        with _REF_ID_LOCK:
+            candidate = time_ns()
+            if candidate <= _LAST_GENERATED_REF_ID:
+                candidate = _LAST_GENERATED_REF_ID + 1
+            _LAST_GENERATED_REF_ID = candidate
+            return candidate
 
     @staticmethod
     def _to_decimal(value: Decimal | int | str) -> Decimal:
