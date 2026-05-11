@@ -341,7 +341,7 @@ class AttendanceDayEntryService:
             quantity = self._resolve_work_quantity(work_type.input_type, item.quantity)
             if quantity == 0:
                 continue
-            amount = calculate_blow_work_amount(work_type.input_type, quantity, work_type.unit_price)
+            amount = calculate_blow_work_amount(work_type.input_type, quantity, work_type.unit_price, work_type.name)
             record.work_logs.append(
                 WorkLog(
                     work_type_id=work_type.id,

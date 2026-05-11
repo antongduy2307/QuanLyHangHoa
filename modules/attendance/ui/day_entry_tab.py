@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.exceptions import AppError
-from modules.attendance.blow_work import BLOW_QUANTITY_WORK_QUOTA, calculate_blow_work_amount
+from modules.attendance.blow_work import BLOW_QUANTITY_WORK_QUOTA, calculate_blow_work_amount, is_blow_quantity_quota_work
 from modules.attendance.cut_bonus import CutBonusItem, calculate_cut_employee_bonus
 from modules.attendance.dto import AttendanceEmployeeRow, AttendanceSavePayload, BlowWorkInput, CutWorkInput, DayEntryDTO, ExtraCutWorkInput
 from modules.attendance.models import Team, WorkInputType
@@ -260,7 +260,8 @@ class AttendanceDayEntryTab(QWidget):
             checkbox: QCheckBox | None = None
             spinbox: SelectAllSpinBox | None = None
             if work_type.input_type == WorkInputType.QUANTITY:
-                layout.addWidget(QLabel(f"{work_type.name} ({work_type.unit_price:,}, khoán {BLOW_QUANTITY_WORK_QUOTA})"), row, 0)
+                quota_hint = f", khoán {BLOW_QUANTITY_WORK_QUOTA}" if is_blow_quantity_quota_work(work_type.name) else ""
+                layout.addWidget(QLabel(f"{work_type.name} ({work_type.unit_price:,}{quota_hint})"), row, 0)
                 spinbox = SelectAllSpinBox()
                 spinbox.setRange(0, 100000)
                 spinbox.setMinimumWidth(120)
@@ -789,7 +790,7 @@ class AttendanceDayEntryTab(QWidget):
                     quantity = 1
                 else:
                     quantity = spinbox.value() if spinbox is not None else 0
-                total += calculate_blow_work_amount(work_type.input_type, quantity, work_type.unit_price)
+                total += calculate_blow_work_amount(work_type.input_type, quantity, work_type.unit_price, work_type.name)
             if self.extra_cut_checkbox is not None and self.extra_cut_checkbox.isChecked():
                 bag_type_by_id = {bag_type.id: bag_type for bag_type in entry.bag_types}
                 extra_cut_total = Decimal("0")

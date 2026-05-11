@@ -100,7 +100,7 @@ class AttendanceSettingsTestCase(unittest.TestCase):
             record = session.query(DailyRecord).filter_by(employee_id=employee.id, date=date(2026, 5, 6)).one()
             log = session.query(WorkLog).filter_by(daily_record_id=record.id, work_type_id=may_nho.id).one()
             self.assertEqual(log.unit_price_snapshot, 45000)
-            self.assertEqual(log.amount_snapshot, 90000)
+            self.assertEqual(log.amount_snapshot, 225000)
 
     def test_old_snapshot_unchanged_after_work_type_price_update(self) -> None:
         employee = self.employee_service.create_employee(name="Blow A", team=Team.BLOW)
@@ -119,8 +119,8 @@ class AttendanceSettingsTestCase(unittest.TestCase):
         period_id = self._period_id_for(selected_date)
         model = self.report_service.build_report(team=Team.BLOW, period_id=period_id, today=selected_date)
 
-        self.assertEqual(self._model_row(model, "06/05").values, ["06/05", "5", "60,000", "60,000"])
-        self.assertEqual(model.total_amount, 60000)
+        self.assertEqual(self._model_row(model, "06/05").values, ["06/05", "5", "150,000", "150,000"])
+        self.assertEqual(model.total_amount, 150000)
 
     def test_bag_type_price_update_affects_future_snapshot(self) -> None:
         employee = self.employee_service.create_employee(name="Cut A", team=Team.CUT)
@@ -172,7 +172,7 @@ class AttendanceSettingsTestCase(unittest.TestCase):
         self.assertNotIn(may_nho.id, {work_type.id for work_type in new_entry.work_types})
         self.assertIn(may_nho.id, {work_type.id for work_type in old_entry.work_types})
         self.assertEqual(model.employee_groups[0].work_labels, ["MN"])
-        self.assertEqual(self._model_row(model, "06/05").values, ["06/05", "5", "60,000", "60,000"])
+        self.assertEqual(self._model_row(model, "06/05").values, ["06/05", "5", "150,000", "150,000"])
 
     def test_inactive_bag_type_hides_from_new_entry_but_report_keeps_history(self) -> None:
         employee = self.employee_service.create_employee(name="Cut A", team=Team.CUT)

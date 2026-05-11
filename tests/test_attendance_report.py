@@ -51,6 +51,10 @@ class AttendanceReportTestCase(unittest.TestCase):
         with AttendanceSessionLocal() as session:
             return int(session.query(BagType).filter_by(name=name).one().id)
 
+    def _work_type_id(self, name: str) -> int:
+        with AttendanceSessionLocal() as session:
+            return int(session.query(WorkType).filter_by(name=name).one().id)
+
     def _configure_bag_type(self, name: str, *, quota_quantity: int, excess_unit_price: int) -> int:
         bag_id = self._bag_type_id(name)
         self.settings_service.update_bag_type(
@@ -101,24 +105,21 @@ class AttendanceReportTestCase(unittest.TestCase):
 
         self.assertNotIn("VK", model.employee_groups[0].work_labels)
         date_row = self._model_row(model, "02/05")
-        self.assertEqual(date_row.total_amount, 0)
+        self.assertEqual(date_row.total_amount, 60000)
         self.assertEqual(model.rows[-1].date_label, "Tổng")
-        self.assertEqual(model.rows[-1].total_amount, 0)
-        self.assertEqual(model.total_amount, 0)
+        self.assertEqual(model.rows[-1].total_amount, 60000)
+        self.assertEqual(model.total_amount, 60000)
 
-    def test_blow_report_uses_quantity_quota_amount(self) -> None:
+    def test_blow_report_uses_thua_may_quantity_quota_amount(self) -> None:
         employee = self.employee_service.create_employee(name="Blow Report Quota", team=Team.BLOW)
-        work_type = self.settings_service.create_work_type(
-            name="Report quota quantity",
-            input_type=WorkInputType.QUANTITY,
-            unit_price=30000,
-        )
+        work_type_id = self._work_type_id("Thừa máy")
+        self.settings_service.update_work_type(work_type_id, name="Thừa máy", unit_price=30000, is_active=True)
         selected_date = date(2026, 5, 2)
         self.day_service.save_attendance(
             AttendanceSavePayload(
                 employee_id=employee.id,
                 selected_date=selected_date,
-                blow_work=[BlowWorkInput(work_type_id=work_type.id, quantity=5)],
+                blow_work=[BlowWorkInput(work_type_id=work_type_id, quantity=5)],
             ),
             finalize=True,
         )
@@ -130,6 +131,34 @@ class AttendanceReportTestCase(unittest.TestCase):
         self.assertEqual(date_row.total_amount, 60000)
         self.assertIn("60,000", date_row.values)
         self.assertNotIn("150,000", date_row.values)
+
+    def test_blow_report_uses_corrected_quantity_tick_and_total_snapshots(self) -> None:
+        employee = self.employee_service.create_employee(name="Blow Report Mixed", team=Team.BLOW)
+        thua_may_id = self._work_type_id("Thừa máy")
+        may_nho_id = self._work_type_id("Máy nhỏ")
+        tick_id, _tick_amount = self._tick_work_type()
+        self.settings_service.update_work_type(thua_may_id, name="Thừa máy", unit_price=30000, is_active=True)
+        self.settings_service.update_work_type(tick_id, name="Phụ găng 1 máy", unit_price=20000, is_active=True)
+        selected_date = date(2026, 5, 2)
+        self.day_service.save_attendance(
+            AttendanceSavePayload(
+                employee_id=employee.id,
+                selected_date=selected_date,
+                blow_work=[
+                    BlowWorkInput(work_type_id=thua_may_id, quantity=5),
+                    BlowWorkInput(work_type_id=may_nho_id, quantity=5),
+                    BlowWorkInput(work_type_id=tick_id, quantity=None),
+                ],
+            ),
+            finalize=True,
+        )
+        period_id = self._period_id_for(selected_date)
+
+        model = self.report_service.build_report(team=Team.BLOW, period_id=period_id, today=selected_date)
+
+        date_row = self._model_row(model, "02/05")
+        self.assertEqual(date_row.total_amount, 230000)
+        self.assertEqual(date_row.values[-2:], ["230,000", "230,000"])
 
     def test_blow_report_with_extra_cut_single_employee_adds_vk_and_totals(self) -> None:
         employee = self.employee_service.create_employee(name="Blow VK", team=Team.BLOW)
@@ -243,8 +272,8 @@ class AttendanceReportTestCase(unittest.TestCase):
         self.assertEqual(model.employee_groups[0].work_labels, ["VK"])
         self.assertNotIn("VK", model.employee_groups[1].work_labels)
         date_row = self._model_row(model, "02/05")
-        self.assertEqual(date_row.total_amount, 95000)
-        self.assertEqual(model.total_amount, 95000)
+        self.assertEqual(date_row.total_amount, 185000)
+        self.assertEqual(model.total_amount, 185000)
 
     def test_cut_report_has_no_vk_and_uses_cut_daily_snapshot(self) -> None:
         employee = self.employee_service.create_employee(name="Cut No VK", team=Team.CUT)
@@ -300,8 +329,8 @@ class AttendanceReportTestCase(unittest.TestCase):
         total_row = model.rows[-1]
         self.assertTrue(total_row.is_total)
         self.assertEqual(total_row.date_label, "Tổng")
-        self.assertEqual(total_row.values, ["Tổng", "", "60,000", "", f"{tick_amount:,}", f"{60000 + tick_amount:,}"])
-        self.assertEqual(total_row.total_amount, 60000 + tick_amount)
+        self.assertEqual(total_row.values, ["Tổng", "", "150,000", "", f"{tick_amount:,}", f"{150000 + tick_amount:,}"])
+        self.assertEqual(total_row.total_amount, 150000 + tick_amount)
 
     def test_report_final_total_row_for_cut(self) -> None:
         employee = self.employee_service.create_employee(name="Cut Total", team=Team.CUT)
@@ -352,7 +381,7 @@ class AttendanceReportTestCase(unittest.TestCase):
 
         self.assertIsNotNone(self._model_row(model, "02/05"))
         self.assertFalse(any(row.date_label == "08/05" for row in model.rows))
-        self.assertEqual(model.rows[-1].values, ["Tổng", "", "60,000", "60,000"])
+        self.assertEqual(model.rows[-1].values, ["Tổng", "", "150,000", "150,000"])
 
     def test_report_tab_renders_vk_before_employee_total(self) -> None:
         employee = self.employee_service.create_employee(name="Blow Group VK", team=Team.BLOW)
@@ -483,9 +512,9 @@ class AttendanceReportTestCase(unittest.TestCase):
         self.assertEqual(model.month_start, date(2026, 5, 1))
         self.assertEqual(model.month_end, date(2026, 5, 31))
         self.assertEqual(model.columns, ["Tên nhân viên", "Monthly quantity", "Monthly tick", "Tổng tiền"])
-        self.assertIn(["Blow Monthly", "9", "1", "115,000"], [row.values for row in model.rows])
-        self.assertEqual(model.rows[-1].values, ["Tổng", "9", "1", "115,000"])
-        self.assertEqual(model.total_amount, 115000)
+        self.assertIn(["Blow Monthly", "9", "1", "295,000"], [row.values for row in model.rows])
+        self.assertEqual(model.rows[-1].values, ["Tổng", "9", "1", "295,000"])
+        self.assertEqual(model.total_amount, 295000)
 
     def test_blow_monthly_report_includes_vk_money(self) -> None:
         employee = self.employee_service.create_employee(name="Blow Monthly VK", team=Team.BLOW)
