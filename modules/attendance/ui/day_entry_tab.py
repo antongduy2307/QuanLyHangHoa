@@ -669,7 +669,16 @@ class AttendanceDayEntryTab(QWidget):
         entry = self._current_entry
         if entry is None:
             return []
-        return [bag_type for bag_type in entry.bag_types if bag_type.is_active]
+        return [
+            bag_type
+            for bag_type in entry.bag_types
+            if bag_type.is_active
+            and bag_type.is_product_linked
+            and not bag_type.is_excluded_from_attendance
+            and not bag_type.is_legacy
+            and Decimal(str(bag_type.quota_quantity)) > 0
+            and Decimal(str(bag_type.excess_unit_price)) > 0
+        ]
 
     def _cut_bag_label(self, bag_type) -> str:
         return (

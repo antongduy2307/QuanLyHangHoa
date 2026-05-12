@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-APP_VERSION = "0.7.6"
+APP_VERSION = "0.7.8"
 
 
 def get_app_version() -> str:

@@ -4,10 +4,11 @@ from collections.abc import Sequence
 import os
 
 from PyQt6.QtCore import QCoreApplication, QTimer, Qt
-from PyQt6.QtWidgets import QApplication, QMainWindow, QProgressDialog
+from PyQt6.QtWidgets import QApplication, QMainWindow, QMessageBox, QProgressDialog
 
 from core.config import Settings
 from core.logging import get_logger
+from modules.attendance.product_sync_service import AttendanceProductSyncService, ProductCutWorkItem
 from modules.diagnostics.service import DiagnosticsService
 from modules.settings.backup_service import UserBackupService
 from modules.settings.service import get_ui_scale_preset
@@ -39,10 +40,12 @@ class AppWindow(QMainWindow):
         self._attendance_page: object | None = None
         self._reporting_page: object | None = None
         self._settings_page: object | None = None
+        self._current_main_tab_key: str | None = None
         self._active_check_origin: str | None = None
         self._pending_update_result: UpdateCheckResult | None = None
         self._update_progress_dialog: QProgressDialog | None = None
         self._update_service = UpdateService(settings=settings, parent=self)
+        self._attendance_product_sync_service = AttendanceProductSyncService()
         self._update_service.check_finished.connect(self._handle_update_check_result)
         self._update_service.download_finished.connect(self._handle_update_download_result)
         self._update_service.download_progress.connect(self._handle_update_download_progress)
@@ -88,6 +91,8 @@ class AppWindow(QMainWindow):
             tabs.add_page("Lịch sử", self._history_page)
             self._apply_ui_scale_to_page(self._history_page, initial_ui_scale_preset)
         self.setCentralWidget(tabs)
+        self._current_main_tab_key = self._module_key_for_widget(tabs.currentWidget())
+        tabs.currentChanged.connect(self._handle_main_tab_changed)
 
         self._wire_report_refresh_sources()
 
@@ -161,6 +166,67 @@ class AppWindow(QMainWindow):
     def _refresh_attendance_page(self) -> None:
         if self._attendance_page is not None and hasattr(self._attendance_page, "refresh_all"):
             self._attendance_page.refresh_all()
+
+    def _module_key_for_widget(self, widget: object | None) -> str | None:
+        for module_key, page in self._module_pages.items():
+            if page is widget:
+                return module_key
+        if self._history_page is widget:
+            return "history"
+        return None
+
+    def _handle_main_tab_changed(self, index: int) -> None:
+        widget = self._navigation_tabs.widget(index)
+        next_key = self._module_key_for_widget(widget)
+        previous_key = self._current_main_tab_key
+        if next_key == previous_key:
+            return
+        self._current_main_tab_key = next_key
+        if next_key == "attendance" and previous_key != "attendance":
+            self._handle_enter_attendance_tab()
+
+    def _handle_enter_attendance_tab(self) -> None:
+        try:
+            sync_result = self._attendance_product_sync_service.sync_products_to_cut_work()
+        except Exception as exc:
+            LOGGER.warning("Attendance product sync failed on Attendance tab entry: %s", exc)
+            return
+        for warning in sync_result.warnings:
+            LOGGER.warning("Attendance product sync warning on Attendance tab entry: %s", warning)
+        incomplete_items = sync_result.incomplete_items
+        if not incomplete_items:
+            return
+        if self._show_incomplete_cut_work_warning(incomplete_items):
+            self._open_attendance_price_settings(incomplete_items[0].id)
+
+    def _show_incomplete_cut_work_warning(self, incomplete_items: list[ProductCutWorkItem]) -> bool:
+        preview_names = "\n".join(f"- {item.name}" for item in incomplete_items[:5])
+        if len(incomplete_items) > 5:
+            preview_names = f"{preview_names}\n- ..."
+        message = (
+            f"Có {len(incomplete_items)} mặt hàng đã được đồng bộ sang việc cắt nhưng chưa cấu hình đủ "
+            "số lượng khoán hoặc đơn giá vượt khoán.\n\n"
+            "Vui lòng vào Cài đặt giá chấm công để nhập đủ thông tin, hoặc tick "
+            '"Không dùng cho chấm công" nếu mặt hàng này không dùng để chấm công.\n\n'
+            f"Một số mục cần kiểm tra:\n{preview_names}"
+        )
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Icon.Warning)
+        dialog.setWindowTitle("Thiếu cấu hình việc cắt")
+        dialog.setText(message)
+        settings_button = dialog.addButton("Đi tới cài đặt", QMessageBox.ButtonRole.AcceptRole)
+        dialog.addButton("Để sau", QMessageBox.ButtonRole.RejectRole)
+        dialog.exec()
+        return dialog.clickedButton() is settings_button
+
+    def _open_attendance_price_settings(self, first_incomplete_id: int | None = None) -> None:
+        if self._settings_page is None:
+            return
+        settings_index = self._navigation_tabs.indexOf(self._settings_page)
+        if settings_index >= 0:
+            self._navigation_tabs.setCurrentIndex(settings_index)
+        if hasattr(self._settings_page, "open_attendance_price_settings"):
+            self._settings_page.open_attendance_price_settings(first_incomplete_id)
 
     def _handle_data_changed_from_pages(self) -> None:
         if self._history_page is not None and hasattr(self._history_page, "reload_all_views"):

@@ -31,6 +31,9 @@ class BagTypeOption:
     quota_quantity: Decimal
     excess_unit_price: Decimal
     is_active: bool
+    is_product_linked: bool = False
+    is_excluded_from_attendance: bool = False
+    is_legacy: bool = False
 
 
 @dataclass(frozen=True, slots=True)

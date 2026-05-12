@@ -1,8 +1,8 @@
 {
-  "version": "0.7.7",
+  "version": "0.7.8",
   "installer_url": "https://github.com/antongduy2307/QuanLyHangHoa/releases/download/v0.7.6/QuanLyHangHoa-Setup-v0.7.6.exe",
   "notes": [
-    "Adding decimal to cut/blow team work",
+    "Adding sync from Goods to Attendance",
     ":3"
   ],
   "min_required_version": "0.7.0"

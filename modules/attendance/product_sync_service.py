@@ -8,7 +8,7 @@ import logging
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from core.db import SessionFactory
+from core.db import SessionFactory, _import_models
 from modules.attendance.db import AttendanceSessionLocal
 from modules.attendance.models import BagType, CutLog, ExtraCutWorkLog
 from modules.inventory.models import Product
@@ -101,6 +101,7 @@ class AttendanceProductSyncService:
             return self._list_incomplete_cut_work_items(managed_session)
 
     def _read_products(self) -> list[ProductCutSyncProduct]:
+        _import_models()
         with self._product_session_factory() as session:
             rows = session.execute(
                 select(Product.id, Product.product_name, Product.is_active).order_by(Product.id.asc())

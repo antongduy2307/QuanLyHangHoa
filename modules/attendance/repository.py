@@ -162,9 +162,17 @@ class AttendanceDayEntryRepository:
 
     def list_bag_types_for_entry(self, session: Session, include_ids: set[int] | None = None) -> Sequence[BagType]:
         include_ids = include_ids or set()
+        available_condition = (
+            (BagType.is_active.is_(True))
+            & (BagType.is_product_linked.is_(True))
+            & (BagType.is_excluded_from_attendance.is_(False))
+            & (BagType.is_legacy.is_(False))
+            & (BagType.quota_quantity > 0)
+            & (BagType.excess_unit_price > 0)
+        )
         statement = (
             select(BagType)
-            .where((BagType.is_active.is_(True)) | (BagType.id.in_(include_ids)))
+            .where(available_condition | (BagType.id.in_(include_ids)))
             .order_by(BagType.id.asc())
         )
         return session.scalars(statement).all()

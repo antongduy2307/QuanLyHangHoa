@@ -84,6 +84,7 @@ class AttendanceSettingsService:
         quota_quantity: int | Decimal,
         excess_unit_price: int | Decimal,
         is_active: bool = True,
+        is_excluded_from_attendance: bool = False,
     ) -> BagType:
         normalized_name = self._normalize_name(name)
         normalized_quota = self._validate_non_negative_decimal(quota_quantity, "Số lượng khoán")
@@ -98,6 +99,7 @@ class AttendanceSettingsService:
                     quota_quantity=normalized_quota,
                     excess_unit_price=normalized_excess_price,
                     is_active=is_active,
+                    is_excluded_from_attendance=is_excluded_from_attendance,
                 )
                 session.add(bag_type)
                 session.flush()
@@ -111,6 +113,7 @@ class AttendanceSettingsService:
         quota_quantity: int | Decimal,
         excess_unit_price: int | Decimal,
         is_active: bool,
+        is_excluded_from_attendance: bool | None = None,
     ) -> BagType:
         normalized_name = self._normalize_name(name)
         normalized_quota = self._validate_non_negative_decimal(quota_quantity, "Số lượng khoán")
@@ -118,6 +121,8 @@ class AttendanceSettingsService:
         with self._session_factory() as session:
             with session.begin():
                 bag_type = self._get_bag_type(session, bag_type_id)
+                if bag_type.is_product_linked and normalized_name != bag_type.name:
+                    raise ValidationError("Product-linked CUT work names must be changed from inventory products.")
                 if self._bag_type_name_exists(session, normalized_name, exclude_id=bag_type_id):
                     raise ValidationError("Tên loại bao đã tồn tại.")
                 bag_type.name = normalized_name
@@ -125,6 +130,8 @@ class AttendanceSettingsService:
                 bag_type.quota_quantity = normalized_quota
                 bag_type.excess_unit_price = normalized_excess_price
                 bag_type.is_active = is_active
+                if is_excluded_from_attendance is not None:
+                    bag_type.is_excluded_from_attendance = is_excluded_from_attendance
                 session.flush()
                 return bag_type
 

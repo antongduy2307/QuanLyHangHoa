@@ -130,3 +130,8 @@ class SettingsPage(QWidget):
     def apply_ui_scale_preset(self, preset: str) -> None:
         self.general_tab.apply_ui_scale_preset(preset)
         apply_large_ui(self.attendance_price_tab, preset)
+
+    def open_attendance_price_settings(self, first_incomplete_id: int | None = None) -> None:
+        self.tabs.setCurrentWidget(self.attendance_price_tab)
+        if hasattr(self.attendance_price_tab, "focus_first_incomplete_cut_work"):
+            self.attendance_price_tab.focus_first_incomplete_cut_work(first_incomplete_id)

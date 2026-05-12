@@ -126,6 +126,10 @@ class AttendanceEmployeeService:
 
 
 GLOVE_WORK_NAMES = {"Phụ găng 1 máy", "Phụ găng 2 máy"}
+INVALID_CUT_WORK_MESSAGE = (
+    "Mặt hàng cắt này chưa được cấu hình hoặc đã bị loại khỏi chấm công. "
+    "Vui lòng kiểm tra Cài đặt giá chấm công."
+)
 
 
 class AttendanceDayEntryService:
@@ -184,6 +188,8 @@ class AttendanceDayEntryService:
             work_type_ids = {log.work_type_id for log in work_logs}
             bag_type_ids = {log.bag_type_id for log in cut_logs}
             bag_type_ids.update(log.bag_type_id for log in extra_cut_work_logs)
+            existing_cut_bag_type_ids = {log.bag_type_id for log in cut_logs}
+            existing_extra_cut_bag_type_ids = {log.bag_type_id for log in extra_cut_work_logs}
             work_types = self._repository.list_work_types_for_entry(session, work_type_ids)
             bag_types = self._repository.list_bag_types_for_entry(session, bag_type_ids)
             return DayEntryDTO(
@@ -212,6 +218,9 @@ class AttendanceDayEntryService:
                         quota_quantity=bag_type.quota_quantity,
                         excess_unit_price=bag_type.excess_unit_price,
                         is_active=bag_type.is_active,
+                        is_product_linked=bag_type.is_product_linked,
+                        is_excluded_from_attendance=bag_type.is_excluded_from_attendance,
+                        is_legacy=bag_type.is_legacy,
                     )
                     for bag_type in bag_types
                 ],
@@ -268,6 +277,8 @@ class AttendanceDayEntryService:
                     raise ValidationError("cannot modify daily record in a locked period")
 
                 record.status = DailyRecordStatus.DRAFT
+                existing_cut_bag_type_ids = {log.bag_type_id for log in record.cut_logs}
+                existing_extra_cut_bag_type_ids = {log.bag_type_id for log in record.extra_cut_work_logs}
                 record.work_logs.clear()
                 record.cut_logs.clear()
                 record.extra_cut_work_logs.clear()
@@ -279,9 +290,9 @@ class AttendanceDayEntryService:
                 else:
                     record.is_absent = False
                     if employee.team == Team.BLOW:
-                        self._apply_blow_payload(session, record, payload)
+                        self._apply_blow_payload(session, record, payload, existing_extra_cut_bag_type_ids)
                     elif employee.team == Team.CUT:
-                        self._apply_cut_payload(session, record, payload)
+                        self._apply_cut_payload(session, record, payload, existing_cut_bag_type_ids)
                     else:
                         raise ValidationError("invalid employee team")
 
@@ -319,7 +330,13 @@ class AttendanceDayEntryService:
         start_date, end_date = self.period_bounds_for_date(selected_date)
         return self._repository.create_period(session, start_date=start_date, end_date=end_date)
 
-    def _apply_blow_payload(self, session: Session, record: DailyRecord, payload: AttendanceSavePayload) -> None:
+    def _apply_blow_payload(
+        self,
+        session: Session,
+        record: DailyRecord,
+        payload: AttendanceSavePayload,
+        existing_extra_cut_bag_type_ids: set[int] | None = None,
+    ) -> None:
         if payload.cut_work:
             raise ValidationError("cut payload is invalid for blow team")
 
@@ -353,9 +370,15 @@ class AttendanceDayEntryService:
 
         if len(selected_glove_names) > 1:
             raise ValidationError("cannot use both glove work types in the same daily record")
-        self._apply_extra_cut_work_payload(session, record, payload)
+        self._apply_extra_cut_work_payload(session, record, payload, existing_extra_cut_bag_type_ids or set())
 
-    def _apply_cut_payload(self, session: Session, record: DailyRecord, payload: AttendanceSavePayload) -> None:
+    def _apply_cut_payload(
+        self,
+        session: Session,
+        record: DailyRecord,
+        payload: AttendanceSavePayload,
+        existing_cut_bag_type_ids: set[int] | None = None,
+    ) -> None:
         if payload.blow_work:
             raise ValidationError("blow payload is invalid for cut team")
         if payload.extra_cut_work:
@@ -371,10 +394,11 @@ class AttendanceDayEntryService:
             merged_quantities[item.bag_type_id] = merged_quantities.get(item.bag_type_id, Decimal("0")) + quantity
 
         active_items: list[tuple[int, Decimal, Decimal, Decimal, int]] = []
+        existing_cut_bag_type_ids = existing_cut_bag_type_ids or set()
         for bag_type_id, quantity in merged_quantities.items():
             bag_type = self._repository.get_bag_type(session, bag_type_id)
-            if not bag_type.is_active:
-                raise ValidationError("bag type is inactive")
+            if bag_type_id not in existing_cut_bag_type_ids and not self._is_bag_type_valid_for_new_cut_work(bag_type):
+                raise ValidationError(INVALID_CUT_WORK_MESSAGE)
             quota_quantity = Decimal(str(bag_type.quota_quantity))
             excess_unit_price = Decimal(str(bag_type.excess_unit_price))
             active_items.append((bag_type.id, quantity, quota_quantity, excess_unit_price, bag_type.unit_price))
@@ -419,7 +443,13 @@ class AttendanceDayEntryService:
             + sum(log.amount_snapshot for log in record.extra_cut_work_logs)
         )
 
-    def _apply_extra_cut_work_payload(self, session: Session, record: DailyRecord, payload: AttendanceSavePayload) -> None:
+    def _apply_extra_cut_work_payload(
+        self,
+        session: Session,
+        record: DailyRecord,
+        payload: AttendanceSavePayload,
+        existing_extra_cut_bag_type_ids: set[int],
+    ) -> None:
         merged_quantities: dict[int, Decimal] = {}
         for item in payload.extra_cut_work:
             quantity = self._quantity_to_decimal(item.quantity)
@@ -431,8 +461,8 @@ class AttendanceDayEntryService:
 
         for bag_type_id, quantity in merged_quantities.items():
             bag_type = self._repository.get_bag_type(session, bag_type_id)
-            if not bag_type.is_active:
-                raise ValidationError("bag type is inactive")
+            if bag_type_id not in existing_extra_cut_bag_type_ids and not self._is_bag_type_valid_for_new_cut_work(bag_type):
+                raise ValidationError(INVALID_CUT_WORK_MESSAGE)
             excess_unit_price = Decimal(str(bag_type.excess_unit_price))
             amount = self._decimal_money_to_int(quantity * excess_unit_price)
             record.extra_cut_work_logs.append(
@@ -452,3 +482,13 @@ class AttendanceDayEntryService:
             return Decimal(str(value))
         except Exception as exc:
             raise ValidationError("quantity must be numeric") from exc
+
+    def _is_bag_type_valid_for_new_cut_work(self, bag_type) -> bool:
+        return (
+            bool(bag_type.is_active)
+            and bool(bag_type.is_product_linked)
+            and not bool(bag_type.is_excluded_from_attendance)
+            and not bool(bag_type.is_legacy)
+            and Decimal(str(bag_type.quota_quantity)) > 0
+            and Decimal(str(bag_type.excess_unit_price)) > 0
+        )
