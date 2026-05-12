@@ -5,6 +5,7 @@ import shutil
 import tempfile
 import unittest
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
@@ -296,6 +297,25 @@ class AttendanceReportTestCase(unittest.TestCase):
         self.assertEqual(date_row.values, ["02/05", "30", "50,000", "50,000"])
         self.assertEqual(model.total_amount, 50000)
 
+    def test_cut_report_displays_decimal_quantity_cleanly(self) -> None:
+        employee = self.employee_service.create_employee(name="Cut Decimal Report", team=Team.CUT)
+        bag_id = self._configure_bag_type("Bao 25kg", quota_quantity=20, excess_unit_price=10000)
+        selected_date = date(2026, 5, 2)
+        self.day_service.save_attendance(
+            AttendanceSavePayload(
+                employee_id=employee.id,
+                selected_date=selected_date,
+                cut_work=[CutWorkInput(bag_type_id=bag_id, quantity=Decimal("20.5"))],
+            ),
+            finalize=True,
+        )
+        period_id = self._period_id_for(selected_date)
+
+        model = self.report_service.build_report(team=Team.CUT, period_id=period_id, today=selected_date)
+
+        date_row = self._model_row(model, "02/05")
+        self.assertEqual(date_row.values, ["02/05", "20.5", "5,000", "5,000"])
+
     def test_report_final_total_row_for_blow(self) -> None:
         employee_a = self.employee_service.create_employee(name="Blow Total A", team=Team.BLOW)
         employee_b = self.employee_service.create_employee(name="Blow Total B", team=Team.BLOW)
@@ -534,6 +554,32 @@ class AttendanceReportTestCase(unittest.TestCase):
         self.assertIn(["Blow Monthly VK", "35,000", "35,000"], [row.values for row in model.rows])
         self.assertEqual(model.rows[-1].values, ["Tổng", "35,000", "35,000"])
 
+    def test_blow_monthly_report_sums_decimal_vk_money(self) -> None:
+        employee = self.employee_service.create_employee(name="Blow Monthly Decimal VK", team=Team.BLOW)
+        bag_25_id = self._configure_bag_type("Bao 25kg", quota_quantity=25, excess_unit_price=3500)
+        bag_50_id = self._configure_bag_type("Bao 50kg", quota_quantity=30, excess_unit_price=4200)
+        self.day_service.save_attendance(
+            AttendanceSavePayload(
+                employee_id=employee.id,
+                selected_date=date(2026, 5, 2),
+                extra_cut_work=[ExtraCutWorkInput(bag_type_id=bag_25_id, quantity=Decimal("10.5"))],
+            ),
+            finalize=True,
+        )
+        self.day_service.save_attendance(
+            AttendanceSavePayload(
+                employee_id=employee.id,
+                selected_date=date(2026, 5, 12),
+                extra_cut_work=[ExtraCutWorkInput(bag_type_id=bag_50_id, quantity=Decimal("0.5"))],
+            ),
+            finalize=True,
+        )
+
+        model = self.report_service.build_monthly_report(team=Team.BLOW, month_date=date(2026, 5, 1))
+
+        self.assertIn(["Blow Monthly Decimal VK", "38,850", "38,850"], [row.values for row in model.rows])
+        self.assertEqual(model.rows[-1].values, ["Tổng", "38,850", "38,850"])
+
     def test_cut_monthly_report_sums_bag_quantities_and_snapshots(self) -> None:
         employee = self.employee_service.create_employee(name="Cut Monthly", team=Team.CUT)
         bag_25_id = self._configure_bag_type("Bao 25kg", quota_quantity=25, excess_unit_price=10000)
@@ -568,6 +614,49 @@ class AttendanceReportTestCase(unittest.TestCase):
         self.assertIn(["Cut Monthly", "30", "35", "150,000"], [row.values for row in model.rows])
         self.assertEqual(model.rows[-1].values, ["Tổng", "30", "35", "150,000"])
         self.assertEqual(model.total_amount, 150000)
+
+    def test_cut_monthly_report_sums_decimal_quantities_cleanly(self) -> None:
+        employee = self.employee_service.create_employee(name="Cut Monthly Decimal", team=Team.CUT)
+        bag_id = self._configure_bag_type("Bao 25kg", quota_quantity=10, excess_unit_price=10000)
+        self.day_service.save_attendance(
+            AttendanceSavePayload(
+                employee_id=employee.id,
+                selected_date=date(2026, 5, 2),
+                cut_work=[CutWorkInput(bag_type_id=bag_id, quantity=Decimal("10.5"))],
+            ),
+            finalize=True,
+        )
+        self.day_service.save_attendance(
+            AttendanceSavePayload(
+                employee_id=employee.id,
+                selected_date=date(2026, 5, 12),
+                cut_work=[CutWorkInput(bag_type_id=bag_id, quantity=Decimal("4.25"))],
+            ),
+            finalize=True,
+        )
+
+        model = self.report_service.build_monthly_report(team=Team.CUT, month_date=date(2026, 5, 1))
+
+        self.assertIn(["Cut Monthly Decimal", "14.75", "5,000"], [row.values for row in model.rows])
+        self.assertEqual(model.rows[-1].values, ["Tổng", "14.75", "5,000"])
+
+    def test_cut_report_integer_quantity_displays_without_decimal_suffix(self) -> None:
+        employee = self.employee_service.create_employee(name="Cut Integer Report", team=Team.CUT)
+        bag_id = self._configure_bag_type("Bao 25kg", quota_quantity=0, excess_unit_price=1000)
+        selected_date = date(2026, 5, 2)
+        self.day_service.save_attendance(
+            AttendanceSavePayload(
+                employee_id=employee.id,
+                selected_date=selected_date,
+                cut_work=[CutWorkInput(bag_type_id=bag_id, quantity=10)],
+            ),
+            finalize=True,
+        )
+        period_id = self._period_id_for(selected_date)
+
+        model = self.report_service.build_report(team=Team.CUT, period_id=period_id, today=selected_date)
+
+        self.assertEqual(self._model_row(model, "02/05").values[1], "10")
 
     def test_monthly_report_includes_inactive_employee_with_records(self) -> None:
         employee = self.employee_service.create_employee(name="Inactive Monthly", team=Team.BLOW)

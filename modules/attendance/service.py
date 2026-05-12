@@ -361,15 +361,16 @@ class AttendanceDayEntryService:
         if payload.extra_cut_work:
             raise ValidationError("extra cut payload is invalid for cut team")
 
-        merged_quantities: dict[int, int] = {}
+        merged_quantities: dict[int, Decimal] = {}
         for item in payload.cut_work:
-            if item.quantity < 0:
+            quantity = self._quantity_to_decimal(item.quantity)
+            if quantity < 0:
                 raise ValidationError("quantity must be non-negative")
-            if item.quantity == 0:
+            if quantity == 0:
                 continue
-            merged_quantities[item.bag_type_id] = merged_quantities.get(item.bag_type_id, 0) + item.quantity
+            merged_quantities[item.bag_type_id] = merged_quantities.get(item.bag_type_id, Decimal("0")) + quantity
 
-        active_items: list[tuple[int, int, Decimal, Decimal, int]] = []
+        active_items: list[tuple[int, Decimal, Decimal, Decimal, int]] = []
         for bag_type_id, quantity in merged_quantities.items():
             bag_type = self._repository.get_bag_type(session, bag_type_id)
             if not bag_type.is_active:
@@ -419,20 +420,21 @@ class AttendanceDayEntryService:
         )
 
     def _apply_extra_cut_work_payload(self, session: Session, record: DailyRecord, payload: AttendanceSavePayload) -> None:
-        merged_quantities: dict[int, int] = {}
+        merged_quantities: dict[int, Decimal] = {}
         for item in payload.extra_cut_work:
-            if item.quantity < 0:
+            quantity = self._quantity_to_decimal(item.quantity)
+            if quantity < 0:
                 raise ValidationError("quantity must be non-negative")
-            if item.quantity == 0:
+            if quantity == 0:
                 continue
-            merged_quantities[item.bag_type_id] = merged_quantities.get(item.bag_type_id, 0) + item.quantity
+            merged_quantities[item.bag_type_id] = merged_quantities.get(item.bag_type_id, Decimal("0")) + quantity
 
         for bag_type_id, quantity in merged_quantities.items():
             bag_type = self._repository.get_bag_type(session, bag_type_id)
             if not bag_type.is_active:
                 raise ValidationError("bag type is inactive")
             excess_unit_price = Decimal(str(bag_type.excess_unit_price))
-            amount = self._decimal_money_to_int(Decimal(quantity) * excess_unit_price)
+            amount = self._decimal_money_to_int(quantity * excess_unit_price)
             record.extra_cut_work_logs.append(
                 ExtraCutWorkLog(
                     bag_type_id=bag_type.id,
@@ -444,3 +446,9 @@ class AttendanceDayEntryService:
 
     def _decimal_money_to_int(self, value: Decimal) -> int:
         return int(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+    def _quantity_to_decimal(self, value: Decimal | int | str) -> Decimal:
+        try:
+            return Decimal(str(value))
+        except Exception as exc:
+            raise ValidationError("quantity must be numeric") from exc

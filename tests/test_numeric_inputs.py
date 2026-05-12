@@ -80,6 +80,19 @@ class SelectAllDecimalInputFormattingTestCase(unittest.TestCase):
         finally:
             widget.deleteLater()
 
+    def test_clear_sets_value_to_zero_and_set_value_emits_change(self) -> None:
+        widget = SelectAllDecimalInput()
+        emitted_values: list[Decimal] = []
+        widget.valueChanged.connect(emitted_values.append)
+        try:
+            widget.setValue(Decimal("7.5"))
+            widget.clear()
+
+            self.assertEqual(widget.value(), Decimal("0"))
+            self.assertEqual(emitted_values, [Decimal("7.5"), Decimal("0")])
+        finally:
+            widget.deleteLater()
+
 
 class SelectAllQuantityInputFormattingTestCase(unittest.TestCase):
     @classmethod

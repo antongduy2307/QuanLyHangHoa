@@ -33,7 +33,7 @@ from modules.attendance.models import Team, WorkInputType
 from modules.attendance.service import AttendanceDayEntryService
 from modules.attendance.ui.dialogs import team_to_label
 from shared.widgets.message_box import MessageBox
-from shared.widgets.numeric_inputs import SelectAllSpinBox
+from shared.widgets.numeric_inputs import SelectAllQuantityInput, SelectAllSpinBox
 from shared.widgets.table_helpers import configure_table_cell_widget, configure_table_widget
 
 
@@ -44,7 +44,7 @@ class AttendanceDayEntryTab(QWidget):
         self._employees: list[AttendanceEmployeeRow] = []
         self._current_entry: DayEntryDTO | None = None
         self._blow_controls: dict[int, tuple[QCheckBox | None, SelectAllSpinBox | None]] = {}
-        self._cut_controls: dict[int, SelectAllSpinBox] = {}
+        self._cut_controls: dict[int, SelectAllQuantityInput] = {}
         self.cut_search_input: QLineEdit | None = None
         self.cut_add_button: QPushButton | None = None
         self.cut_table: QTableWidget | None = None
@@ -54,7 +54,7 @@ class AttendanceDayEntryTab(QWidget):
         self.extra_cut_search_input: QLineEdit | None = None
         self.extra_cut_add_button: QPushButton | None = None
         self.extra_cut_table: QTableWidget | None = None
-        self._extra_cut_controls: dict[int, SelectAllSpinBox] = {}
+        self._extra_cut_controls: dict[int, SelectAllQuantityInput] = {}
         self._extra_cut_completion_ids_by_label: dict[str, int] = {}
         self._glove_work_ids_by_name: dict[str, int] = {}
 
@@ -427,7 +427,7 @@ class AttendanceDayEntryTab(QWidget):
         self._reset_extra_cut_search()
         self._update_total_preview()
 
-    def _add_extra_cut_bag_row(self, bag_type_id: int, *, quantity: int) -> None:
+    def _add_extra_cut_bag_row(self, bag_type_id: int, *, quantity: Decimal | int) -> None:
         entry = self._current_entry
         if entry is None or self.extra_cut_table is None:
             return
@@ -441,7 +441,7 @@ class AttendanceDayEntryTab(QWidget):
         bag_item.setData(Qt.ItemDataRole.UserRole, bag_type.id)
         self.extra_cut_table.setItem(row, 0, bag_item)
 
-        quantity_input = SelectAllSpinBox()
+        quantity_input = SelectAllQuantityInput()
         quantity_input.setRange(0, 100000)
         quantity_input.setValue(quantity)
         quantity_input.valueChanged.connect(lambda _value: self._update_total_preview())
@@ -601,7 +601,7 @@ class AttendanceDayEntryTab(QWidget):
         self._reset_cut_search()
         self._update_total_preview()
 
-    def _add_cut_bag_row(self, bag_type_id: int, *, quantity: int) -> None:
+    def _add_cut_bag_row(self, bag_type_id: int, *, quantity: Decimal | int) -> None:
         entry = self._current_entry
         if entry is None or self.cut_table is None:
             return
@@ -615,7 +615,7 @@ class AttendanceDayEntryTab(QWidget):
         bag_item.setData(Qt.ItemDataRole.UserRole, bag_type.id)
         self.cut_table.setItem(row, 0, bag_item)
 
-        quantity_input = SelectAllSpinBox()
+        quantity_input = SelectAllQuantityInput()
         quantity_input.setRange(0, 100000)
         quantity_input.setValue(quantity)
         quantity_input.valueChanged.connect(lambda _value: self._update_total_preview())

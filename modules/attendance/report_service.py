@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from calendar import monthrange
+from decimal import Decimal
 import re
 import unicodedata
 
@@ -196,11 +197,11 @@ class AttendanceReportService:
                 records_by_employee.setdefault(record.employee_id, []).append(record)
 
             used_labels: set[str] = set()
-            employee_values: dict[int, dict[str, int]] = {}
+            employee_values: dict[int, dict[str, Decimal | int]] = {}
             employee_totals: dict[int, int] = {}
             total_workdays = 0
             for employee in employees:
-                values: dict[str, int] = {}
+                values: dict[str, Decimal | int] = {}
                 total_amount = 0
                 for record in records_by_employee.get(employee.id, []):
                     if record.is_absent:
@@ -340,9 +341,9 @@ class AttendanceReportService:
         last_day = monthrange(month_date.year, month_date.month)[1]
         return date(month_date.year, month_date.month, 1), date(month_date.year, month_date.month, last_day)
 
-    def _monthly_values_for_record(self, team: Team, record: DailyRecord) -> dict[str, int]:
+    def _monthly_values_for_record(self, team: Team, record: DailyRecord) -> dict[str, Decimal | int]:
         if team == Team.BLOW:
-            values: dict[str, int] = {}
+            values: dict[str, Decimal | int] = {}
             for log in record.work_logs:
                 label = self._work_code(log.work_type.name)
                 amount = 1 if log.work_type.input_type == WorkInputType.TICK else int(log.quantity)
@@ -352,10 +353,10 @@ class AttendanceReportService:
                 values["VK"] = values.get("VK", 0) + extra_cut_amount
             return values
 
-        values = {}
+        values: dict[str, Decimal | int] = {}
         for log in record.cut_logs:
             label = self._abbreviate_bag_label(log.bag_type.name)
-            values[label] = values.get(label, 0) + int(log.quantity)
+            values[label] = self._to_decimal_quantity(values.get(label, Decimal("0"))) + self._to_decimal_quantity(log.quantity)
         return values
 
     def _monthly_detail_labels(self, team: Team, used_labels: set[str], session: Session) -> list[str]:
@@ -367,12 +368,12 @@ class AttendanceReportService:
         ordered.extend(sorted(used_labels - set(ordered)))
         return [label for label in ordered if label in used_labels]
 
-    def _format_monthly_detail_value(self, label: str, raw_value: int) -> str:
+    def _format_monthly_detail_value(self, label: str, raw_value: Decimal | int) -> str:
         if raw_value == 0:
             return ""
         if label == "VK":
-            return self._format_money(raw_value)
-        return str(raw_value)
+            return self._format_money(int(raw_value))
+        return self._format_quantity(raw_value)
 
     def _period_total_row_values(
         self,
@@ -422,7 +423,7 @@ class AttendanceReportService:
             return raw_value
         if raw_value is None:
             return False
-        if isinstance(raw_value, (int, float)):
+        if isinstance(raw_value, (int, Decimal)):
             return raw_value != 0
         return str(raw_value).strip() != ""
 
@@ -431,7 +432,19 @@ class AttendanceReportService:
             return "1" if raw_value else ""
         if raw_value in (None, "", 0):
             return ""
+        if isinstance(raw_value, Decimal):
+            return self._format_quantity(raw_value)
         return str(raw_value)
 
     def _format_money(self, amount: int) -> str:
         return f"{amount:,}"
+
+    def _format_quantity(self, quantity: Decimal | int) -> str:
+        value = self._to_decimal_quantity(quantity)
+        text = format(value.normalize(), "f")
+        return text.rstrip("0").rstrip(".") if "." in text else text
+
+    def _to_decimal_quantity(self, quantity: Decimal | int) -> Decimal:
+        if isinstance(quantity, Decimal):
+            return quantity
+        return Decimal(str(quantity))

@@ -168,11 +168,14 @@ class SelectAllDecimalInput(QLineEdit):
         self.setValue(self._value)
 
     def setValue(self, value: Decimal | int | str) -> None:
+        previous = self._value
         normalized = self._clamp(self._to_decimal(value))
         self._value = normalized
         formatted = self._format_number(normalized)
         if self.text() != formatted:
             self._set_formatted_text(formatted)
+        if normalized != previous:
+            self.valueChanged.emit(self._value)
 
     def value(self) -> Decimal:
         return self._value
@@ -192,6 +195,11 @@ class SelectAllDecimalInput(QLineEdit):
             return
         parsed = self._parse_text(text)
         if parsed is None:
+            if text.strip() == "":
+                normalized = Decimal("0") if self._minimum <= Decimal("0") <= self._maximum else self._minimum
+                if normalized != self._value:
+                    self._value = normalized
+                    self.valueChanged.emit(self._value)
             return
 
         normalized = self._clamp(parsed)

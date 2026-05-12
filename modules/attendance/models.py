@@ -213,7 +213,7 @@ class CutLog(AttendanceBase):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     daily_record_id: Mapped[int] = mapped_column(ForeignKey("daily_records.id", ondelete="CASCADE"), nullable=False)
     bag_type_id: Mapped[int] = mapped_column(ForeignKey("bag_types.id"), nullable=False)
-    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
     unit_price_snapshot: Mapped[int] = mapped_column(Integer, nullable=False)
     quota_quantity_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     excess_unit_price_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
@@ -244,7 +244,7 @@ class ExtraCutWorkLog(AttendanceBase):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     daily_record_id: Mapped[int] = mapped_column(ForeignKey("daily_records.id", ondelete="CASCADE"), nullable=False)
     bag_type_id: Mapped[int] = mapped_column(ForeignKey("bag_types.id"), nullable=False)
-    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
     excess_unit_price_snapshot: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     amount_snapshot: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
@@ -255,7 +255,7 @@ class ExtraCutWorkLog(AttendanceBase):
 
     __table_args__ = (
         UniqueConstraint("daily_record_id", "bag_type_id", name="uq_extra_cut_work_daily_bag_type"),
-        CheckConstraint("quantity >= 1", name="ck_extra_cut_work_quantity_positive"),
+        CheckConstraint("quantity > 0", name="ck_extra_cut_work_quantity_positive"),
         CheckConstraint("excess_unit_price_snapshot >= 0", name="ck_extra_cut_work_excess_price_non_negative"),
         CheckConstraint("amount_snapshot >= 0", name="ck_extra_cut_work_amount_non_negative"),
     )

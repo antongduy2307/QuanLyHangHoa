@@ -69,8 +69,115 @@ def _upgrade_attendance_schema(engine: Engine) -> None:
             connection.execute(text("ALTER TABLE cut_logs ADD COLUMN quota_quantity_snapshot NUMERIC"))
         if "excess_unit_price_snapshot" not in cut_columns:
             connection.execute(text("ALTER TABLE cut_logs ADD COLUMN excess_unit_price_snapshot NUMERIC"))
+        _rebuild_cut_logs_quantity_if_needed(connection)
+        _rebuild_extra_cut_work_logs_quantity_if_needed(connection)
 
 
 def _table_columns(connection: object, table_name: str) -> set[str]:
-    rows = connection.execute(text(f"PRAGMA table_info({table_name})")).mappings().all()
+    rows = _table_column_info(connection, table_name)
     return {str(row["name"]) for row in rows}
+
+
+def _table_column_info(connection: object, table_name: str):
+    return connection.execute(text(f"PRAGMA table_info({table_name})")).mappings().all()
+
+
+def _column_type(connection: object, table_name: str, column_name: str) -> str:
+    for row in _table_column_info(connection, table_name):
+        if str(row["name"]) == column_name:
+            return str(row["type"]).upper()
+    return ""
+
+
+def _rebuild_cut_logs_quantity_if_needed(connection: object) -> None:
+    if "NUMERIC" in _column_type(connection, "cut_logs", "quantity"):
+        return
+    connection.execute(text("PRAGMA foreign_keys=OFF"))
+    connection.execute(
+        text(
+            """
+            CREATE TABLE cut_logs_new (
+                id INTEGER NOT NULL,
+                daily_record_id INTEGER NOT NULL,
+                bag_type_id INTEGER NOT NULL,
+                quantity NUMERIC(12, 3) NOT NULL,
+                unit_price_snapshot INTEGER NOT NULL,
+                quota_quantity_snapshot NUMERIC,
+                excess_unit_price_snapshot NUMERIC,
+                amount_snapshot INTEGER NOT NULL,
+                PRIMARY KEY (id),
+                CONSTRAINT uq_cut_log_daily_record_bag_type UNIQUE (daily_record_id, bag_type_id),
+                CONSTRAINT ck_cut_log_quantity_non_negative CHECK (quantity >= 0),
+                CONSTRAINT ck_cut_log_unit_price_non_negative CHECK (unit_price_snapshot >= 0),
+                CONSTRAINT ck_cut_log_quota_quantity_non_negative CHECK (quota_quantity_snapshot IS NULL OR quota_quantity_snapshot >= 0),
+                CONSTRAINT ck_cut_log_excess_unit_price_non_negative CHECK (excess_unit_price_snapshot IS NULL OR excess_unit_price_snapshot >= 0),
+                CONSTRAINT ck_cut_log_amount_non_negative CHECK (amount_snapshot >= 0),
+                FOREIGN KEY(daily_record_id) REFERENCES daily_records (id) ON DELETE CASCADE,
+                FOREIGN KEY(bag_type_id) REFERENCES bag_types (id)
+            )
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            INSERT INTO cut_logs_new (
+                id, daily_record_id, bag_type_id, quantity, unit_price_snapshot,
+                quota_quantity_snapshot, excess_unit_price_snapshot, amount_snapshot
+            )
+            SELECT
+                id, daily_record_id, bag_type_id, quantity, unit_price_snapshot,
+                quota_quantity_snapshot, excess_unit_price_snapshot, amount_snapshot
+            FROM cut_logs
+            """
+        )
+    )
+    connection.execute(text("DROP TABLE cut_logs"))
+    connection.execute(text("ALTER TABLE cut_logs_new RENAME TO cut_logs"))
+    connection.execute(text("PRAGMA foreign_keys=ON"))
+
+
+def _rebuild_extra_cut_work_logs_quantity_if_needed(connection: object) -> None:
+    if "NUMERIC" in _column_type(connection, "extra_cut_work_logs", "quantity"):
+        return
+    connection.execute(text("PRAGMA foreign_keys=OFF"))
+    connection.execute(
+        text(
+            """
+            CREATE TABLE extra_cut_work_logs_new (
+                id INTEGER NOT NULL,
+                daily_record_id INTEGER NOT NULL,
+                bag_type_id INTEGER NOT NULL,
+                quantity NUMERIC(12, 3) NOT NULL,
+                excess_unit_price_snapshot NUMERIC(12, 2) NOT NULL,
+                amount_snapshot INTEGER NOT NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                PRIMARY KEY (id),
+                CONSTRAINT uq_extra_cut_work_daily_bag_type UNIQUE (daily_record_id, bag_type_id),
+                CONSTRAINT ck_extra_cut_work_quantity_positive CHECK (quantity > 0),
+                CONSTRAINT ck_extra_cut_work_excess_price_non_negative CHECK (excess_unit_price_snapshot >= 0),
+                CONSTRAINT ck_extra_cut_work_amount_non_negative CHECK (amount_snapshot >= 0),
+                FOREIGN KEY(daily_record_id) REFERENCES daily_records (id) ON DELETE CASCADE,
+                FOREIGN KEY(bag_type_id) REFERENCES bag_types (id)
+            )
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            INSERT INTO extra_cut_work_logs_new (
+                id, daily_record_id, bag_type_id, quantity, excess_unit_price_snapshot,
+                amount_snapshot, created_at, updated_at
+            )
+            SELECT
+                id, daily_record_id, bag_type_id, quantity, excess_unit_price_snapshot,
+                amount_snapshot, created_at, updated_at
+            FROM extra_cut_work_logs
+            """
+        )
+    )
+    connection.execute(text("DROP TABLE extra_cut_work_logs"))
+    connection.execute(text("ALTER TABLE extra_cut_work_logs_new RENAME TO extra_cut_work_logs"))
+    connection.execute(text("PRAGMA foreign_keys=ON"))

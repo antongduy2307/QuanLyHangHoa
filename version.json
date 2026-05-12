@@ -1,8 +1,8 @@
 {
-  "version": "0.7.6",
+  "version": "0.7.7",
   "installer_url": "https://github.com/antongduy2307/QuanLyHangHoa/releases/download/v0.7.6/QuanLyHangHoa-Setup-v0.7.6.exe",
   "notes": [
-    "Make changes to khoan in blow team",
+    "Adding decimal to cut/blow team work",
     ":3"
   ],
   "min_required_version": "0.7.0"

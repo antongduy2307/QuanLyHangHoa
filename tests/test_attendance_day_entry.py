@@ -24,7 +24,7 @@ from modules.attendance.settings_service import AttendanceSettingsService
 from modules.attendance.ui.day_entry_tab import AttendanceDayEntryTab
 from modules.attendance.ui.page import AttendancePage
 from shared.widgets.message_box import MessageBox
-from shared.widgets.numeric_inputs import SelectAllSpinBox
+from shared.widgets.numeric_inputs import SelectAllQuantityInput, SelectAllSpinBox
 
 
 class CutBonusCalculationTestCase(unittest.TestCase):
@@ -111,6 +111,15 @@ class CutBonusCalculationTestCase(unittest.TestCase):
 
         self.assertIsInstance(bonus, Decimal)
         self.assertEqual(bonus, Decimal("0.20"))
+
+    def test_decimal_quantity_reaching_quota_uses_decimal_excess(self) -> None:
+        bonus = calculate_cut_employee_bonus(
+            [
+                CutBonusItem(quantity=Decimal("20.5"), quota_quantity=20, excess_unit_price=10000),
+            ]
+        )
+
+        self.assertEqual(bonus, Decimal("5000.0"))
 
 
 class BlowWorkCalculationTestCase(unittest.TestCase):
@@ -421,6 +430,37 @@ class AttendanceDayEntryTestCase(unittest.TestCase):
 
         self.assertEqual(result.total_amount_snapshot, 50000)
 
+    def test_cut_decimal_quantity_save_reload_and_bonus(self) -> None:
+        employee = self.employee_service.create_employee(name="Cut Decimal Save", team=Team.CUT)
+        bag_id = self._configure_bag_type("Bao 25kg", quota_quantity=20, excess_unit_price=10000)
+
+        result = self.service.save_attendance(
+            AttendanceSavePayload(
+                employee_id=employee.id,
+                selected_date=date(2026, 5, 6),
+                cut_work=[CutWorkInput(bag_type_id=bag_id, quantity=Decimal("20.5"))],
+            ),
+            finalize=True,
+        )
+
+        self.assertEqual(result.total_amount_snapshot, 5000)
+        reloaded = self.service.get_day_entry(employee.id, date(2026, 5, 6))
+        self.assertEqual(reloaded.cut_logs[0].quantity, Decimal("20.500"))
+
+    def test_cut_negative_decimal_quantity_is_rejected(self) -> None:
+        employee = self.employee_service.create_employee(name="Cut Negative Decimal", team=Team.CUT)
+        bag_id = self._bag_type_id("Bao 25kg")
+
+        with self.assertRaises(ValidationError):
+            self.service.save_attendance(
+                AttendanceSavePayload(
+                    employee_id=employee.id,
+                    selected_date=date(2026, 5, 6),
+                    cut_work=[CutWorkInput(bag_type_id=bag_id, quantity=Decimal("-0.5"))],
+                ),
+                finalize=True,
+            )
+
     def test_cut_single_bag_exactly_quota_has_zero_bonus(self) -> None:
         employee = self.employee_service.create_employee(name="Cut Exact", team=Team.CUT)
         bag_id = self._configure_bag_type("Bao 25kg", quota_quantity=25, excess_unit_price=10000)
@@ -655,6 +695,23 @@ class AttendanceDayEntryTestCase(unittest.TestCase):
             self.assertEqual(log.excess_unit_price_snapshot, 3500)
             self.assertEqual(log.amount_snapshot, 35000)
 
+    def test_blow_extra_cut_decimal_quantity_adds_direct_amount_and_reloads(self) -> None:
+        employee = self.employee_service.create_employee(name="Blow Extra Decimal", team=Team.BLOW)
+        bag_id = self._configure_bag_type("Bao 25kg", quota_quantity=25, excess_unit_price=3500)
+
+        result = self.service.save_attendance(
+            AttendanceSavePayload(
+                employee_id=employee.id,
+                selected_date=date(2026, 5, 6),
+                extra_cut_work=[ExtraCutWorkInput(bag_type_id=bag_id, quantity=Decimal("10.5"))],
+            ),
+            finalize=True,
+        )
+
+        self.assertEqual(result.total_amount_snapshot, 36750)
+        reloaded = self.service.get_day_entry(employee.id, date(2026, 5, 6))
+        self.assertEqual(reloaded.extra_cut_work_logs[0].quantity, Decimal("10.500"))
+
     def test_blow_extra_cut_multiple_bags_adds_direct_amounts(self) -> None:
         employee = self.employee_service.create_employee(name="Blow Extra Multi", team=Team.BLOW)
         bag_25_id = self._configure_bag_type("Bao 25kg", quota_quantity=25, excess_unit_price=3500)
@@ -850,11 +907,11 @@ class AttendanceDayEntryTestCase(unittest.TestCase):
         self.assertEqual(tab.cut_table.rowCount(), 1)
         self.assertEqual(self._cut_table_bag_ids(tab), [bag_25_id])
         quantity_input = self._cut_quantity_input(tab, bag_25_id)
-        self.assertIsInstance(quantity_input, SelectAllSpinBox)
+        self.assertIsInstance(quantity_input, SelectAllQuantityInput)
         self.assertNotIsInstance(quantity_input, QSpinBox)
         self.assertEqual(quantity_input.value(), 1)
-        quantity_input.setValue(7)
-        self.assertEqual(tab._collect_payload().cut_work[0].quantity, 7)
+        quantity_input.setValue(Decimal("7.5"))
+        self.assertEqual(tab._collect_payload().cut_work[0].quantity, Decimal("7.5"))
         quantity_input.clear()
         self.assertEqual(quantity_input.value(), 0)
         quantity_input.setValue(7)
@@ -866,6 +923,21 @@ class AttendanceDayEntryTestCase(unittest.TestCase):
         delete_button = self._cut_delete_button(tab, bag_25_id)
         self.assertEqual(delete_button.maximumHeight(), 34)
         self.assertLessEqual(delete_button.width(), 90)
+
+    def test_cut_quantity_input_accepts_decimal_and_invalid_text_does_not_crash(self) -> None:
+        self.employee_service.create_employee(name="Cut Decimal UI", team=Team.CUT)
+        bag_25_id = self._bag_type_id("Bao 25kg")
+        tab = AttendanceDayEntryTab(self.service)
+        tab.date_edit.setDate(QDate(2026, 5, 6))
+        tab.employee_table.selectRow(0)
+        QApplication.processEvents()
+
+        tab._add_cut_bag_by_id(bag_25_id)
+        quantity_input = self._cut_quantity_input(tab, bag_25_id)
+        quantity_input.setText("10.5")
+        self.assertEqual(quantity_input.value(), Decimal("10.5"))
+        quantity_input.setText("invalid")
+        self.assertEqual(quantity_input.value(), Decimal("10.5"))
 
     def test_cut_duplicate_add_focuses_existing_row_without_duplicate(self) -> None:
         self.employee_service.create_employee(name="Cut Duplicate", team=Team.CUT)
@@ -1050,12 +1122,12 @@ class AttendanceDayEntryTestCase(unittest.TestCase):
             if tab.cut_table.item(row, 0) is not None
         ]
 
-    def _cut_quantity_input(self, tab: AttendanceDayEntryTab, bag_type_id: int) -> SelectAllSpinBox:
+    def _cut_quantity_input(self, tab: AttendanceDayEntryTab, bag_type_id: int) -> SelectAllQuantityInput:
         assert tab.cut_table is not None
         row = tab._cut_bag_row(bag_type_id)
         assert row is not None
         quantity_input = tab.cut_table.cellWidget(row, 1)
-        assert isinstance(quantity_input, SelectAllSpinBox)
+        assert isinstance(quantity_input, SelectAllQuantityInput)
         return quantity_input
 
     def _cut_delete_button(self, tab: AttendanceDayEntryTab, bag_type_id: int) -> QPushButton:

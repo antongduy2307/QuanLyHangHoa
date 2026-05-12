@@ -70,6 +70,12 @@ class AttendanceBatch1TestCase(unittest.TestCase):
             self.assertEqual(session.query(BagType).count(), 3)
             self.assertEqual(session.query(Employee).count(), 0)
 
+        inspector = inspect(get_attendance_engine())
+        cut_quantity = next(column for column in inspector.get_columns("cut_logs") if column["name"] == "quantity")
+        extra_cut_quantity = next(column for column in inspector.get_columns("extra_cut_work_logs") if column["name"] == "quantity")
+        self.assertIn("NUMERIC", str(cut_quantity["type"]).upper())
+        self.assertIn("NUMERIC", str(extra_cut_quantity["type"]).upper())
+
     def test_sales_database_does_not_receive_attendance_tables(self) -> None:
         core.db.init_db()
         core_tables = set(inspect(core.db.ENGINE).get_table_names())

@@ -44,7 +44,7 @@ class WorkLogValue:
 @dataclass(frozen=True, slots=True)
 class CutLogValue:
     bag_type_id: int
-    quantity: int
+    quantity: Decimal
     unit_price_snapshot: int
     quota_quantity_snapshot: Decimal | None
     excess_unit_price_snapshot: Decimal | None
@@ -54,7 +54,7 @@ class CutLogValue:
 @dataclass(frozen=True, slots=True)
 class ExtraCutWorkLogValue:
     bag_type_id: int
-    quantity: int
+    quantity: Decimal
     excess_unit_price_snapshot: Decimal
     amount_snapshot: int
 
@@ -85,13 +85,13 @@ class BlowWorkInput:
 @dataclass(frozen=True, slots=True)
 class CutWorkInput:
     bag_type_id: int
-    quantity: int
+    quantity: Decimal | int | str
 
 
 @dataclass(frozen=True, slots=True)
 class ExtraCutWorkInput:
     bag_type_id: int
-    quantity: int
+    quantity: Decimal | int | str
 
 
 @dataclass(frozen=True, slots=True)
