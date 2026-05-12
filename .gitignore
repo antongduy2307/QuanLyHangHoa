@@ -15,6 +15,8 @@ venv/
 htmlcov/
 tests/_*_tmp/
 tests/_tmp/
+!tests/
+!tests/**
 
 # Local environment
 .env
@@ -62,6 +64,14 @@ data/tmp/
 data/downloads/
 data/update-downloads/
 
+# Source repository folders that must stay trackable
+!docs/
+!docs/**
+!scripts/
+!scripts/**
+!.github/
+!.github/**
+
 # Tooling/local state
 .omx/
 .vscode/
@@ -71,5 +81,3 @@ data/update-downloads/
 .DS_Store
 Thumbs.db
 desktop.ini
-
-docs/

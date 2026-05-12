@@ -47,10 +47,12 @@ jobs:
         run: .\scripts\check_version.ps1 -Tag $env:RELEASE_TAG
 
       - name: Run tests
-        run: python -m unittest discover tests
+        working-directory: ${{ github.workspace }}
+        run: python -m unittest discover -s tests -p "test*.py" -t .
 
       - name: Compile Python files
-        run: python -m compileall core modules shared shell main.py
+        working-directory: ${{ github.workspace }}
+        run: python -m compileall core modules tests shell
 
       - name: Build PyInstaller app
         shell: pwsh
