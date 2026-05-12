@@ -196,6 +196,11 @@ class BagType(AttendanceBase):
     quota_quantity: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0, server_default="0")
     excess_unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0, server_default="0")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
+    is_product_linked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    source_product_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_product_name_snapshot: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_excluded_from_attendance: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    is_legacy: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
 
     cut_logs: Mapped[list[CutLog]] = relationship(back_populates="bag_type")
     extra_cut_work_logs: Mapped[list[ExtraCutWorkLog]] = relationship(back_populates="bag_type")

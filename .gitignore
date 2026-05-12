@@ -1,4 +1,4 @@
-# Python caches
+﻿# Python caches
 __pycache__/
 *.py[cod]
 *$py.class
@@ -71,3 +71,5 @@ data/update-downloads/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+docs/

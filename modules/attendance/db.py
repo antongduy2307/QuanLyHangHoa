@@ -63,6 +63,22 @@ def _upgrade_attendance_schema(engine: Engine) -> None:
         if "excess_unit_price" not in bag_columns:
             connection.execute(text("ALTER TABLE bag_types ADD COLUMN excess_unit_price NUMERIC DEFAULT 0 NOT NULL"))
             connection.execute(text("UPDATE bag_types SET excess_unit_price = unit_price WHERE excess_unit_price = 0"))
+        if "is_product_linked" not in bag_columns:
+            connection.execute(text("ALTER TABLE bag_types ADD COLUMN is_product_linked BOOLEAN DEFAULT 0 NOT NULL"))
+        if "source_product_id" not in bag_columns:
+            connection.execute(text("ALTER TABLE bag_types ADD COLUMN source_product_id INTEGER"))
+        if "source_product_name_snapshot" not in bag_columns:
+            connection.execute(text("ALTER TABLE bag_types ADD COLUMN source_product_name_snapshot VARCHAR(255)"))
+        if "is_excluded_from_attendance" not in bag_columns:
+            connection.execute(text("ALTER TABLE bag_types ADD COLUMN is_excluded_from_attendance BOOLEAN DEFAULT 0 NOT NULL"))
+        if "is_legacy" not in bag_columns:
+            connection.execute(text("ALTER TABLE bag_types ADD COLUMN is_legacy BOOLEAN DEFAULT 0 NOT NULL"))
+        connection.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_bag_types_source_product_id_unique "
+                "ON bag_types (source_product_id) WHERE source_product_id IS NOT NULL"
+            )
+        )
 
         cut_columns = _table_columns(connection, "cut_logs")
         if "quota_quantity_snapshot" not in cut_columns:
