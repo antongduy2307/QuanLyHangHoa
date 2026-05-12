@@ -5,12 +5,13 @@ from pathlib import Path
 import shutil
 import tempfile
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from PyQt6.QtWidgets import QApplication, QTabWidget, QWidget
 from sqlalchemy import inspect
 
-from core.config import Settings
-from core.db import ENGINE, init_db
+import core.config
+import core.db
 from shell.app_window import AppWindow
 from shell.bootstrap import load_module_specs
 
@@ -20,8 +21,12 @@ class SmokeTestCase(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls._app = QApplication.instance() or QApplication([])
 
+    def tearDown(self) -> None:
+        QApplication.closeAllWindows()
+        QApplication.processEvents()
+
     def test_init_db_and_module_registry(self) -> None:
-        init_db()
+        core.db.init_db()
         specs = load_module_specs()
         self.assertEqual(
             [spec.label for spec in specs],
@@ -29,8 +34,8 @@ class SmokeTestCase(unittest.TestCase):
         )
 
     def test_core_tables_exist(self) -> None:
-        init_db()
-        table_names = set(inspect(ENGINE).get_table_names())
+        core.db.init_db()
+        table_names = set(inspect(core.db.ENGINE).get_table_names())
         expected = {
             "products",
             "product_prices",
@@ -50,21 +55,19 @@ class SmokeTestCase(unittest.TestCase):
 
     def test_main_tab_order_places_history_before_attendance_and_settings(self) -> None:
         temp_root = Path(tempfile.mkdtemp(prefix="tab-order-"))
-        settings = Settings(
-            app_name="QuanLyHangHoaTest",
-            app_data_dir=temp_root / "appdata",
-            db_path=temp_root / "appdata" / "app.db",
-            log_dir=temp_root / "appdata" / "logs",
-            export_dir=temp_root / "appdata" / "exports",
-            backup_dir=temp_root / "appdata" / "backups",
-            temp_dir=temp_root / "appdata" / "temp",
-            log_level="INFO",
-            update_manifest_url="https://example.com/version.json",
-            update_check_timeout_ms=1000,
-            update_download_timeout_ms=1000,
-            update_download_retry_count=1,
-            update_startup_delay_ms=60_000,
-        )
+        env = {
+            "APP_NAME": "QuanLyHangHoaTest",
+            "APP_DB_PATH": str(temp_root / "appdata" / "app.db"),
+            "APP_LOG_DIR": str(temp_root / "appdata" / "logs"),
+            "APP_EXPORT_DIR": str(temp_root / "appdata" / "exports"),
+            "APP_BACKUP_DIR": str(temp_root / "appdata" / "backups"),
+            "APP_TEMP_DIR": str(temp_root / "appdata" / "temp"),
+            "APP_UPDATE_MANIFEST_URL": "https://example.com/version.json",
+            "APP_UPDATE_TIMEOUT_MS": "1000",
+            "APP_UPDATE_DOWNLOAD_TIMEOUT_MS": "1000",
+            "APP_UPDATE_DOWNLOAD_RETRY_COUNT": "1",
+            "APP_UPDATE_STARTUP_DELAY_MS": "60000",
+        }
         modules = (
             SimpleNamespace(key="inventory", label="Hàng hóa", page_factory=QWidget),
             SimpleNamespace(key="sales", label="Bán hàng", page_factory=QWidget),
@@ -74,8 +77,14 @@ class SmokeTestCase(unittest.TestCase):
             SimpleNamespace(key="attendance", label="Chấm công", page_factory=QWidget),
             SimpleNamespace(key="settings", label="Cài đặt", page_factory=QWidget),
         )
+        window = None
         try:
-            window = AppWindow("Test", modules, settings)
+            with patch.dict("os.environ", env, clear=False):
+                core.config.get_settings.cache_clear()
+                core.db.reset_engine_cache()
+                core.db.init_db()
+                settings = core.config.get_settings()
+                window = AppWindow("Test", modules, settings)
             tabs = window.findChild(QTabWidget)
             self.assertIsNotNone(tabs)
             assert tabs is not None
@@ -84,7 +93,12 @@ class SmokeTestCase(unittest.TestCase):
                 ["Hàng hóa", "Bán hàng", "Đặt hàng", "Khách hàng", "Báo cáo", "Lịch sử", "Chấm công", "Cài đặt"],
             )
         finally:
-            window.close()
+            if window is not None:
+                window.close()
+                window.deleteLater()
+            core.db.ENGINE.dispose()
+            core.db.reset_engine_cache()
+            core.config.get_settings.cache_clear()
             shutil.rmtree(temp_root, ignore_errors=True)
 
 
