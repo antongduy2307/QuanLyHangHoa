@@ -17,6 +17,9 @@ tests/_*_tmp/
 tests/_tmp/
 !tests/
 !tests/**
+tests/_tmp/
+tests/_diagnostics_tmp/
+tests/_ui_scale_tmp/
 
 # Local environment
 .env

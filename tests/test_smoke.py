@@ -1,19 +1,16 @@
 ﻿from __future__ import annotations
 
 import unittest
-from pathlib import Path
-import shutil
-import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from PyQt6.QtWidgets import QApplication, QTabWidget, QWidget
 from sqlalchemy import inspect
 
-import core.config
 import core.db
 from shell.app_window import AppWindow
 from shell.bootstrap import load_module_specs
+from tests.helpers.runtime import TempMainDbRuntime
 
 
 class SmokeTestCase(unittest.TestCase):
@@ -21,9 +18,14 @@ class SmokeTestCase(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls._app = QApplication.instance() or QApplication([])
 
+    def setUp(self) -> None:
+        self._runtime = TempMainDbRuntime(prefix="smoke-runtime-")
+        self._runtime.__enter__()
+
     def tearDown(self) -> None:
         QApplication.closeAllWindows()
         QApplication.processEvents()
+        self._runtime.__exit__(None, None, None)
 
     def test_init_db_and_module_registry(self) -> None:
         core.db.init_db()
@@ -54,20 +56,6 @@ class SmokeTestCase(unittest.TestCase):
         self.assertTrue(expected.issubset(table_names))
 
     def test_main_tab_order_places_history_before_attendance_and_settings(self) -> None:
-        temp_root = Path(tempfile.mkdtemp(prefix="tab-order-"))
-        env = {
-            "APP_NAME": "QuanLyHangHoaTest",
-            "APP_DB_PATH": str(temp_root / "appdata" / "app.db"),
-            "APP_LOG_DIR": str(temp_root / "appdata" / "logs"),
-            "APP_EXPORT_DIR": str(temp_root / "appdata" / "exports"),
-            "APP_BACKUP_DIR": str(temp_root / "appdata" / "backups"),
-            "APP_TEMP_DIR": str(temp_root / "appdata" / "temp"),
-            "APP_UPDATE_MANIFEST_URL": "https://example.com/version.json",
-            "APP_UPDATE_TIMEOUT_MS": "1000",
-            "APP_UPDATE_DOWNLOAD_TIMEOUT_MS": "1000",
-            "APP_UPDATE_DOWNLOAD_RETRY_COUNT": "1",
-            "APP_UPDATE_STARTUP_DELAY_MS": "60000",
-        }
         modules = (
             SimpleNamespace(key="inventory", label="Hàng hóa", page_factory=QWidget),
             SimpleNamespace(key="sales", label="Bán hàng", page_factory=QWidget),
@@ -79,16 +67,12 @@ class SmokeTestCase(unittest.TestCase):
         )
         window = None
         try:
-            with patch.dict("os.environ", env, clear=False):
-                core.config.get_settings.cache_clear()
-                core.db.reset_engine_cache()
-                core.db.init_db()
-                settings = core.config.get_settings()
-                self.assertTrue(settings.db_path.exists())
-                self.assertIn("invoices", set(inspect(core.db.ENGINE).get_table_names()))
-                with patch("modules.sales.ui.transaction_history_view.MessageBox.error") as history_error:
-                    window = AppWindow("Test", modules, settings)
-                    history_error.assert_not_called()
+            settings = self._runtime.settings
+            assert settings is not None
+            self.assertIn("invoices", set(inspect(core.db.ENGINE).get_table_names()))
+            with patch("modules.sales.ui.transaction_history_view.MessageBox.error") as history_error:
+                window = AppWindow("Test", modules, settings)
+                history_error.assert_not_called()
             tabs = window.findChild(QTabWidget)
             self.assertIsNotNone(tabs)
             assert tabs is not None
@@ -100,10 +84,6 @@ class SmokeTestCase(unittest.TestCase):
             if window is not None:
                 window.close()
                 window.deleteLater()
-            core.db.ENGINE.dispose()
-            core.db.reset_engine_cache()
-            core.config.get_settings.cache_clear()
-            shutil.rmtree(temp_root, ignore_errors=True)
 
 
 if __name__ == "__main__":

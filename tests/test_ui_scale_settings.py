@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import shutil
+import tempfile
 import unittest
 from pathlib import Path
-from uuid import uuid4
 
 from PyQt6.QtCore import QCoreApplication, QSettings
 from PyQt6.QtWidgets import QApplication, QPushButton, QTableWidget, QVBoxLayout, QWidget
@@ -18,12 +18,10 @@ class UiScaleSettingsTestCase(unittest.TestCase):
         cls._app = QApplication.instance() or QApplication([])
         cls._app.setOrganizationName("CodexTests")
         cls._app.setApplicationName("QuanLyHangHoaUiScale")
-        cls._tmp_root = Path(__file__).resolve().parent / "_ui_scale_tmp"
-        cls._tmp_root.mkdir(parents=True, exist_ok=True)
 
     def setUp(self) -> None:
-        self._settings_root = self._tmp_root / uuid4().hex
-        self._settings_root.mkdir(parents=True, exist_ok=False)
+        self._tmp_dir = tempfile.TemporaryDirectory(prefix="ui-scale-settings-")
+        self._settings_root = Path(self._tmp_dir.name)
         QSettings.setDefaultFormat(QSettings.Format.IniFormat)
         QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, str(self._settings_root))
         QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.SystemScope, str(self._settings_root))
@@ -34,6 +32,7 @@ class UiScaleSettingsTestCase(unittest.TestCase):
         QSettings().clear()
         QSettings().sync()
         shutil.rmtree(self._settings_root, ignore_errors=True)
+        self._tmp_dir.cleanup()
 
     def test_default_ui_scale_preset_uses_large_baseline(self) -> None:
         service = SettingsService()

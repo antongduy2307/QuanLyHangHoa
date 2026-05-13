@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from PyQt6.QtWidgets import QApplication, QTabWidget, QWidget
 
@@ -42,6 +43,20 @@ class _FakeSettingsPage(QWidget):
         self.open_calls.append(first_incomplete_id)
 
 
+class _FakeHistoryPage(QWidget):
+    def __init__(self) -> None:
+        super().__init__()
+        self.history_changed = _SignalStub()
+
+    def reload_all_views(self) -> None:
+        return
+
+
+class _SignalStub:
+    def connect(self, _callback) -> None:
+        return
+
+
 class AppWindowAttendanceSyncTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -66,6 +81,8 @@ class AppWindowAttendanceSyncTestCase(unittest.TestCase):
         )
 
     def tearDown(self) -> None:
+        QApplication.closeAllWindows()
+        QApplication.processEvents()
         shutil.rmtree(self._temp_root, ignore_errors=True)
 
     def _build_window(self, sync_service: _FakeSyncService) -> tuple[AppWindow, QWidget, _FakeSettingsPage, QTabWidget]:
@@ -76,7 +93,8 @@ class AppWindowAttendanceSyncTestCase(unittest.TestCase):
             SimpleNamespace(key="attendance", label="Chấm công", page_factory=lambda: attendance_page),
             SimpleNamespace(key="settings", label="Cài đặt", page_factory=lambda: settings_page),
         )
-        window = AppWindow("Test", modules, self.settings)
+        with patch("shell.app_window.HistoryPage", _FakeHistoryPage):
+            window = AppWindow("Test", modules, self.settings)
         window._attendance_product_sync_service = sync_service
         tabs = window.findChild(QTabWidget)
         assert tabs is not None

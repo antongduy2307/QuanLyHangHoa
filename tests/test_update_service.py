@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import shutil
+import tempfile
 import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from uuid import uuid4
 
 from PyQt6.QtCore import QByteArray, QCoreApplication, QObject, QTimer, pyqtSignal
 from PyQt6.QtNetwork import QNetworkReply, QNetworkRequest
@@ -120,12 +120,10 @@ class UpdateServiceTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls._app = QCoreApplication.instance() or QCoreApplication([])
-        cls._workspace_temp_root = Path(__file__).resolve().parent / "_tmp"
-        cls._workspace_temp_root.mkdir(parents=True, exist_ok=True)
 
     def setUp(self) -> None:
-        self.temp_root = self._workspace_temp_root / uuid4().hex
-        self.temp_root.mkdir(parents=True, exist_ok=False)
+        self._tmp_dir = tempfile.TemporaryDirectory(prefix="update-service-")
+        self.temp_root = Path(self._tmp_dir.name)
         self.settings = Settings(
             app_name="Quản lý Hàng hóa",
             app_data_dir=self.temp_root / "appdata",
@@ -144,6 +142,7 @@ class UpdateServiceTestCase(unittest.TestCase):
 
     def tearDown(self) -> None:
         shutil.rmtree(self.temp_root, ignore_errors=True)
+        self._tmp_dir.cleanup()
 
     def test_compare_versions_uses_numeric_semver_order(self) -> None:
         self.assertLess(compare_versions("0.2.9", "0.3.0"), 0)

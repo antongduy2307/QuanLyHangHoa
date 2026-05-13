@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import tempfile
 import unittest
 from unittest.mock import patch
 from zipfile import ZipFile
@@ -11,6 +12,7 @@ from zipfile import ZipFile
 from PyQt6.QtWidgets import QApplication, QPushButton
 
 import core.config
+import core.db
 from core.config import get_settings
 from modules.attendance.db import get_attendance_engine, init_attendance_db, reset_attendance_engine_cache
 from modules.settings.backup_service import UserBackupService
@@ -24,12 +26,12 @@ class SettingsBackupTestCase(unittest.TestCase):
         cls._app = QApplication.instance() or QApplication([])
 
     def setUp(self) -> None:
-        self._temp_root = Path("tests/_tmp/settings-backup").resolve()
-        shutil.rmtree(self._temp_root, ignore_errors=True)
-        self._temp_root.mkdir(parents=True, exist_ok=True)
+        self._tmp_dir = tempfile.TemporaryDirectory(prefix="settings-backup-")
+        self._temp_root = Path(self._tmp_dir.name)
         self._env_patch = patch.dict(os.environ, {"LOCALAPPDATA": str(self._temp_root)}, clear=False)
         self._env_patch.start()
         core.config.get_settings.cache_clear()
+        core.db.reset_engine_cache()
         reset_attendance_engine_cache()
         self.settings = get_settings()
         self.settings.app_data_dir.mkdir(parents=True, exist_ok=True)
@@ -37,9 +39,12 @@ class SettingsBackupTestCase(unittest.TestCase):
     def tearDown(self) -> None:
         get_attendance_engine().dispose()
         reset_attendance_engine_cache()
+        core.db.ENGINE.dispose()
+        core.db.reset_engine_cache()
         core.config.get_settings.cache_clear()
         self._env_patch.stop()
         shutil.rmtree(self._temp_root, ignore_errors=True)
+        self._tmp_dir.cleanup()
 
     def _write_db_files(self, *, app_db: bool, attendance_db: bool) -> None:
         if app_db:
@@ -91,6 +96,7 @@ class SettingsBackupTestCase(unittest.TestCase):
         self.assertTrue(manifest["warnings"])
 
     def test_general_settings_has_backup_and_diagnostics_buttons(self) -> None:
+        core.db.init_db()
         init_attendance_db()
         page = SettingsPage(SettingsService())
         button_texts = {button.text() for button in page.findChildren(QPushButton)}
