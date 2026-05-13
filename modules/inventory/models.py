@@ -1,6 +1,6 @@
 ﻿from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -8,7 +8,9 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    Date,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -240,6 +242,50 @@ class InventoryAdjustmentItem(Base):
 
     adjustment: Mapped[InventoryAdjustment] = relationship(back_populates="items")
     product: Mapped[Product] = relationship(back_populates="adjustment_items")
+
+
+class InventoryStockEffect(Base):
+    """Durable stock effect keyed by an external source document.
+
+    Attendance integration uses this table to roll back and reapply stock changes
+    by daily record source. The source ids intentionally remain plain integers
+    because attendance records live in a separate SQLite database.
+    """
+
+    __tablename__ = "inventory_stock_effects"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_type",
+            "source_id",
+            "source_line_type",
+            "source_line_id",
+            name="uq_inventory_stock_effects_source_line",
+        ),
+        CheckConstraint("length(trim(source_type)) > 0", name="ck_inventory_stock_effects_source_type_not_blank"),
+        CheckConstraint("source_id > 0", name="ck_inventory_stock_effects_source_id_positive"),
+        CheckConstraint("length(trim(source_line_type)) > 0", name="ck_inventory_stock_effects_line_type_not_blank"),
+        CheckConstraint("quantity_delta >= 0", name="ck_inventory_stock_effects_quantity_delta_non_negative"),
+        Index("ix_inventory_stock_effects_source", "source_type", "source_id"),
+        Index("ix_inventory_stock_effects_product_id", "product_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_line_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_line_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    attendance_employee_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    attendance_work_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    attendance_bag_type_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id", ondelete="RESTRICT"), nullable=False)
+    quantity_delta: Mapped[Decimal] = mapped_column(Numeric(QUANTITY_PRECISION, QUANTITY_SCALE), nullable=False)
+    unit_type: Mapped[UnitType] = mapped_column(build_enum(UnitType, "inventory_stock_effect_unit_type"), nullable=False)
+    movement_datetime: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    product: Mapped[Product] = relationship()
 
 
 @event.listens_for(InventoryAdjustmentItem, "before_insert")

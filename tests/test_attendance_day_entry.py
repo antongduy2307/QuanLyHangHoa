@@ -27,6 +27,12 @@ from shared.widgets.message_box import MessageBox
 from shared.widgets.numeric_inputs import SelectAllQuantityInput, SelectAllSpinBox
 
 
+class _NoopInventoryEffectService:
+    def reconcile_daily_record_effects(self, snapshot):
+        self.last_snapshot = snapshot
+        return None
+
+
 class CutBonusCalculationTestCase(unittest.TestCase):
     def test_rule_1_below_average_quota_has_zero_bonus(self) -> None:
         bonus = calculate_cut_employee_bonus(
@@ -172,7 +178,7 @@ class AttendanceDayEntryTestCase(unittest.TestCase):
         reset_attendance_engine_cache()
         init_attendance_db()
         self.employee_service = AttendanceEmployeeService()
-        self.service = AttendanceDayEntryService()
+        self.service = AttendanceDayEntryService(inventory_effect_service=_NoopInventoryEffectService())
         self.settings_service = AttendanceSettingsService()
 
     def tearDown(self) -> None:

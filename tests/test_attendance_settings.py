@@ -33,6 +33,12 @@ class _NoopProductSyncService:
         return type("SyncResult", (), {"warnings": []})()
 
 
+class _NoopInventoryEffectService:
+    def reconcile_daily_record_effects(self, snapshot):
+        self.last_snapshot = snapshot
+        return None
+
+
 class AttendanceSettingsTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -46,7 +52,7 @@ class AttendanceSettingsTestCase(unittest.TestCase):
         reset_attendance_engine_cache()
         init_attendance_db()
         self.employee_service = AttendanceEmployeeService()
-        self.day_service = AttendanceDayEntryService()
+        self.day_service = AttendanceDayEntryService(inventory_effect_service=_NoopInventoryEffectService())
         self.settings_service = AttendanceSettingsService()
         self.report_service = AttendanceReportService()
 

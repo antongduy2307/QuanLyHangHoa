@@ -9,6 +9,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy.orm import Session, sessionmaker
 
 from core.exceptions import NotFoundError, ValidationError
+from core.logging import get_logger
 from modules.attendance.blow_work import calculate_blow_work_amount
 from modules.attendance.cut_bonus import CutBonusItem, calculate_cut_employee_bonus
 from modules.attendance.db import AttendanceSessionLocal
@@ -23,8 +24,18 @@ from modules.attendance.dto import (
     WorkLogValue,
     WorkTypeOption,
 )
+from modules.attendance.inventory_effect_service import (
+    CUT_LOG_SOURCE_LINE_TYPE,
+    EXTRA_CUT_WORK_LOG_SOURCE_LINE_TYPE,
+    AttendanceInventoryEffectLine,
+    AttendanceInventoryEffectService,
+    AttendanceInventoryEffectSnapshot,
+)
 from modules.attendance.models import CutLog, DailyRecord, DailyRecordStatus, Employee, ExtraCutWorkLog, Team, WorkInputType, WorkLog
 from modules.attendance.repository import AttendanceDayEntryRepository, AttendanceEmployeeRepository
+
+
+LOGGER = get_logger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,9 +148,11 @@ class AttendanceDayEntryService:
         self,
         repository: AttendanceDayEntryRepository | None = None,
         session_factory: sessionmaker[Session] = AttendanceSessionLocal,
+        inventory_effect_service: AttendanceInventoryEffectService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._repository = repository or AttendanceDayEntryRepository(session_factory)
+        self._inventory_effect_service = inventory_effect_service or AttendanceInventoryEffectService()
 
     def period_bounds_for_date(self, selected_date: date) -> tuple[date, date]:
         if selected_date.day <= 10:
@@ -302,6 +315,17 @@ class AttendanceDayEntryService:
                     record.total_amount_snapshot = 0
                 record.status = DailyRecordStatus.DONE if finalize else DailyRecordStatus.DRAFT
                 session.flush()
+                snapshot = self._build_inventory_effect_snapshot(session, record)
+                try:
+                    self._inventory_effect_service.reconcile_daily_record_effects(snapshot)
+                except Exception:
+                    LOGGER.exception(
+                        "Attendance inventory reconciliation failed | daily_record_id=%s | employee_id=%s | date=%s",
+                        record.id,
+                        record.employee_id,
+                        record.date,
+                    )
+                    raise
                 return AttendanceSaveResult(
                     record_id=record.id,
                     status=record.status,
@@ -491,4 +515,45 @@ class AttendanceDayEntryService:
             and not bool(bag_type.is_legacy)
             and Decimal(str(bag_type.quota_quantity)) > 0
             and Decimal(str(bag_type.excess_unit_price)) > 0
+        )
+
+    def _build_inventory_effect_snapshot(
+        self,
+        session: Session,
+        record: DailyRecord,
+    ) -> AttendanceInventoryEffectSnapshot:
+        cut_lines: list[AttendanceInventoryEffectLine] = []
+        for log in record.cut_logs:
+            bag_type = log.bag_type or self._repository.get_bag_type(session, log.bag_type_id)
+            cut_lines.append(
+                AttendanceInventoryEffectLine(
+                    source_line_type=CUT_LOG_SOURCE_LINE_TYPE,
+                    source_line_id=log.id,
+                    attendance_bag_type_id=log.bag_type_id,
+                    product_id=bag_type.source_product_id,
+                    quantity=log.quantity,
+                )
+            )
+
+        extra_cut_lines: list[AttendanceInventoryEffectLine] = []
+        for log in record.extra_cut_work_logs:
+            bag_type = log.bag_type or self._repository.get_bag_type(session, log.bag_type_id)
+            extra_cut_lines.append(
+                AttendanceInventoryEffectLine(
+                    source_line_type=EXTRA_CUT_WORK_LOG_SOURCE_LINE_TYPE,
+                    source_line_id=log.id,
+                    attendance_bag_type_id=log.bag_type_id,
+                    product_id=bag_type.source_product_id,
+                    quantity=log.quantity,
+                )
+            )
+
+        return AttendanceInventoryEffectSnapshot(
+            daily_record_id=record.id,
+            employee_id=record.employee_id,
+            work_date=record.date,
+            status=record.status,
+            is_absent=record.is_absent,
+            cut_lines=tuple(cut_lines),
+            extra_cut_lines=tuple(extra_cut_lines),
         )

@@ -22,6 +22,12 @@ from modules.attendance.settings_service import AttendanceSettingsService
 from modules.attendance.ui.report_tab import AttendanceReportTab, OVERALL_TOTAL_COLUMN_MIN_WIDTH, REPORT_GROUP_SPACER_WIDTH
 
 
+class _NoopInventoryEffectService:
+    def reconcile_daily_record_effects(self, snapshot):
+        self.last_snapshot = snapshot
+        return None
+
+
 class AttendanceReportTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -35,7 +41,7 @@ class AttendanceReportTestCase(unittest.TestCase):
         reset_attendance_engine_cache()
         init_attendance_db()
         self.employee_service = AttendanceEmployeeService()
-        self.day_service = AttendanceDayEntryService()
+        self.day_service = AttendanceDayEntryService(inventory_effect_service=_NoopInventoryEffectService())
         self.settings_service = AttendanceSettingsService()
         self.report_service = AttendanceReportService()
 
