@@ -84,7 +84,11 @@ class SmokeTestCase(unittest.TestCase):
                 core.db.reset_engine_cache()
                 core.db.init_db()
                 settings = core.config.get_settings()
-                window = AppWindow("Test", modules, settings)
+                self.assertTrue(settings.db_path.exists())
+                self.assertIn("invoices", set(inspect(core.db.ENGINE).get_table_names()))
+                with patch("modules.sales.ui.transaction_history_view.MessageBox.error") as history_error:
+                    window = AppWindow("Test", modules, settings)
+                    history_error.assert_not_called()
             tabs = window.findChild(QTabWidget)
             self.assertIsNotNone(tabs)
             assert tabs is not None

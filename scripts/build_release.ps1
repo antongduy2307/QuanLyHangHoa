@@ -21,8 +21,8 @@ if (-not (Test-Path $Python)) {
 if (-not $SkipTests) {
     Push-Location $RepoRoot
     try {
-        & $Python -m unittest discover tests
-        & $Python -m compileall core modules shared shell main.py
+        & $Python -m unittest discover -s tests -p "test*.py" -t .
+        & $Python -m compileall core modules tests shell
     } finally {
         Pop-Location
     }
