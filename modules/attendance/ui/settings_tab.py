@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -180,8 +181,8 @@ class AttendancePriceSettingsTab(QWidget):
         work_header.addStretch()
         work_header.addWidget(self.add_work_type_button)
 
-        work_group = QGroupBox("Công việc tổ thổi")
-        work_layout = QVBoxLayout(work_group)
+        self.work_group = QGroupBox("Công việc tổ thổi")
+        work_layout = QVBoxLayout(self.work_group)
         work_layout.addLayout(work_header)
         work_layout.addWidget(self.work_type_table)
 
@@ -199,22 +200,27 @@ class AttendancePriceSettingsTab(QWidget):
         configure_table_widget(self.bag_type_table, "attendance.settings.bag_types")
         self.bag_type_table.itemDoubleClicked.connect(lambda _item: self._edit_bag_type())
 
-        self.add_bag_type_button = QPushButton("Thêm")
-        self.add_bag_type_button.clicked.connect(self._add_bag_type)
-
-        bag_header = QHBoxLayout()
-        bag_header.addStretch()
-        bag_header.addWidget(self.add_bag_type_button)
-
-        bag_group = QGroupBox("Loại bao tổ cắt")
-        bag_layout = QVBoxLayout(bag_group)
+        self.bag_group = QGroupBox("Loại bao tổ cắt")
+        bag_layout = QVBoxLayout(self.bag_group)
         bag_layout.addWidget(self.sync_warning_label)
-        bag_layout.addLayout(bag_header)
         bag_layout.addWidget(self.bag_type_table)
 
+        self.section_combo = QComboBox()
+        self.section_combo.addItem("Công việc tổ thổi")
+        self.section_combo.addItem("Loại bao tổ cắt")
+        self.section_stack = QStackedWidget()
+        self.section_stack.addWidget(self.work_group)
+        self.section_stack.addWidget(self.bag_group)
+        self.section_combo.currentIndexChanged.connect(self.section_stack.setCurrentIndex)
+
+        selector_layout = QHBoxLayout()
+        selector_layout.addWidget(QLabel("Nhóm cài đặt"))
+        selector_layout.addWidget(self.section_combo)
+        selector_layout.addStretch()
+
         layout = QVBoxLayout(self)
-        layout.addWidget(work_group, 1)
-        layout.addWidget(bag_group, 1)
+        layout.addLayout(selector_layout)
+        layout.addWidget(self.section_stack, 1)
 
         self.reload()
 
@@ -466,6 +472,7 @@ class AttendancePriceSettingsTab(QWidget):
 
     def focus_first_incomplete_cut_work(self, first_incomplete_id: int | None = None) -> None:
         self.reload()
+        self.section_combo.setCurrentIndex(1)
         target_row = -1
         for row, bag_type in enumerate(self._bag_types):
             if first_incomplete_id is not None and bag_type.id == first_incomplete_id:

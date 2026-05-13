@@ -72,6 +72,15 @@ class InventoryService:
         transaction_context = nullcontext() if session.in_transaction() else session.begin()
 
         with transaction_context:
+            existing_product = self._repository.get_product_by_code_base(code)
+            if existing_product is not None:
+                return self._reactivate_or_reject_existing_product(
+                    existing_product,
+                    requested_name=name,
+                    requested_unit_mode=unit_mode,
+                    enabled_prices=enabled_prices,
+                )
+
             product = Product(
                 product_code_base=code,
                 product_name=name,
@@ -81,15 +90,7 @@ class InventoryService:
             session.add(product)
             session.flush()
 
-            for unit_type, price in enabled_prices.items():
-                session.add(
-                    ProductPrice(
-                        product_id=product.id,
-                        unit_type=unit_type,
-                        price=price,
-                        is_enabled=True,
-                    )
-                )
+            self._sync_product_prices(product, enabled_prices)
 
             balance = InventoryBalance(
                 product_id=product.id,
@@ -121,23 +122,7 @@ class InventoryService:
             self._validate_price_payload(product.unit_mode, enabled_prices)
 
             product.product_name = name
-            existing_by_unit = {price.unit_type: price for price in product.prices}
-            for unit_type in self._allowed_units(product.unit_mode):
-                if unit_type in enabled_prices:
-                    if unit_type in existing_by_unit:
-                        existing_by_unit[unit_type].price = enabled_prices[unit_type]
-                        existing_by_unit[unit_type].is_enabled = True
-                    else:
-                        session.add(
-                            ProductPrice(
-                                product_id=product.id,
-                                unit_type=unit_type,
-                                price=enabled_prices[unit_type],
-                                is_enabled=True,
-                            )
-                        )
-                elif unit_type in existing_by_unit:
-                    existing_by_unit[unit_type].is_enabled = False
+            self._sync_product_prices(product, enabled_prices)
 
             session.flush()
             return product
@@ -313,6 +298,55 @@ class InventoryService:
         if unit_mode == UnitMode.BAO_KG:
             return (UnitType.BAO, UnitType.KG)
         return (UnitType.BICH,)
+
+    def _reactivate_or_reject_existing_product(
+        self,
+        product: Product,
+        *,
+        requested_name: str,
+        requested_unit_mode: UnitMode,
+        enabled_prices: Mapping[UnitType, Decimal],
+    ) -> Product:
+        if product.is_active:
+            raise ValidationError("Mã hàng đã tồn tại.")
+        if product.product_name.strip() != requested_name:
+            raise ValidationError(
+                "Mã hàng này đã từng tồn tại với tên khác. "
+                "Vui lòng kiểm tra lại mã hàng hoặc khôi phục sản phẩm cũ."
+            )
+        if product.unit_mode != requested_unit_mode:
+            raise ValidationError(
+                "Mã hàng này đã tồn tại với kiểu đơn vị khác. Không thể khôi phục bằng kiểu đơn vị mới."
+            )
+
+        product.is_active = True
+        self._sync_product_prices(product, enabled_prices)
+        balance = self._repository.get_or_create_balance(product)
+        balance.validate_for_product(product)
+        self._repository.session.flush()
+        return product
+
+    def _sync_product_prices(self, product: Product, enabled_prices: Mapping[UnitType, Decimal]) -> None:
+        existing_prices = self._repository.session.scalars(
+            select(ProductPrice).where(ProductPrice.product_id == product.id)
+        ).all()
+        existing_by_unit = {price.unit_type: price for price in existing_prices}
+        for unit_type in self._allowed_units(product.unit_mode):
+            if unit_type in enabled_prices:
+                if unit_type in existing_by_unit:
+                    existing_by_unit[unit_type].price = enabled_prices[unit_type]
+                    existing_by_unit[unit_type].is_enabled = True
+                else:
+                    self._repository.session.add(
+                        ProductPrice(
+                            product_id=product.id,
+                            unit_type=unit_type,
+                            price=enabled_prices[unit_type],
+                            is_enabled=True,
+                        )
+                    )
+            elif unit_type in existing_by_unit:
+                existing_by_unit[unit_type].is_enabled = False
 
 
     def _has_product_history(self, product_id: int) -> bool:

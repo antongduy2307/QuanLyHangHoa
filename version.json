@@ -1,9 +1,9 @@
 {
-  "version": "0.8.0",
-  "installer_url": "https://github.com/antongduy2307/QuanLyHangHoa/releases/download/v0.8.0/QuanLyHangHoa-Setup-v0.8.0.exe",
+  "version": "0.8.1",
+  "installer_url": "https://github.com/antongduy2307/QuanLyHangHoa/releases/download/v0.8.1/QuanLyHangHoa-Setup-v0.8.1.exe",
   "notes": [
-    "Adding sync from Goods to Attendance",
-    ":3"
+    "Multi delte",
+    "Fixing bug that cannot adding customer/goods that has been delete before"
   ],
-  "min_required_version": "0.7.0"
+  "min_required_version": "0.8.0"
 }

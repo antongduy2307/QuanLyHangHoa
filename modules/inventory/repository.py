@@ -53,6 +53,14 @@ class InventoryRepository:
             raise NotFoundError(f"Product {product_id} was not found.")
         return product
 
+    def get_product_by_code_base(self, product_code_base: str) -> Product | None:
+        statement = (
+            select(Product)
+            .options(selectinload(Product.prices), selectinload(Product.inventory_balance))
+            .where(Product.product_code_base == product_code_base)
+        )
+        return self.session.scalars(statement).one_or_none()
+
     def get_or_create_balance(self, product: Product) -> InventoryBalance:
         if product.inventory_balance is not None:
             return product.inventory_balance

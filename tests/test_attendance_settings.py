@@ -251,7 +251,13 @@ class AttendanceSettingsTestCase(unittest.TestCase):
         self.assertIsNotNone(attendance_tab)
         self.assertGreaterEqual(len(attendance_tab.findChildren(QTableWidget)), 2)
         button_texts = {button.text() for button in attendance_tab.findChildren(QPushButton)}
-        self.assertEqual(button_texts, {"Thêm"})
+        self.assertIn("Thêm", button_texts)
+        self.assertFalse(hasattr(attendance_tab, "add_bag_type_button"))
+        self.assertEqual(attendance_tab.section_combo.itemText(0), "Công việc tổ thổi")
+        self.assertEqual(attendance_tab.section_combo.itemText(1), "Loại bao tổ cắt")
+        self.assertIs(attendance_tab.section_stack.currentWidget(), attendance_tab.work_group)
+        attendance_tab.section_combo.setCurrentIndex(1)
+        self.assertIs(attendance_tab.section_stack.currentWidget(), attendance_tab.bag_group)
         self.assertEqual(attendance_tab.work_type_table.columnCount(), 3)
         self.assertEqual(attendance_tab.bag_type_table.columnCount(), 4)
         bag_headers = [
@@ -347,23 +353,13 @@ class AttendanceSettingsTestCase(unittest.TestCase):
         self.assertNotIn("Bao 25kg chỉnh", self._table_column_values(tab.bag_type_table, 0))
         self.assertFalse(self._bag_type("Bao 25kg chỉnh").is_active)
 
-    def test_add_bag_type_refreshes_active_table(self) -> None:
+    def test_cut_bag_type_add_button_is_not_reachable(self) -> None:
         tab = self._settings_tab()
+        tab.section_combo.setCurrentIndex(1)
 
-        class FakeBagTypeDialog:
-            def __init__(self, *_args, **_kwargs) -> None:
-                return
-
-            def exec(self) -> QDialog.DialogCode:
-                return QDialog.DialogCode.Accepted
-
-            def value(self) -> BagTypeFormValue:
-                return BagTypeFormValue(name="Bao mới", quota_quantity=30, excess_unit_price=2200)
-
-        with patch("modules.attendance.ui.settings_tab.BagTypeDialog", FakeBagTypeDialog):
-            tab._add_bag_type()
-
-        self.assertIn("Bao mới", self._table_column_values(tab.bag_type_table, 0))
+        self.assertIs(tab.section_stack.currentWidget(), tab.bag_group)
+        self.assertFalse(hasattr(tab, "add_bag_type_button"))
+        self.assertNotIn("Bao mới", self._table_column_values(tab.bag_type_table, 0))
 
     def _table_column_values(self, table: QTableWidget, column: int) -> list[str]:
         return [

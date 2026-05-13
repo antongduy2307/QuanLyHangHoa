@@ -233,6 +233,114 @@ class InventoryServiceTestCase(unittest.TestCase):
         self.assertEqual(result.action, "deactivated")
         self.assertFalse(reloaded.is_active)
 
+    def test_recreate_inactive_product_with_same_code_and_name_reactivates_existing_row(self) -> None:
+        product = self.service.create_product(
+            product_code_base="REACT-OK",
+            product_name="Reactivate me",
+            unit_mode=UnitMode.BAO_KG,
+            enabled_prices={UnitType.BAO: Decimal("15")},
+        )
+        self.repository.session.commit()
+        self.service.create_receipt([{"product_id": product.id, "quantity": Decimal("2")}])
+        self.repository.session.commit()
+        self.service.delete_product(product.id)
+        self.repository.session.commit()
+
+        reactivated = self.service.create_product(
+            product_code_base="react-ok",
+            product_name=" Reactivate me ",
+            unit_mode=UnitMode.BAO_KG,
+            enabled_prices={UnitType.KG: Decimal("3")},
+        )
+        self.repository.session.commit()
+
+        self.assertEqual(reactivated.id, product.id)
+        self.assertTrue(reactivated.is_active)
+        prices = {
+            price.unit_type: price
+            for price in self.repository.session.scalars(
+                select(ProductPrice).where(ProductPrice.product_id == product.id)
+            ).all()
+        }
+        self.assertFalse(prices[UnitType.BAO].is_enabled)
+        self.assertTrue(prices[UnitType.KG].is_enabled)
+        self.assertEqual(prices[UnitType.KG].price, Decimal("3"))
+
+    def test_recreate_inactive_product_with_same_code_different_name_raises_validation(self) -> None:
+        product = self.service.create_product(
+            product_code_base="REACT-NAME",
+            product_name="Old inactive name",
+            unit_mode=UnitMode.BAO_KG,
+            enabled_prices={UnitType.BAO: Decimal("15")},
+        )
+        self.repository.session.commit()
+        self.service.create_receipt([{"product_id": product.id, "quantity": Decimal("2")}])
+        self.repository.session.commit()
+        self.service.delete_product(product.id)
+        self.repository.session.commit()
+
+        with self.assertRaisesRegex(ValidationError, "từng tồn tại với tên khác"):
+            self.service.create_product(
+                product_code_base="REACT-NAME",
+                product_name="New name",
+                unit_mode=UnitMode.BAO_KG,
+                enabled_prices={UnitType.BAO: Decimal("15")},
+            )
+
+    def test_recreate_inactive_product_with_different_unit_mode_raises_validation(self) -> None:
+        product = self.service.create_product(
+            product_code_base="REACT-UNIT",
+            product_name="Same name",
+            unit_mode=UnitMode.BAO_KG,
+            enabled_prices={UnitType.BAO: Decimal("15")},
+        )
+        self.repository.session.commit()
+        self.service.create_receipt([{"product_id": product.id, "quantity": Decimal("2")}])
+        self.repository.session.commit()
+        self.service.delete_product(product.id)
+        self.repository.session.commit()
+
+        with self.assertRaisesRegex(ValidationError, "kiểu đơn vị khác"):
+            self.service.create_product(
+                product_code_base="REACT-UNIT",
+                product_name="Same name",
+                unit_mode=UnitMode.BICH,
+                enabled_prices={UnitType.BICH: Decimal("15")},
+            )
+
+    def test_active_duplicate_product_code_still_raises_validation(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "Mã hàng đã tồn tại"):
+            self.service.create_product(
+                product_code_base="P-BAO",
+                product_name="Any active duplicate",
+                unit_mode=UnitMode.BAO_KG,
+                enabled_prices={UnitType.BAO: Decimal("15")},
+            )
+
+    def test_reactivated_product_appears_in_active_product_list(self) -> None:
+        product = self.service.create_product(
+            product_code_base="REACT-LIST",
+            product_name="List me again",
+            unit_mode=UnitMode.BICH,
+            enabled_prices={UnitType.BICH: Decimal("10")},
+        )
+        self.repository.session.commit()
+        self.service.create_adjustment([{"product_id": product.id, "new_quantity": Decimal("1")}])
+        self.repository.session.commit()
+        self.service.delete_product(product.id)
+        self.repository.session.commit()
+
+        self.service.create_product(
+            product_code_base="REACT-LIST",
+            product_name="List me again",
+            unit_mode=UnitMode.BICH,
+            enabled_prices={UnitType.BICH: Decimal("12")},
+        )
+        self.repository.session.commit()
+
+        active_products = self.service.list_products()
+        self.assertTrue(any(item.id == product.id for item in active_products))
+
     def test_delete_product_with_invoice_history_sets_inactive_false_and_keeps_snapshot(self) -> None:
         invoice_product = self.service.create_product(
             product_code_base="DEL-INVOICE",

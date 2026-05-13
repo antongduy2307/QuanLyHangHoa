@@ -243,6 +243,30 @@ class AttendanceProductSyncTestCase(unittest.TestCase):
         with AttendanceSessionLocal() as session:
             self.assertIsNotNone(session.get(CutLog, log_id))
 
+    def test_reactivated_product_reactivates_existing_linked_bag_type(self) -> None:
+        product_id = self._create_product("P004R", "Bao reactivated")
+        self.service.sync_products_to_cut_work()
+        bag_type = self._linked_bag_type(product_id)
+        self._create_cut_history(int(bag_type.id))
+        with core.db.SessionFactory() as session:
+            product = session.get(Product, product_id)
+            assert product is not None
+            product.is_active = False
+            session.commit()
+        self.service.sync_products_to_cut_work()
+
+        with core.db.SessionFactory() as session:
+            product = session.get(Product, product_id)
+            assert product is not None
+            product.is_active = True
+            session.commit()
+        result = self.service.sync_products_to_cut_work()
+
+        self.assertEqual(result.updated_count, 1)
+        bag_type = self._linked_bag_type(product_id)
+        self.assertTrue(bag_type.is_active)
+        self.assertFalse(bag_type.is_legacy)
+
     def test_missing_product_deactivates_and_marks_linked_bag_type_legacy_without_deleting(self) -> None:
         product_id = self._create_product("P005", "Bao deleted")
         self.service.sync_products_to_cut_work()

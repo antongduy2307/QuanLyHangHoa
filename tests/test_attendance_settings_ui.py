@@ -143,6 +143,20 @@ class AttendanceProductSettingsUiTestCase(unittest.TestCase):
         bag_type = self._bag_type_for_product(product_id)
         self.assertTrue(bag_type.is_product_linked)
 
+    def test_section_dropdown_switches_between_blow_and_cut_settings(self) -> None:
+        tab = AttendancePriceSettingsTab(AttendanceSettingsService())
+
+        self.assertEqual([tab.section_combo.itemText(index) for index in range(tab.section_combo.count())], ["Công việc tổ thổi", "Loại bao tổ cắt"])
+        self.assertIs(tab.section_stack.currentWidget(), tab.work_group)
+        self.assertTrue(tab.add_work_type_button.isVisibleTo(tab.work_group))
+
+        tab.section_combo.setCurrentIndex(1)
+        self.assertIs(tab.section_stack.currentWidget(), tab.bag_group)
+        self.assertFalse(hasattr(tab, "add_bag_type_button"))
+
+        tab.section_combo.setCurrentIndex(0)
+        self.assertIs(tab.section_stack.currentWidget(), tab.work_group)
+
     def test_product_linked_name_is_read_only_in_dialog_and_service_rejects_attendance_rename(self) -> None:
         product_id = self._create_product("P-SET-2", "Bao read only")
         AttendancePriceSettingsTab(AttendanceSettingsService())
