@@ -85,6 +85,7 @@ def _upgrade_attendance_schema(engine: Engine) -> None:
             connection.execute(text("ALTER TABLE cut_logs ADD COLUMN quota_quantity_snapshot NUMERIC"))
         if "excess_unit_price_snapshot" not in cut_columns:
             connection.execute(text("ALTER TABLE cut_logs ADD COLUMN excess_unit_price_snapshot NUMERIC"))
+        _rebuild_work_logs_quantity_if_needed(connection)
         _rebuild_cut_logs_quantity_if_needed(connection)
         _rebuild_extra_cut_work_logs_quantity_if_needed(connection)
 
@@ -103,6 +104,50 @@ def _column_type(connection: object, table_name: str, column_name: str) -> str:
         if str(row["name"]) == column_name:
             return str(row["type"]).upper()
     return ""
+
+
+def _rebuild_work_logs_quantity_if_needed(connection: object) -> None:
+    if "NUMERIC" in _column_type(connection, "work_logs", "quantity"):
+        return
+    connection.execute(text("PRAGMA foreign_keys=OFF"))
+    connection.execute(
+        text(
+            """
+            CREATE TABLE work_logs_new (
+                id INTEGER NOT NULL,
+                daily_record_id INTEGER NOT NULL,
+                work_type_id INTEGER NOT NULL,
+                quantity NUMERIC(12, 3) NOT NULL,
+                unit_price_snapshot INTEGER NOT NULL,
+                amount_snapshot INTEGER NOT NULL,
+                PRIMARY KEY (id),
+                CONSTRAINT uq_work_log_daily_work_type UNIQUE (daily_record_id, work_type_id),
+                CONSTRAINT ck_work_log_quantity_positive CHECK (quantity >= 0.5),
+                CONSTRAINT ck_work_log_unit_price_non_negative CHECK (unit_price_snapshot >= 0),
+                CONSTRAINT ck_work_log_amount_non_negative CHECK (amount_snapshot >= 0),
+                FOREIGN KEY(daily_record_id) REFERENCES daily_records (id) ON DELETE CASCADE,
+                FOREIGN KEY(work_type_id) REFERENCES work_types (id)
+            )
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            INSERT INTO work_logs_new (
+                id, daily_record_id, work_type_id, quantity,
+                unit_price_snapshot, amount_snapshot
+            )
+            SELECT
+                id, daily_record_id, work_type_id, quantity,
+                unit_price_snapshot, amount_snapshot
+            FROM work_logs
+            """
+        )
+    )
+    connection.execute(text("DROP TABLE work_logs"))
+    connection.execute(text("ALTER TABLE work_logs_new RENAME TO work_logs"))
+    connection.execute(text("PRAGMA foreign_keys=ON"))
 
 
 def _rebuild_cut_logs_quantity_if_needed(connection: object) -> None:

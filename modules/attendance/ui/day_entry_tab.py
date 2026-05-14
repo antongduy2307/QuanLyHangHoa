@@ -33,8 +33,53 @@ from modules.attendance.models import Team, WorkInputType
 from modules.attendance.service import AttendanceDayEntryService
 from modules.attendance.ui.dialogs import team_to_label
 from shared.widgets.message_box import MessageBox
-from shared.widgets.numeric_inputs import SelectAllQuantityInput, SelectAllSpinBox
+from shared.widgets.numeric_inputs import SelectAllQuantityInput
 from shared.widgets.table_helpers import configure_table_cell_widget, configure_table_widget
+
+
+class SelectAllHalfStepQuantityInput(SelectAllQuantityInput):
+    _step = Decimal("0.5")
+
+    def setValue(self, value: Decimal | int | str) -> None:
+        normalized = self._clamp(self._to_decimal(value))
+        if not self._is_valid_step(normalized):
+            return
+        super().setValue(normalized)
+
+    def _handle_text_changed(self, text: str) -> None:
+        if self._is_reformatting:
+            return
+        parsed = self._parse_text(text)
+        if parsed is None:
+            if text.strip() == "":
+                normalized = Decimal("0") if self._minimum <= Decimal("0") <= self._maximum else self._minimum
+                if normalized != self._value:
+                    self._value = normalized
+                    self.valueChanged.emit(self._value)
+            return
+
+        normalized = self._clamp(parsed)
+        if not self._is_valid_step(normalized):
+            return
+        if normalized != self._value:
+            self._value = normalized
+            self.valueChanged.emit(self._value)
+
+    def _normalize_text(self) -> None:
+        parsed = self._parse_text(self.text())
+        if parsed is None:
+            parsed = Decimal("0") if self._minimum <= Decimal("0") <= self._maximum else self._minimum
+        normalized = self._clamp(parsed)
+        if not self._is_valid_step(normalized):
+            normalized = self._value
+        self._value = normalized
+        formatted = self._format_number(normalized)
+        if self.text() != formatted:
+            self._set_formatted_text(formatted)
+
+    @classmethod
+    def _is_valid_step(cls, value: Decimal) -> bool:
+        return value == 0 or value % cls._step == 0
 
 
 class AttendanceDayEntryTab(QWidget):
@@ -43,7 +88,7 @@ class AttendanceDayEntryTab(QWidget):
         self._service = service
         self._employees: list[AttendanceEmployeeRow] = []
         self._current_entry: DayEntryDTO | None = None
-        self._blow_controls: dict[int, tuple[QCheckBox | None, SelectAllSpinBox | None]] = {}
+        self._blow_controls: dict[int, tuple[QCheckBox | None, SelectAllHalfStepQuantityInput | None]] = {}
         self._cut_controls: dict[int, SelectAllQuantityInput] = {}
         self.cut_search_input: QLineEdit | None = None
         self.cut_add_button: QPushButton | None = None
@@ -258,11 +303,11 @@ class AttendanceDayEntryTab(QWidget):
         row = 0
         for work_type in entry.work_types:
             checkbox: QCheckBox | None = None
-            spinbox: SelectAllSpinBox | None = None
+            spinbox: SelectAllHalfStepQuantityInput | None = None
             if work_type.input_type == WorkInputType.QUANTITY:
                 quota_hint = f", khoán {BLOW_QUANTITY_WORK_QUOTA}" if is_blow_quantity_quota_work(work_type.name) else ""
                 layout.addWidget(QLabel(f"{work_type.name} ({work_type.unit_price:,}{quota_hint})"), row, 0)
-                spinbox = SelectAllSpinBox()
+                spinbox = SelectAllHalfStepQuantityInput()
                 spinbox.setRange(0, 100000)
                 spinbox.setMinimumWidth(120)
                 spinbox.setMaximumWidth(160)
@@ -808,7 +853,7 @@ class AttendanceDayEntryTab(QWidget):
                     if quantity <= 0:
                         continue
                     bag_type = bag_type_by_id[bag_type_id]
-                    extra_cut_total += Decimal(quantity) * Decimal(str(bag_type.excess_unit_price))
+                    extra_cut_total += Decimal(str(quantity)) * Decimal(str(bag_type.excess_unit_price))
                 total += int(extra_cut_total.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
         else:
             bag_type_by_id = {bag_type.id: bag_type for bag_type in entry.bag_types}

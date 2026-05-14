@@ -346,7 +346,7 @@ class AttendanceReportService:
             values: dict[str, Decimal | int] = {}
             for log in record.work_logs:
                 label = self._work_code(log.work_type.name)
-                amount = 1 if log.work_type.input_type == WorkInputType.TICK else int(log.quantity)
+                amount = 1 if log.work_type.input_type == WorkInputType.TICK else self._to_decimal_quantity(log.quantity)
                 values[label] = values.get(label, 0) + amount
             extra_cut_amount = sum(int(log.amount_snapshot) for log in record.extra_cut_work_logs)
             if extra_cut_amount > 0:

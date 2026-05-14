@@ -172,7 +172,7 @@ class WorkLog(AttendanceBase):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     daily_record_id: Mapped[int] = mapped_column(ForeignKey("daily_records.id", ondelete="CASCADE"), nullable=False)
     work_type_id: Mapped[int] = mapped_column(ForeignKey("work_types.id"), nullable=False)
-    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
     unit_price_snapshot: Mapped[int] = mapped_column(Integer, nullable=False)
     amount_snapshot: Mapped[int] = mapped_column(Integer, nullable=False)
 
@@ -180,7 +180,7 @@ class WorkLog(AttendanceBase):
     work_type: Mapped[WorkType] = relationship(back_populates="work_logs")
 
     __table_args__ = (
-        CheckConstraint("quantity >= 1", name="ck_work_log_quantity_positive"),
+        CheckConstraint("quantity >= 0.5", name="ck_work_log_quantity_positive"),
         CheckConstraint("unit_price_snapshot >= 0", name="ck_work_log_unit_price_non_negative"),
         CheckConstraint("amount_snapshot >= 0", name="ck_work_log_amount_non_negative"),
         UniqueConstraint("daily_record_id", "work_type_id", name="uq_work_log_daily_work_type"),

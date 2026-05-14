@@ -36,6 +36,7 @@ from modules.attendance.repository import AttendanceDayEntryRepository, Attendan
 
 
 LOGGER = get_logger(__name__)
+BLOW_QUANTITY_STEP = Decimal("0.5")
 
 
 @dataclass(frozen=True, slots=True)
@@ -449,15 +450,20 @@ class AttendanceDayEntryService:
                 )
             )
 
-    def _resolve_work_quantity(self, input_type: WorkInputType, quantity: int | None) -> int:
+    def _resolve_work_quantity(self, input_type: WorkInputType, quantity: Decimal | int | str | None) -> Decimal:
         if input_type == WorkInputType.TICK:
-            return 1
+            return Decimal("1")
         if input_type == WorkInputType.QUANTITY:
             if quantity is None:
                 raise ValidationError("quantity is required for quantity work type")
-            if quantity < 0:
+            normalized = self._quantity_to_decimal(quantity)
+            if normalized < 0:
                 raise ValidationError("quantity must be non-negative")
-            return quantity
+            if normalized == 0:
+                return normalized
+            if normalized % BLOW_QUANTITY_STEP != 0:
+                raise ValidationError("quantity must be in 0.5 increments")
+            return normalized
         raise ValidationError("unsupported work input type")
 
     def _calculate_daily_total(self, record: DailyRecord) -> int:

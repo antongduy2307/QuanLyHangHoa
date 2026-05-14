@@ -14,17 +14,17 @@ from PyQt6.QtWidgets import QApplication, QCheckBox, QDateEdit, QLabel, QPushBut
 
 import core.config
 from core.exceptions import ValidationError
-from modules.attendance.blow_work import calculate_blow_work_amount
+from modules.attendance.blow_work import BLOW_QUANTITY_QUOTA_WORK_NAME, calculate_blow_work_amount
 from modules.attendance.cut_bonus import CutBonusItem, calculate_cut_employee_bonus
 from modules.attendance.db import AttendanceSessionLocal, get_attendance_engine, init_attendance_db, reset_attendance_engine_cache
 from modules.attendance.dto import AttendanceSavePayload, BlowWorkInput, CutWorkInput, ExtraCutWorkInput
 from modules.attendance.models import BagType, CutLog, DailyRecord, DailyRecordStatus, Employee, ExtraCutWorkLog, Team, WorkInputType, WorkLog, WorkType
 from modules.attendance.service import AttendanceDayEntryService, AttendanceEmployeeService
 from modules.attendance.settings_service import AttendanceSettingsService
-from modules.attendance.ui.day_entry_tab import AttendanceDayEntryTab
+from modules.attendance.ui.day_entry_tab import AttendanceDayEntryTab, SelectAllHalfStepQuantityInput
 from modules.attendance.ui.page import AttendancePage
 from shared.widgets.message_box import MessageBox
-from shared.widgets.numeric_inputs import SelectAllQuantityInput, SelectAllSpinBox
+from shared.widgets.numeric_inputs import SelectAllQuantityInput
 
 
 class _NoopInventoryEffectService:
@@ -144,10 +144,25 @@ class BlowWorkCalculationTestCase(unittest.TestCase):
 
         self.assertEqual(amount, 60000)
 
+    def test_thua_may_decimal_above_quota_uses_excess_only(self) -> None:
+        amount = calculate_blow_work_amount(WorkInputType.QUANTITY, Decimal("8.5"), 80000, BLOW_QUANTITY_QUOTA_WORK_NAME)
+
+        self.assertEqual(amount, 440000)
+
+    def test_thua_may_decimal_below_quota_has_zero_amount(self) -> None:
+        amount = calculate_blow_work_amount(WorkInputType.QUANTITY, Decimal("2.5"), 80000, BLOW_QUANTITY_QUOTA_WORK_NAME)
+
+        self.assertEqual(amount, 0)
+
     def test_may_nho_uses_normal_quantity_formula(self) -> None:
         amount = calculate_blow_work_amount(WorkInputType.QUANTITY, 5, 30000, "Máy nhỏ")
 
         self.assertEqual(amount, 150000)
+
+    def test_decimal_quantity_work_uses_normal_quantity_formula(self) -> None:
+        amount = calculate_blow_work_amount(WorkInputType.QUANTITY, Decimal("8.5"), 30000, "MÃ¡y nhá»")
+
+        self.assertEqual(amount, 255000)
 
     def test_may_to_uses_normal_quantity_formula(self) -> None:
         amount = calculate_blow_work_amount(WorkInputType.QUANTITY, 3, 40000, "Máy to")
@@ -195,6 +210,18 @@ class AttendanceDayEntryTestCase(unittest.TestCase):
     def _work_type_id(self, name: str) -> int:
         with AttendanceSessionLocal() as session:
             return int(session.query(WorkType).filter_by(name=name).one().id)
+
+    def _first_non_quota_quantity_work_type_id(self) -> int:
+        with AttendanceSessionLocal() as session:
+            work_type = (
+                session.query(WorkType)
+                .filter(WorkType.input_type == WorkInputType.QUANTITY)
+                .filter(WorkType.name != BLOW_QUANTITY_QUOTA_WORK_NAME)
+                .order_by(WorkType.id.asc())
+                .first()
+            )
+            assert work_type is not None
+            return int(work_type.id)
 
     def _bag_type_id(self, name: str) -> int:
         with AttendanceSessionLocal() as session:
@@ -617,6 +644,36 @@ class AttendanceDayEntryTestCase(unittest.TestCase):
 
         self.assertEqual(result.total_amount_snapshot, 60000)
 
+    def test_thua_may_decimal_quantity_above_quota_uses_excess_only(self) -> None:
+        employee = self.employee_service.create_employee(name="Blow Qty Decimal Above", team=Team.BLOW)
+        work_type_id = self._work_type_id(BLOW_QUANTITY_QUOTA_WORK_NAME)
+
+        result = self.service.save_attendance(
+            AttendanceSavePayload(
+                employee_id=employee.id,
+                selected_date=date(2026, 5, 6),
+                blow_work=[BlowWorkInput(work_type_id=work_type_id, quantity=Decimal("8.5"))],
+            ),
+            finalize=True,
+        )
+
+        self.assertEqual(result.total_amount_snapshot, 440000)
+
+    def test_thua_may_decimal_quantity_below_quota_has_zero_amount(self) -> None:
+        employee = self.employee_service.create_employee(name="Blow Qty Decimal Below", team=Team.BLOW)
+        work_type_id = self._work_type_id(BLOW_QUANTITY_QUOTA_WORK_NAME)
+
+        result = self.service.save_attendance(
+            AttendanceSavePayload(
+                employee_id=employee.id,
+                selected_date=date(2026, 5, 6),
+                blow_work=[BlowWorkInput(work_type_id=work_type_id, quantity=Decimal("2.5"))],
+            ),
+            finalize=True,
+        )
+
+        self.assertEqual(result.total_amount_snapshot, 0)
+
     def test_non_thua_may_quantity_work_uses_normal_quantity_formula(self) -> None:
         employee = self.employee_service.create_employee(name="Blow Qty Normal", team=Team.BLOW)
         may_nho_id = self._work_type_id("Máy nhỏ")
@@ -654,6 +711,54 @@ class AttendanceDayEntryTestCase(unittest.TestCase):
         )
 
         self.assertEqual(result.total_amount_snapshot, 40000)
+
+    def test_decimal_blow_quantity_work_computes_and_saves(self) -> None:
+        employee = self.employee_service.create_employee(name="Blow Qty Decimal Normal", team=Team.BLOW)
+        may_nho_id = self._first_non_quota_quantity_work_type_id()
+
+        result = self.service.save_attendance(
+            AttendanceSavePayload(
+                employee_id=employee.id,
+                selected_date=date(2026, 5, 6),
+                blow_work=[BlowWorkInput(work_type_id=may_nho_id, quantity=Decimal("8.5"))],
+            ),
+            finalize=True,
+        )
+
+        self.assertEqual(result.total_amount_snapshot, 255000)
+        entry = self.service.get_day_entry(employee.id, date(2026, 5, 6))
+        self.assertEqual(entry.work_logs[0].quantity, Decimal("8.500"))
+
+    def test_half_blow_quantity_is_valid(self) -> None:
+        employee = self.employee_service.create_employee(name="Blow Qty Half", team=Team.BLOW)
+        may_nho_id = self._first_non_quota_quantity_work_type_id()
+
+        result = self.service.save_attendance(
+            AttendanceSavePayload(
+                employee_id=employee.id,
+                selected_date=date(2026, 5, 6),
+                blow_work=[BlowWorkInput(work_type_id=may_nho_id, quantity=Decimal("0.5"))],
+            ),
+            finalize=True,
+        )
+
+        self.assertEqual(result.total_amount_snapshot, 15000)
+
+    def test_blow_quantity_rejects_non_half_increments(self) -> None:
+        employee = self.employee_service.create_employee(name="Blow Qty Invalid Decimal", team=Team.BLOW)
+        may_nho_id = self._first_non_quota_quantity_work_type_id()
+
+        for quantity in (Decimal("0.3"), Decimal("0.7"), Decimal("1.25")):
+            with self.subTest(quantity=quantity):
+                with self.assertRaises(ValidationError):
+                    self.service.save_attendance(
+                        AttendanceSavePayload(
+                            employee_id=employee.id,
+                            selected_date=date(2026, 5, 6),
+                            blow_work=[BlowWorkInput(work_type_id=may_nho_id, quantity=quantity)],
+                        ),
+                        finalize=True,
+                    )
 
     def test_save_blow_done_status_label(self) -> None:
         employee = self.employee_service.create_employee(name="Blow A", team=Team.BLOW)
@@ -967,27 +1072,45 @@ class AttendanceDayEntryTestCase(unittest.TestCase):
         quantity_checkbox, quantity_spinbox = tab._blow_controls[may_nho_id]
         glove_checkbox, glove_spinbox = tab._blow_controls[glove_id]
         self.assertIsNone(quantity_checkbox)
-        self.assertIsInstance(quantity_spinbox, SelectAllSpinBox)
+        self.assertIsInstance(quantity_spinbox, SelectAllHalfStepQuantityInput)
         self.assertNotIsInstance(quantity_spinbox, QSpinBox)
         self.assertIsInstance(glove_checkbox, QCheckBox)
         self.assertIsNone(glove_spinbox)
 
-        quantity_spinbox.setValue(2)
+        quantity_spinbox.setValue(Decimal("8.5"))
         glove_checkbox.setChecked(True)
-        self.assertEqual(tab.total_label.text(), "90,000")
+        self.assertEqual(tab.total_label.text(), "285,000")
         with patch.object(MessageBox, "info"), patch.object(MessageBox, "warning"), patch.object(MessageBox, "error"):
             tab._save_current(finalize=True)
 
         with AttendanceSessionLocal() as session:
             record = session.query(DailyRecord).filter_by(employee_id=employee.id, date=date(2026, 5, 6)).one()
             logs = {log.work_type_id: log for log in session.query(WorkLog).filter_by(daily_record_id=record.id).all()}
-            self.assertEqual(logs[may_nho_id].quantity, 2)
+            self.assertEqual(logs[may_nho_id].quantity, Decimal("8.500"))
             self.assertEqual(logs[glove_id].quantity, 1)
-            self.assertEqual(record.total_amount_snapshot, 90000)
+            self.assertEqual(record.total_amount_snapshot, 285000)
 
         tab._load_selected_employee()
         _checkbox, reloaded_quantity_spinbox = tab._blow_controls[may_nho_id]
-        self.assertEqual(reloaded_quantity_spinbox.value(), 2)
+        self.assertEqual(reloaded_quantity_spinbox.value(), Decimal("8.5"))
+        self.assertEqual(reloaded_quantity_spinbox.text(), "8.5")
+
+    def test_blow_quantity_input_accepts_half_steps_only(self) -> None:
+        self.employee_service.create_employee(name="Blow UI Half Step", team=Team.BLOW)
+        may_nho_id = self._first_non_quota_quantity_work_type_id()
+        tab = AttendanceDayEntryTab(self.service)
+        tab.date_edit.setDate(QDate(2026, 5, 6))
+        tab.employee_table.selectRow(0)
+        QApplication.processEvents()
+
+        _checkbox, quantity_input = tab._blow_controls[may_nho_id]
+        assert quantity_input is not None
+        quantity_input.setText("8.5")
+        self.assertEqual(quantity_input.value(), Decimal("8.5"))
+        quantity_input.setText("8.7")
+        self.assertEqual(quantity_input.value(), Decimal("8.5"))
+        quantity_input.editingFinished.emit()
+        self.assertEqual(quantity_input.text(), "8.5")
 
     def test_blow_quantity_labels_only_show_quota_hint_for_thua_may(self) -> None:
         self.employee_service.create_employee(name="Blow Label", team=Team.BLOW)

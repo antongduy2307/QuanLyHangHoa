@@ -148,6 +148,29 @@ class AttendanceReportTestCase(unittest.TestCase):
         self.assertIn("60,000", date_row.values)
         self.assertNotIn("150,000", date_row.values)
 
+    def test_blow_report_displays_decimal_quantity_cleanly(self) -> None:
+        employee = self.employee_service.create_employee(name="Blow Decimal Report", team=Team.BLOW)
+        work_type = self.settings_service.create_work_type(
+            name="Report decimal quantity",
+            input_type=WorkInputType.QUANTITY,
+            unit_price=30000,
+        )
+        selected_date = date(2026, 5, 2)
+        self.day_service.save_attendance(
+            AttendanceSavePayload(
+                employee_id=employee.id,
+                selected_date=selected_date,
+                blow_work=[BlowWorkInput(work_type_id=work_type.id, quantity=Decimal("8.5"))],
+            ),
+            finalize=True,
+        )
+        period_id = self._period_id_for(selected_date)
+
+        model = self.report_service.build_report(team=Team.BLOW, period_id=period_id, today=selected_date)
+
+        date_row = self._model_row(model, "02/05")
+        self.assertEqual(date_row.values, ["02/05", "8.5", "255,000", "255,000"])
+
     def test_blow_report_uses_corrected_quantity_tick_and_total_snapshots(self) -> None:
         employee = self.employee_service.create_employee(name="Blow Report Mixed", team=Team.BLOW)
         thua_may_id = self._work_type_id("Thừa máy")
@@ -550,6 +573,35 @@ class AttendanceReportTestCase(unittest.TestCase):
         self.assertIn(["Blow Monthly", "9", "1", "295,000"], [row.values for row in model.rows])
         self.assertEqual(model.rows[-1].values, ["Tổng", "9", "1", "295,000"])
         self.assertEqual(model.total_amount, 295000)
+
+    def test_blow_monthly_report_sums_decimal_quantities_without_truncation(self) -> None:
+        employee = self.employee_service.create_employee(name="Blow Monthly Decimal Quantity", team=Team.BLOW)
+        quantity_type = self.settings_service.create_work_type(
+            name="Monthly decimal quantity",
+            input_type=WorkInputType.QUANTITY,
+            unit_price=30000,
+        )
+        self.day_service.save_attendance(
+            AttendanceSavePayload(
+                employee_id=employee.id,
+                selected_date=date(2026, 5, 2),
+                blow_work=[BlowWorkInput(work_type_id=quantity_type.id, quantity=Decimal("8.5"))],
+            ),
+            finalize=True,
+        )
+        self.day_service.save_attendance(
+            AttendanceSavePayload(
+                employee_id=employee.id,
+                selected_date=date(2026, 5, 12),
+                blow_work=[BlowWorkInput(work_type_id=quantity_type.id, quantity=Decimal("1.5"))],
+            ),
+            finalize=True,
+        )
+
+        model = self.report_service.build_monthly_report(team=Team.BLOW, month_date=date(2026, 5, 1))
+
+        self.assertIn(["Blow Monthly Decimal Quantity", "10", "300,000"], [row.values for row in model.rows])
+        self.assertEqual(model.rows[-1].values[1:], ["10", "300,000"])
 
     def test_blow_monthly_report_includes_vk_money(self) -> None:
         employee = self.employee_service.create_employee(name="Blow Monthly VK", team=Team.BLOW)

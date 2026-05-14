@@ -1,978 +1,1035 @@
-# PROJECT HANDOFF SUMMARY - QuanLyHangHoa
+# PROJECT_HANDOFF_SUMMARY
 
-Tài liệu này là bản bàn giao trạng thái dự án để tiếp tục phát triển trong một phiên ChatGPT/Codex mới. Nội dung viết bằng tiếng Việt, nhưng giữ nguyên code identifiers, file paths, class names, function names, table names và command lines.
+Tài liệu này là bản bàn giao trạng thái dự án `QuanLyHangHoa` tại thời điểm 2026-05-13. Mục tiêu là giúp một phiên ChatGPT/Codex mới có thể hiểu phần lớn bối cảnh kỹ thuật, nghiệp vụ, các quyết định đã chốt, các tính năng lớn vừa làm, và các điểm cần cẩn trọng khi tiếp tục phát triển.
 
-## A. Tổng Quan Dự Án
+Ngôn ngữ mô tả dùng tiếng Việt. Tên file, class, function, table, command line và code identifier được giữ nguyên tiếng Anh.
 
-### 1. Tên và mục đích
+## A. Tổng quan dự án
 
-Ứng dụng: `QuanLyHangHoa`.
+### 1. App name và mục đích
 
-Mục đích: ứng dụng desktop nội bộ để quản lý hàng hóa, tồn kho, bán hàng, trả hàng, khách hàng/công nợ, đơn đặt hàng, báo cáo, lịch sử giao dịch, chấm công sản xuất, cài đặt, sao lưu, chẩn đoán và cập nhật ứng dụng.
+`QuanLyHangHoa` là ứng dụng desktop nội bộ để quản lý hàng hóa và vận hành cửa hàng/xưởng, bao gồm:
+
+- Quản lý hàng hóa, tồn kho, nhập kho, điều chỉnh kho.
+- Bán hàng, hóa đơn, trả hàng.
+- Khách hàng, công nợ, thanh toán.
+- Đặt hàng.
+- Báo cáo và lịch sử giao dịch.
+- Chấm công sản xuất cho tổ thổi và tổ cắt.
+- Cài đặt, sao lưu, diagnostics, cập nhật phiên bản.
 
 ### 2. Loại ứng dụng hiện tại
 
 - Python desktop app.
-- UI dùng `PyQt6`.
-- ORM dùng `SQLAlchemy`.
-- Dữ liệu cục bộ bằng SQLite.
-- Có hai SQLite DB chính:
-  - main app DB: `app.db`.
-  - attendance DB: `attendance.db`.
-- Đóng gói Windows bằng `PyInstaller` qua `desktop_app.spec`.
-- Installer Windows bằng Inno Setup qua `installer/QuanLyHangHoa.iss`.
-- CI/CD bằng GitHub Actions:
-  - `.github/workflows/ci.yml`
-  - `.github/workflows/release.yml`
-- Test runner chính: `unittest`.
-- Qt tests chạy offscreen qua `QT_QPA_PLATFORM=offscreen`.
+- UI dùng Qt qua `PySide6`/Qt-style widgets.
+- ORM dùng SQLAlchemy.
+- Database local dùng SQLite.
+- Có hai SQLite DB tách riêng:
+  - Main app DB: `app.db`.
+  - Attendance DB: `attendance.db`.
+- Release desktop dùng PyInstaller qua `desktop_app.spec`.
+- Installer Windows dùng Inno Setup qua `installer/QuanLyHangHoa.iss`.
+- CI/CD dùng GitHub Actions trên Windows runner.
 
-### 3. Business domains
+### 3. Main business domains
 
-- `modules.inventory`: hàng hóa, giá bán, tồn kho, nhập kho, điều chỉnh tồn, xóa/ngừng sử dụng hàng.
-- `modules.sales`: bán hàng, hóa đơn, sửa/xóa hóa đơn, tác động tồn kho và công nợ.
-- `modules.returns`: trả hàng, quick return, trả theo hóa đơn, tác động tồn kho và công nợ.
-- `modules.customer`: khách hàng, công nợ, ledger, debt payments.
-- `modules.orders`: đơn đặt hàng, chuyển đơn sang bán hàng, không tự trừ tồn ở bước tạo đơn.
-- `modules.reporting`: báo cáo kinh doanh/tồn kho.
-- `shell.history_page` và các list/detail views: lịch sử giao dịch, hóa đơn, trả hàng, thanh toán nợ.
-- `modules.attendance`: nhân viên, chấm công ngày, báo cáo chấm công, cấu hình giá chấm công, đồng bộ product -> CUT work, CUT/VK -> inventory effects.
-- `modules.settings`: cài đặt chung, UI scale, backup, diagnostics, update check, attendance price settings, attendance-inventory diagnostics panel.
+Các domain chính hiện có trong repo:
 
-### 4. Version hiện tại
+- `modules/inventory`: hàng hóa, tồn kho, nhập kho, điều chỉnh kho, effect tồn kho.
+- `modules/sales`: bán hàng, hóa đơn, dòng hóa đơn, thanh toán theo hóa đơn.
+- `modules/returns`: trả hàng, dòng trả hàng, hoàn tồn kho/công nợ.
+- `modules/customer`: khách hàng, công nợ, ledger thanh toán.
+- `modules/orders`: đơn đặt hàng/yêu cầu đặt hàng.
+- `modules/reporting`: báo cáo nghiệp vụ.
+- `modules/attendance`: nhân viên, chấm công, báo cáo chấm công, cấu hình giá, đồng bộ CUT work từ sản phẩm, effect tồn kho từ sản lượng CUT/VK.
+- `modules/settings`: cài đặt chung, backup, diagnostics, update check, admin diagnostics.
+- `shell`: app shell, navigation, page composition.
+- `shared`: widgets, UI utilities, shared dialogs/helpers.
 
-Trong `core/version.py`:
+### 4. Version/release status
 
-```python
-APP_VERSION = "0.8.0"
-```
+Version hiện tại detect được:
 
-Trong `version.json` hiện tại:
+- `core/version.py`: `APP_VERSION = "0.8.1"`.
+- `version.json`: `"version": "0.8.1"`.
+- `version.json` hiện trỏ installer URL tới repo GitHub:
+  `https://github.com/antongduy2307/QuanLyHangHoa/releases/download/v0.8.1/QuanLyHangHoa-Setup-v0.8.1.exe`
 
-```json
-{
-  "version": "0.8.0",
-  "installer_url": "https://github.com/antongduy2307/QuanLyHangHoa/releases/download/v0.8.0/QuanLyHangHoa-Setup-v0.8.0.exe",
-  "notes": [
-    "Adding sync from Goods to Attendance",
-    ":3"
-  ],
-  "min_required_version": "0.7.0"
-}
-```
+Lưu ý: `installer/QuanLyHangHoa.iss` có `#define MyAppVersion GetEnv("APP_VERSION")` fallback `"0.7.3"`, nhưng release scripts thường truyền version khi build. Trước khi release cần kiểm tra lại `version.json`, tag, installer name, và Inno version.
 
-### 5. File/thư mục quan trọng
+### 5. Important repo/tooling files
 
-- `main.py`: entrypoint ứng dụng.
-- `core/`: cấu hình, paths, DB init, migrations, enums, logging, version.
-- `shell/`: bootstrap app, main window, navigation tabs, history page.
-- `modules/`: domain modules.
-- `shared/`: widgets dùng chung, theme, UI scale, message box, table helper.
-- `tests/`: unittest suite.
-- `.github/workflows/`: CI/release workflows.
-- `scripts/`: build/check scripts (`build_exe.ps1`, `build_installer.ps1`, `check_version.ps1`).
+- `main.py`: entrypoint chạy app Qt.
+- `core/`: config, paths, DB init/migrations, logging, update/version, backup/diagnostics helpers.
+- `shell/`: bootstrap app, main window, navigation, page wiring.
+- `modules/`: các domain business modules.
+- `shared/`: widgets, UI helper, message box, theme, reusable table selection mode.
+- `tests/`: unittest suite, gồm cả Qt offscreen tests.
+- `.github/workflows/ci.yml`: CI unittest + compileall.
+- `.github/workflows/release.yml`: release workflow, build exe/installer, upload artifact.
+- `scripts/`: build/check version scripts, PyInstaller/Inno orchestration.
 - `desktop_app.spec`: PyInstaller spec.
-- `installer/QuanLyHangHoa.iss`: Inno Setup script.
-- `docs/`: các investigation/batch reports đã sinh trong quá trình phát triển.
+- `installer/QuanLyHangHoa.iss`: Inno Setup installer script.
+- `requirements.txt`: dependencies.
+- `version.json`: update manifest.
 
-## B. Kiến Trúc Tổng Quan
+## B. Architecture overview
 
 ### 1. Main shell/window
 
-Files:
+Các file chính:
 
 - `main.py`
 - `shell/bootstrap.py`
 - `shell/app_window.py`
-- `shell/navigation.py`
-- `shell/history_page.py`
 
-`shell/bootstrap.py`:
+Luồng khởi động chính:
 
-- `ACTIVE_MODULE_PACKAGES` hiện gồm:
-  - `modules.inventory`
-  - `modules.sales`
-  - `modules.orders`
-  - `modules.customer`
-  - `modules.reporting`
-  - `modules.attendance`
-  - `modules.settings`
-- `bootstrap_application(app)`:
-  - đọc `Settings` từ `core.config.get_settings()`;
-  - cấu hình logging;
-  - install exception hooks;
-  - apply theme;
-  - gọi `init_db()` cho main DB trước khi dựng UI;
-  - load module specs;
-  - tạo `AppWindow`.
+1. `main.py` tạo `QApplication`.
+2. Gọi `shell.bootstrap.bootstrap_application()`.
+3. `bootstrap_application()`:
+   - cấu hình logging/theme/runtime;
+   - gọi `core.db.init_db()` trước khi tạo UI DB-backed pages;
+   - load module packages trong `ACTIVE_MODULE_PACKAGES`;
+   - tạo `AppWindow`;
+   - setup startup update check timer.
+4. `AppWindow` dựng các large tabs/pages từ module registry.
 
-`shell/app_window.py`:
+`shell/bootstrap.py` hiện có:
 
-- Class: `AppWindow(QMainWindow)`.
-- Tạo `NavigationTabs`.
-- Chèn `HistoryPage` trước `attendance` và `settings`, nên tab order thực tế là:
-  - `Hàng hóa`
-  - `Bán hàng`
-  - `Đặt hàng`
-  - `Khách hàng`
-  - `Báo cáo`
-  - `Lịch sử`
-  - `Chấm công`
-  - `Cài đặt`
-- Giữ refs:
-  - `_history_page`
-  - `_attendance_page`
-  - `_reporting_page`
-  - `_settings_page`
-- Signal/event quan trọng:
-  - settings `check_updates_requested` -> update service.
-  - settings `backup_requested` -> `UserBackupService`.
-  - settings `export_diagnostics_requested` -> `DiagnosticsService`.
-  - settings `attendance_config_changed` -> refresh attendance page.
-  - module pages `transaction_changed`/`order_changed` -> refresh history/reporting/customer/inventory/orders.
-- Khi chuyển vào tab lớn `Chấm công`, `_handle_enter_attendance_tab()` chạy `AttendanceProductSyncService.sync_products_to_cut_work()`, log warnings, và nếu có incomplete CUT work thì show popup “Thiếu cấu hình việc cắt”.
+```python
+ACTIVE_MODULE_PACKAGES = (
+    "modules.inventory",
+    "modules.sales",
+    "modules.orders",
+    "modules.customer",
+    "modules.reporting",
+    "modules.attendance",
+    "modules.settings",
+)
+```
+
+Large tab order hiện tại về cơ bản là:
+
+1. Hàng hóa / inventory.
+2. Bán hàng / sales.
+3. Đặt hàng / orders.
+4. Khách hàng / customer.
+5. Báo cáo / reporting.
+6. Lịch sử / history.
+7. Chấm công / attendance.
+8. Cài đặt / settings.
+
+`HistoryPage` được insert trong `AppWindow` trước attendance/settings. `AppWindow` cũng giữ `_module_pages` để refresh liên module.
+
+Một số signal/event quan trọng trong `AppWindow`:
+
+- Inventory/product changes refresh sales/customer/history/reporting/orders where needed.
+- Sales/returns/customer events refresh history/customer/reporting/inventory.
+- Settings `attendance_config_changed` refresh attendance page.
+- Entering Attendance large tab chạy product-to-attendance sync và warning popup cấu hình CUT.
+- Settings page có method `open_attendance_price_settings(first_incomplete_id=None)` để mở đúng tab cấu hình giá chấm công.
 
 ### 2. Module pattern
 
-Pattern phổ biến:
+Phần lớn modules theo pattern:
 
-- `models.py`: SQLAlchemy models.
-- `repository.py`: query/persistence primitives.
-- `service.py`: business rules, validation, transaction orchestration.
-- `controller.py`: adapter giữa UI và service.
-- `ui/`: pages/widgets/dialogs.
-- `dto.py`: DTOs cho UI/service.
-- `tests/test_*.py`: unittest coverage.
+- `models.py`: SQLAlchemy ORM models.
+- `repository.py`: DB query/persistence functions.
+- `service.py`: business logic, validation, transaction orchestration.
+- `controller.py`: bridge giữa UI và service.
+- `ui/`: QWidget/page/dialog/table view.
+- `tests/test_*.py`: unittest coverage theo domain.
 
-Ví dụ:
+Không phải module nào cũng có đủ tất cả lớp, nhưng pattern chung là:
 
-- Inventory:
-  - `modules/inventory/models.py`
-  - `modules/inventory/repository.py`
-  - `modules/inventory/service.py`
-  - `modules/inventory/controller.py`
-  - `modules/inventory/ui/product_list_view.py`
-- Attendance:
-  - `modules/attendance/models.py`
-  - `modules/attendance/repository.py`
-  - `modules/attendance/service.py`
-  - `modules/attendance/settings_service.py`
-  - `modules/attendance/product_sync_service.py`
-  - `modules/attendance/inventory_effect_service.py`
-  - `modules/attendance/inventory_diagnostic_service.py`
-  - `modules/attendance/ui/*`
+- UI không nên chứa business rule phức tạp.
+- Service giữ validation và rollback/apply.
+- Repository giữ query chi tiết.
+- Controller chuẩn hóa API cho UI.
 
 ### 3. Database/session pattern
 
 Main DB:
 
-- File path logic: `core/config.py`, `core/paths.py`.
-- Default DB path: `get_settings().db_path`, thường là `%LOCALAPPDATA%/QuanLyHangHoa/app.db`.
-- SQLAlchemy base/session:
-  - `core.db.Base`
-  - `core.db.ENGINE`
+- File path mặc định: `settings.db_path`, thường là `<LOCALAPPDATA>/QuanLyHangHoa/app.db`; fallback local `data/app.db`.
+- Init: `core.db.init_db()`.
+- Engine/session:
+  - `core.db.get_engine()`
   - `core.db.SessionFactory`
-- Init:
-  - `core.db.init_db()`
-  - imports models from customer/inventory/orders/returns/sales.
-  - `Base.metadata.create_all(bind=ENGINE)`.
-  - idempotent migrations:
-    - customer address/note/is_active columns;
-    - customer ledger ordering columns;
-    - `migrate_customer_invoice_payments_to_debt_payment_v1(...)`.
-- Test reset helper:
-  - `core.db.reset_engine_cache()`.
+  - `core.db.get_session()`
+  - `core.db.reset_engine_cache()`
 
 Attendance DB:
 
-- Path: `modules.attendance.db.get_attendance_db_path()` -> `get_settings().app_data_dir / "attendance.db"`.
-- SQLAlchemy base/session:
-  - `AttendanceBase`
-  - `AttendanceSessionLocal`
-  - `get_attendance_engine()`.
-- Init:
-  - `init_attendance_db()`;
-  - `AttendanceBase.metadata.create_all(bind=engine)`;
-  - `_upgrade_attendance_schema(engine)`;
-  - `seed_attendance_defaults(session)`.
-- Test reset helper:
-  - `reset_attendance_engine_cache()`.
+- File path: `modules.attendance.db.get_attendance_db_path()`, thường là `<LOCALAPPDATA>/QuanLyHangHoa/attendance.db`.
+- Init: `modules.attendance.db.init_attendance_db()`.
+- Engine/session:
+  - `modules.attendance.db.get_attendance_engine()`
+  - `modules.attendance.db.AttendanceSessionLocal`
+  - `modules.attendance.db.get_attendance_session()`
+  - `modules.attendance.db.reset_attendance_engine_cache()`
 
-Rủi ro quan trọng:
+Rủi ro đã từng gặp:
 
-- `core.config.get_settings()` dùng `lru_cache`, nên tests cần `cache_clear()` sau khi đổi env vars.
-- Main DB `ENGINE` được tạo khi import `core.db`; tests cần `reset_engine_cache()` nếu đổi runtime path.
-- Attendance engine cũng cached qua `lru_cache`.
-- Không tạo UI DB-backed trước khi gọi `init_db()`/`init_attendance_db()` trong tests/smoke.
+- Nếu test/UI tạo DB connection trước `init_db()`, SQLite có thể tạo file rỗng, sau đó query `invoices` gây `sqlite3.OperationalError: no such table: invoices`.
+- Settings và engine đều có cache; test phải reset cache trước/sau khi đổi temp runtime dir.
+- Test temp dirs không nên nằm trong `tests/_tmp` hoặc `tests/_diagnostics_tmp` vì có thể gây permission warnings/locked dirs trong Git.
 
 ### 4. Configuration/path pattern
 
-Files:
+Các file chính:
 
 - `core/config.py`
 - `core/paths.py`
 
-Key env vars:
+`core/config.py`:
 
-- `APP_NAME`
-- `APP_RUNTIME_DIR_NAME`
-- `APP_DB_PATH`
-- `APP_LOG_DIR`
-- `APP_EXPORT_DIR`
-- `APP_BACKUP_DIR`
-- `APP_TEMP_DIR`
-- `APP_LOG_LEVEL`
-- `APP_UPDATE_MANIFEST_URL`
-- `APP_UPDATE_TIMEOUT_MS`
-- `APP_UPDATE_DOWNLOAD_TIMEOUT_MS`
-- `APP_UPDATE_DOWNLOAD_RETRY_COUNT`
-- `APP_UPDATE_STARTUP_DELAY_MS`
+- `DEFAULT_APP_NAME = "QuanLyHangHoa"`.
+- `Settings` chứa:
+  - `app_name`
+  - `app_data_dir`
+  - `db_path`
+  - `log_dir`
+  - `export_dir`
+  - `backup_dir`
+  - `temp_dir`
+  - `log_level`
+  - update manifest URL/timeouts/retries/startup delay.
+- `get_settings()` có cache.
 
-Default:
+`core/paths.py`:
 
-- Runtime dir under `%LOCALAPPDATA%/QuanLyHangHoa`.
-- If `LOCALAPPDATA` missing, fallback legacy `data/` under repo.
-- Có migration từ legacy runtime dir sang current dir trong `migrate_legacy_runtime_dir(...)`.
+- Nếu có `LOCALAPPDATA`, runtime nằm trong `%LOCALAPPDATA%\QuanLyHangHoa`.
+- Nếu không, fallback về `data/` trong repo/app folder.
+- Main DB mặc định là `app.db`.
+- Attendance DB nằm cùng app data dir với tên `attendance.db`.
+- Logs/exports/backups/temp nằm dưới runtime dir.
 
-### 5. Error/log/message pattern
+### 5. Error handling/UI message pattern
 
-- Custom exceptions: `core.exceptions.AppError`, `ValidationError`, `RepositoryError`, `NotFoundError`.
-- User-facing UI message helper: `shared/widgets/message_box.py` (`MessageBox.info/warning/error`).
-- Logging:
-  - `core.logging.configure_logging(...)`.
-  - Diagnostics export dùng log tail.
-- Nguyên tắc: không swallow lỗi DB thật bằng broad try/except trong service; UI có thể catch để show message, tests phải init DB đúng thay vì dựa vào lỗi bị nuốt.
+- UI dùng `shared.widgets.message_box.MessageBox` cho info/warning/error/confirm.
+- Domain/service validation thường raise `ValidationError` hoặc service-level error rõ nghĩa.
+- UI nên hiển thị thông báo thân thiện, không để raw `sqlite3.IntegrityError` hoặc `OperationalError` lộ trực tiếp cho user.
+- Logging dùng `core.logging`/standard logging. Các lỗi sync/inventory diagnostics nên log context như `daily_record_id`, `employee_id`, `date`.
 
-## C. Databases Và Schemas
+## C. Databases and schemas
 
 ### 1. Main app DB
 
-Base: `core.db.Base`.
+Main DB do `core.db.Base` quản lý, khởi tạo bởi `core.db.init_db()`.
 
-#### `Product`
+Các nhóm bảng chính:
 
-- File: `modules/inventory/models.py`
-- Class: `Product`
-- Table: `products`
-- Fields chính:
-  - `id`
-  - `product_code_base` unique/indexed
-  - `product_name`
-  - `unit_mode`
-  - `is_active`
-  - `created_at`
-  - `updated_at`
-- Relationships:
-  - `prices`
-  - `inventory_balance`
-  - `receipt_items`
-  - `adjustment_items`
-  - `invoice_items`
-  - `return_items`
-- Constraints:
-  - non-blank product code/name.
-- Soft-delete:
-  - `Product.is_active = False` khi có history.
-  - hard delete nếu không có history.
-
-#### `ProductPrice`
-
-- Table: `product_prices`.
-- Unique: `(product_id, unit_type)`.
-- Fields: `product_id`, `unit_type`, `price`, `is_enabled`.
-- Service validates unit compatibility.
-
-#### `InventoryBalance`
-
-- Table: `inventory_balances`.
-- One row per product.
-- Fields:
-  - `product_id` unique FK.
-  - `on_hand_bao_decimal`
-  - `on_hand_bich_integer`
-- Rules:
-  - `BAO_KG` stores stock only in `on_hand_bao_decimal`.
-  - `BICH` stores stock only in `on_hand_bich_integer`.
-  - KG is derived from BAO by service, not stored as independent balance.
-  - Negative stock is allowed for oversell/correction workflows.
-
-#### `InventoryReceipt` / `InventoryReceiptItem`
-
-- Tables:
+- Products/hàng hóa:
+  - `products`
+  - `product_prices`
+- Inventory/tồn kho:
+  - `inventory_balances`
   - `inventory_receipts`
   - `inventory_receipt_items`
-- Receipt increases stock through `InventoryService.create_receipt(...)`.
-- Quantity interpreted by product mode.
-
-#### `InventoryAdjustment` / `InventoryAdjustmentItem`
-
-- Tables:
   - `inventory_adjustments`
   - `inventory_adjustment_items`
-- Adjustment stores `old_quantity`, `new_quantity`, computed `delta_quantity`.
-- `new_quantity >= 0`, old may be negative.
-
-#### `InventoryStockEffect`
-
-- File: `modules/inventory/models.py`
-- Class: `InventoryStockEffect`
-- Table: `inventory_stock_effects`
-- Purpose: durable source-reference layer for attendance production stock effects.
-- Fields:
-  - `source_type`
-  - `source_id`
-  - `source_line_type`
-  - `source_line_id`
-  - `attendance_employee_id`
-  - `attendance_work_date`
-  - `attendance_bag_type_id`
-  - `product_id`
-  - `quantity_delta`
-  - `unit_type`
-  - `movement_datetime`
-  - `note`
-  - `created_at`
-  - `updated_at`
-- Unique:
-  - `(source_type, source_id, source_line_type, source_line_id)`.
-- Indexes:
-  - `(source_type, source_id)`
-  - `product_id`.
-- Important hardening: `source_line_id` is non-null and service validates it before inserting.
-
-#### `Invoice` / `InvoiceItem`
-
-- File: `modules/sales/models.py`
-- Tables:
+  - `inventory_stock_effects`
+- Sales:
   - `invoices`
   - `invoice_items`
-- Fields:
-  - `invoice_code`
-  - nullable `customer_id`
-  - `customer_snapshot_name`
-  - `invoice_datetime`
-  - `total_amount`
-  - `paid_amount`
-  - `payment_method`
-  - `status`
-  - items have product/unit/quantity/price snapshots.
-- Snapshot fields preserve display after product/customer changes.
-
-#### `ReturnInvoice` / `ReturnInvoiceItem`
-
-- File: `modules/returns/models.py`
-- Tables:
+- Returns:
   - `return_invoices`
   - `return_invoice_items`
-- Fields:
-  - `return_code`
-  - optional `source_invoice_id`
-  - optional `customer_id`
-  - `customer_snapshot_name`
-  - `is_quick_return`
-  - `return_datetime`
-  - `total_amount`
-  - `handling_mode`
-  - items snapshot product/unit/price/quantity.
-
-#### `Customer` / `CustomerBalanceLedger`
-
-- File: `modules/customer/models.py`
-- Tables:
+- Customers/debt:
   - `customers`
   - `customer_balance_ledgers`
-- `Customer` fields:
-  - `customer_name`
-  - `phone`
-  - `address`
-  - `note`
-  - `current_balance`
-  - `total_sales`
-  - `is_walk_in`
-  - `is_active`
-- `CustomerBalanceLedger` fields:
-  - `customer_id`
-  - `event_type`
-  - `ref_type`
-  - `ref_id`
-  - `source_ref_type`
-  - `source_ref_id`
-  - `display_order`
-  - `amount_delta`
-  - `balance_after`
-  - `transaction_datetime`
-  - `note`
-- Ledger order/source fields were added to avoid ref-id collision and preserve invoice/debt-payment ordering.
-
-#### `OrderRequest` / `OrderRequestItem`
-
-- File: `modules/orders/models.py`
-- Tables:
+- Orders:
   - `order_requests`
   - `order_request_items`
-- Orders store requested products/quantities and optional link to source invoice.
-- Creating orders does not directly mutate inventory.
 
 ### 2. Attendance DB
 
-Base: `modules.attendance.db.AttendanceBase`.
+Attendance DB do `modules.attendance.models.AttendanceBase` quản lý, khởi tạo bởi `modules.attendance.db.init_attendance_db()`.
 
-#### `Employee`
+Các bảng chính:
 
-- File: `modules/attendance/models.py`
-- Table: `employees`
-- Fields:
-  - `id`
-  - `name` unique
-  - `team`: `Team.BLOW` or `Team.CUT`
-  - `is_active`
-- Delete behavior:
-  - hard delete if no `DailyRecord`.
-  - deactivate if has `DailyRecord`.
+- `employees`
+- `periods`
+- `employee_shift_periods`
+- `daily_records`
+- `work_types`
+- `work_logs`
+- `bag_types`
+- `cut_logs`
+- `extra_cut_work_logs`
 
-#### `Period` / `EmployeeShiftPeriod`
+### 3. `Product`
 
-- Tables:
-  - `periods`
-  - `employee_shift_periods`
-- `Period` has `start_date`, `end_date`, `locked`, `created_at`.
-- Unique period date range.
+File:
 
-#### `DailyRecord`
+- `modules/inventory/models.py`
 
-- Table: `daily_records`
-- Fields:
-  - `employee_id`
-  - `date`
-  - `period_id`
-  - `is_absent`
-  - `status`: `DRAFT` or `DONE`
-  - `total_amount_snapshot`
-- Unique: `(employee_id, date)`.
-- Relationships:
-  - `work_logs`
-  - `cut_logs`
-  - `extra_cut_work_logs`.
+Class/table:
 
-#### `WorkType` / `WorkLog`
+- `Product`
+- `products`
 
-- Tables:
-  - `work_types`
-  - `work_logs`
-- `WorkType`:
-  - BLOW-only.
-  - `input_type`: `QUANTITY` or `TICK`.
-  - `unit_price`.
-  - `config_json`.
-  - `is_active`.
-  - Unique `(team, name)`.
-- `WorkLog`:
-  - `work_type_id`
-  - integer `quantity`
-  - `unit_price_snapshot`
-  - `amount_snapshot`.
+Fields chính:
 
-#### `BagType`
+- `id`: primary key.
+- `product_code_base`: unique/indexed mã hàng gốc.
+- `product_name`: indexed tên hàng.
+- `unit_mode`: enum/string, `BAO_KG` hoặc `BICH`.
+- `is_active`: soft-delete/deactivate flag.
+- `created_at`, `updated_at`.
 
-- Table: `bag_types`.
-- Current meaning: CUT work item, now product-linked.
-- Fields:
-  - `name`
-  - legacy `unit_price`
-  - `quota_quantity`
-  - `excess_unit_price`
-  - `is_active`
+Relationships:
+
+- `prices`: `ProductPrice`.
+- `inventory_balance`: `InventoryBalance`.
+- `receipt_items`: `InventoryReceiptItem`.
+- `adjustment_items`: `InventoryAdjustmentItem`.
+- `invoice_items`: `InvoiceItem`.
+- `return_items`: `ReturnInvoiceItem`.
+
+Important constraints/behavior:
+
+- `product_code_base` unique cả active và inactive.
+- Product có history không hard-delete, chỉ set `is_active=False`.
+- Product inactive khi tạo lại cùng code/name sẽ được reactivate thay vì insert row mới.
+- `Product.id` là external source cho attendance `BagType.source_product_id`.
+
+### 4. `InventoryBalance`
+
+File:
+
+- `modules/inventory/models.py`
+
+Class/table:
+
+- `InventoryBalance`
+- `inventory_balances`
+
+Fields chính:
+
+- `id`
+- `product_id`: unique FK tới `products.id`.
+- `on_hand_bao_decimal`: Numeric cho sản phẩm `BAO_KG`.
+- `on_hand_kg_decimal`: Numeric, hiện không phải luồng chính cho chấm công.
+- `on_hand_bich_integer`: Numeric/integer-like cho sản phẩm `BICH`.
+- timestamps.
+
+Behavior:
+
+- `BAO_KG` stock chính dùng `UnitType.BAO`.
+- `BICH` stock chính dùng `UnitType.BICH`.
+- Decimal quantities được hỗ trợ ở service/inventory effect.
+- Negative stock có thể được cho phép tùy luồng hiện tại; không nên tự ý thay đổi khi chưa audit toàn bộ sales/inventory logic.
+
+### 5. `InventoryStockEffect`
+
+File:
+
+- `modules/inventory/models.py`
+
+Class/table:
+
+- `InventoryStockEffect`
+- `inventory_stock_effects`
+
+Mục đích:
+
+- Durable ledger/effect layer cho sản lượng `CUT_LOG` và `EXTRA_CUT_WORK_LOG` từ attendance update vào tồn kho main DB.
+- Dùng để rollback/apply idempotent theo `DailyRecord`.
+
+Fields chính:
+
+- `id`
+- `source_type`: ví dụ `ATTENDANCE_DAILY_RECORD`.
+- `source_id`: `DailyRecord.id` từ attendance DB.
+- `source_line_type`: `CUT_LOG` hoặc `EXTRA_CUT_WORK_LOG`.
+- `source_line_id`: `CutLog.id` hoặc `ExtraCutWorkLog.id`; đã được harden không cho `None` ở service.
+- `attendance_employee_id`
+- `attendance_work_date`
+- `attendance_bag_type_id`
+- `product_id`: FK main DB tới `products.id`.
+- `quantity_delta`: Numeric, số lượng tăng tồn.
+- `unit_type`: `BAO` hoặc `BICH`.
+- `movement_datetime`
+- `note`
+- `created_at`, `updated_at`.
+
+Indexes/constraints:
+
+- Index theo `(source_type, source_id)`.
+- Index theo `product_id`.
+- Unique key theo `(source_type, source_id, source_line_type, source_line_id)`.
+
+Important:
+
+- Rollback luôn theo `(source_type, source_id)`, không phụ thuộc line id cũ vì attendance logs có thể bị clear/recreate khi edit.
+- `source_line_id` vẫn bắt buộc để duplicate line protection có ý nghĩa.
+
+### 6. `Invoice` và `InvoiceItem`
+
+File:
+
+- `modules/sales/models.py`
+
+Class/table:
+
+- `Invoice` / `invoices`
+- `InvoiceItem` / `invoice_items`
+
+Fields chính:
+
+- `Invoice.id`
+- `invoice_code`: unique.
+- `customer_id`: nullable.
+- `customer_snapshot_name`
+- `invoice_datetime`
+- `total_amount`
+- `paid_amount`
+- `payment_method`
+- `note`
+- `status`
+- `created_at`, `updated_at`
+
+`InvoiceItem` chứa:
+
+- `invoice_id`
+- `product_id`
+- `unit_type`
+- `quantity`
+- `unit_price`
+- `line_total`
+- product snapshot fields.
+
+Behavior:
+
+- Tạo hóa đơn làm giảm tồn kho.
+- Có customer debt ledger effects nếu khách hàng/công nợ liên quan.
+- Update/delete hóa đơn cần rollback/apply tồn kho và công nợ.
+
+### 7. `ReturnInvoice` và `ReturnInvoiceItem`
+
+File:
+
+- `modules/returns/models.py`
+
+Class/table:
+
+- `ReturnInvoice` / `return_invoices`
+- `ReturnInvoiceItem` / `return_invoice_items`
+
+Fields chính:
+
+- `return_code`: unique.
+- optional `source_invoice_id`.
+- optional `customer_id`.
+- customer/product snapshots.
+- `is_quick_return`
+- `return_datetime`
+- `total_amount`
+- `handling_mode`
+
+Behavior:
+
+- Trả hàng thường làm tăng tồn kho.
+- Có thể tác động công nợ khách hàng.
+- Update/delete phải rollback/apply.
+
+### 8. `Customer` và `CustomerBalanceLedger`
+
+File:
+
+- `modules/customer/models.py`
+
+Class/table:
+
+- `Customer` / `customers`
+- `CustomerBalanceLedger` / `customer_balance_ledgers`
+
+Fields chính:
+
+- `Customer.current_balance`
+- `Customer.total_sales`
+- `Customer.is_walk_in`
+- `Customer.is_active`
+- timestamps.
+
+Ledger fields chính:
+
+- `event_type`
+- `ref_type`
+- `ref_id`
+- `source_ref_type`
+- `source_ref_id`
+- `display_order`
+- `amount_delta`
+- `balance_after`
+- `transaction_datetime`
+- `note`
+
+Important:
+
+- Có migration/logic để tránh collision cho generated invoice payment rows.
+- Balance recomputation phải giữ thứ tự ledger ổn định.
+
+### 9. Attendance models
+
+File:
+
+- `modules/attendance/models.py`
+
+`Employee` / `employees`:
+
+- `id`
+- `name`: unique.
+- `team`: BLOW/CUT.
+- `is_active`
+- timestamps.
+- Delete behavior: hard-delete nếu chưa có `DailyRecord`, deactivate nếu có history.
+
+`DailyRecord` / `daily_records`:
+
+- `id`
+- `employee_id`
+- `date`
+- `period_id`
+- `is_absent`
+- `status`: `DRAFT` hoặc `DONE`.
+- `total_amount_snapshot`
+- unique theo employee/date.
+- Relationships tới `work_logs`, `cut_logs`, `extra_cut_work_logs`.
+
+`WorkType` / `work_types`:
+
+- `id`
+- `name`
+- `team`
+- `input_type`: quantity/tick.
+- `unit_price`
+- `config_json`
+- `is_active`
+- unique `(team, name)`.
+
+`WorkLog` / `work_logs`:
+
+- `daily_record_id`
+- `work_type_id`
+- `quantity`
+- snapshot fields.
+- unique `(daily_record_id, work_type_id)`.
+
+`BagType` / `bag_types`:
+
+- `id`
+- `name`: unique.
+- `unit_price`
+- `quota_quantity`
+- `excess_unit_price`
+- `is_active`
+- product sync fields:
   - `is_product_linked`
   - `source_product_id`
   - `source_product_name_snapshot`
   - `is_excluded_from_attendance`
   - `is_legacy`
-- Partial unique index on `source_product_id` where non-null.
-- Product-linked names come from `Product.product_name`.
+- Used by `CutLog` and `ExtraCutWorkLog`.
 
-#### `CutLog`
+`CutLog` / `cut_logs`:
 
-- Table: `cut_logs`.
-- Fields:
-  - `daily_record_id`
-  - `bag_type_id`
-  - `quantity`: `Numeric(12, 3)`, Decimal-capable.
-  - `unit_price_snapshot`
-  - `quota_quantity_snapshot`
-  - `excess_unit_price_snapshot`
-  - `amount_snapshot`.
-- Unique `(daily_record_id, bag_type_id)`.
-- Quantity may be decimal, e.g. `10.5`.
+- `daily_record_id`
+- `bag_type_id`
+- `quantity`: Numeric(12,3), decimal support.
+- `unit_price_snapshot`
+- `quota_quantity_snapshot`
+- `excess_unit_price_snapshot`
+- `amount_snapshot`
 
-#### `ExtraCutWorkLog`
+`ExtraCutWorkLog` / `extra_cut_work_logs`:
 
-- Table: `extra_cut_work_logs`.
-- Used for BLOW employees doing extra CUT/VK work.
-- Fields:
-  - `daily_record_id`
-  - `bag_type_id`
-  - `quantity`: `Numeric(12, 3)`.
-  - `excess_unit_price_snapshot`
-  - `amount_snapshot`
-  - timestamps.
-- Formula is `quantity * excess_unit_price_snapshot`, not CUT tiered formula.
+- For BLOW extra CUT/VK work.
+- `daily_record_id`
+- `bag_type_id`
+- `quantity`: Numeric(12,3), decimal support.
+- `excess_unit_price_snapshot`
+- `amount_snapshot`
 
-## D. Inventory / Hàng Hóa Module
+## D. Inventory / Hàng hóa module
 
-### 1. Product create/update/delete
+### 1. Product creation/update/delete
 
-Files:
+Key files:
 
-- `modules/inventory/service.py`
+- `modules/inventory/models.py`
 - `modules/inventory/repository.py`
+- `modules/inventory/service.py`
 - `modules/inventory/controller.py`
 - `modules/inventory/ui/product_list_view.py`
 
 `InventoryService.create_product(...)`:
 
-- Normalizes code via `validate_product_code_base`.
-- Normalizes name via `validate_product_name`.
-- Validates price payload.
-- Checks existing `product_code_base`, including inactive products.
+- Normalize `product_code_base` and `product_name` theo existing rules.
+- Validate code/name/unit/prices.
+- Check existing product by `product_code_base`, including inactive products.
+- Nếu không có existing code: create new `Product`.
+- Nếu existing active: raise duplicate validation error.
+- Nếu existing inactive: có thể reactivate nếu cùng code/name/unit hợp lệ.
 
 `InventoryService.update_product(...)`:
 
-- Allows product name/price updates.
-- Does not support changing `unit_mode`; raises `ValidationError`.
+- Update editable product fields theo current rules.
+- Cần cẩn trọng với `unit_mode` nếu sản phẩm có history.
 
-`InventoryService.delete_product(product_id)`:
+`InventoryService.delete_product(...)`:
 
-- Uses `_has_product_history(product.id)`.
-- If history exists: sets `is_active = False`, returns `ProductDeleteResult(action="deactivated")`.
-- If no history: hard deletes product, returns `ProductDeleteResult(action="hard_deleted")`.
+- Nếu product không có history: hard-delete.
+- Nếu product có history: set `is_active=False`.
+- Không hard-delete product đã có invoices/returns/receipts/adjustments/attendance link history.
 
 ### 2. Product reactivation behavior
 
-Implemented per `docs/PRODUCT_REACTIVATE_ON_RECREATE.md`.
+Bug đã được xử lý theo report `docs/PRODUCT_REACTIVATE_ON_RECREATE.md`.
 
-Behavior:
+Business rule hiện tại:
 
-- If user creates product with same `product_code_base` as an active product:
-  - reject as duplicate.
-- If same code matches inactive product:
-  - if normalized name is same and `unit_mode` is same:
-    - reactivate existing row (`is_active=True`);
-    - preserve same `Product.id`;
-    - preserve history and attendance links;
-    - sync prices from payload.
-  - if name differs:
-    - raise friendly `ValidationError`.
-  - if unit mode differs:
-    - raise friendly `ValidationError`.
+- Nếu user tạo product cùng `product_code_base` và cùng `product_name` với một product inactive:
+  - Reactivate existing product.
+  - Preserve same `Product.id`.
+  - Preserve invoices/returns/stock history.
+  - Preserve attendance `BagType.source_product_id` link.
+  - Không insert row mới.
+- Nếu same code nhưng khác name:
+  - Raise friendly `ValidationError`.
+  - Không để raw `sqlite3.IntegrityError` lộ ra.
+- Nếu same code/name nhưng khác `unit_mode` và product có history:
+  - Raise friendly `ValidationError`.
+  - Không tự đổi unit mode vì có thể phá lịch sử tồn kho/bán hàng/chấm công.
 
-This fixes the old `sqlite3.IntegrityError: UNIQUE constraint failed: products.product_code_base` when recreating inactive products.
+### 3. Active/inactive product listing
 
-### 3. Active/inactive listing
+Product list UI có filter/include inactive. Inactive products không phải dòng active mặc định nhưng có thể xem tùy chế độ. Reactivated product xuất hiện lại trong list active.
 
-- `InventoryService.list_products(include_inactive=False)` hides inactive by default.
-- Product list UI has checkbox “Hiện cả hàng ngừng sử dụng”.
+### 4. Inventory stock model
 
-### 4. Stock model
+`InventoryBalance` giữ stock hiện tại:
 
-- `BAO_KG`: canonical stock is bao count in `InventoryBalance.on_hand_bao_decimal`.
-- KG is derived using `BAO_TO_KG_RATIO`.
-- `BICH`: canonical stock is `on_hand_bich_integer` but stored as Decimal-compatible numeric.
-- Decimal support exists for quantities.
-- Negative stock is allowed.
+- `BAO_KG`: stock theo `UnitType.BAO` cho các effect chính; không tự động convert sang KG cho attendance.
+- `BICH`: stock theo `UnitType.BICH`.
+- Decimal quantity được giữ bằng `Decimal`/Numeric, không dùng float cho logic quan trọng.
+- Negative stock behavior là logic hiện hữu của inventory/sales; không thay đổi nếu không có batch riêng.
 
 ### 5. Receipts
 
-- `InventoryService.create_receipt(items)` creates `InventoryReceipt` and `InventoryReceiptItem`.
-- Increases stock via `increase_stock(...)`.
+Receipts:
+
+- Key models: `InventoryReceipt`, `InventoryReceiptItem`.
+- Tạo receipt làm tăng stock.
+- Có history rows để product delete mode biết product có lịch sử.
+- Update/delete receipt cần rollback/apply stock theo service hiện tại.
 
 ### 6. Adjustments
 
-- `InventoryService.create_adjustment(items)` stores old/new/delta.
-- Applies delta to canonical stock.
+Adjustments:
+
+- Key models: `InventoryAdjustment`, `InventoryAdjustmentItem`.
+- Dùng old/new/delta behavior để điều chỉnh stock.
+- Là một loại history khiến product thường bị deactivate thay vì hard-delete.
 
 ### 7. Product delete mode
 
-- `InventoryController.get_delete_mode(product_id)` returns:
-  - `hard_delete`
-  - `deactivate`
-- Product list batch delete uses this to preview before executing.
+`InventoryController.get_delete_mode(product_id)` được product multi-delete dùng để preview:
+
+- `hard_delete`: product chưa có history.
+- `deactivate`: product đã có history.
+
+Execution vẫn gọi `InventoryController.delete_product(product_id)` từng product, không bulk SQL trực tiếp.
 
 ### 8. Product link to attendance
 
-- `Product.id` maps externally to `BagType.source_product_id`.
-- Product rename updates linked `BagType.name` on next sync.
-- Product inactive/delete deactivates linked `BagType` on next sync.
-- Product reactivation reactivates existing linked BagType if no conflict.
+`Product.id` được lưu ở `BagType.source_product_id`.
 
-### 9. UI status
+Tác động:
 
-`modules/inventory/ui/product_list_view.py`:
+- Product create: product sync tạo linked `BagType`.
+- Product rename: product sync update `BagType.name`.
+- Product inactive/delete: product sync deactivate/hide linked `BagType` an toàn.
+- Product reactivate: product sync có thể active lại linked `BagType` nếu không conflict.
 
-- Product search suggestions match/display product name only.
-- Add/edit/delete/receipt/adjustment/refresh buttons.
-- Multi-delete Batch 2 implemented:
-  - shared `TableSelectionModeController`;
-  - checkbox column;
-  - selected count;
-  - pre-confirm hard-delete/deactivate summary;
-  - per-product `InventoryController.delete_product(...)`;
-  - partial-failure summary;
-  - search/filter exits selection mode.
+### 9. UI
+
+Key file:
+
+- `modules/inventory/ui/product_list_view.py`
+
+UI product list hỗ trợ:
+
+- Add/edit/search/filter/include inactive.
+- Delete button hiện vào multi-delete selection mode.
+- Checkbox column bằng `shared/widgets/table_selection_mode.py`.
+- Pre-confirm summary hard-delete/deactivate.
+- Partial failure summary.
+- Search/filter/include inactive thay đổi sẽ exit selection mode để tránh selected hidden rows.
 
 ### 10. Tests
+
+Relevant tests:
 
 - `tests/test_inventory_service.py`
 - `tests/test_product_search_ui.py`
 - `tests/test_attendance_product_sync.py`
+- `tests/test_schema_invariants.py`
 
-Recent verification after Batch 2:
+## E. Sales / Returns / Customer debt
 
-- `python -m unittest tests.test_inventory_service` passed 25 tests.
-- `python -m unittest tests.test_product_search_ui` passed 8 tests.
-- `python -m unittest tests.test_attendance_product_sync` passed 14 tests.
-- Full discovery passed 489 tests.
+### 1. Sales invoice behavior
 
-## E. Sales / Returns / Customer Debt
-
-### 1. Sales invoices
-
-Files:
+Key files:
 
 - `modules/sales/models.py`
+- `modules/sales/repository.py`
 - `modules/sales/service.py`
 - `modules/sales/controller.py`
 - `modules/sales/ui/*`
 
 Behavior:
 
-- Creating invoice decreases inventory via `InventoryService.decrease_stock(...)`.
-- Stores product snapshots on `InvoiceItem`.
-- If customer selected, writes customer ledger effects.
-- `paid_amount` may be greater than invoice total; overpayment can be applied to older debt.
-- Paid amount creates debt-payment style ledger rows when relevant.
-- Edit/delete uses rollback/apply style:
-  - rollback old inventory/customer effects;
-  - apply new state;
-  - service-level transaction ensures consistency inside main DB.
+- Creating `Invoice` decreases inventory stock through inventory service/repository.
+- Invoice line stores product snapshots so old invoices remain readable after product rename/delete.
+- If customer is attached and paid amount is less than total, customer debt ledger changes.
+- If `paid_amount > 0`, generated payment ledger row may be created.
+- Update/delete invoice must rollback old stock/debt effects then apply latest state.
 
-### 2. Returns
+Do not change sales formulas/business rules casually; they are tightly coupled with inventory and customer debt.
 
-Files:
+### 2. Return invoice behavior
+
+Key files:
 
 - `modules/returns/models.py`
+- `modules/returns/repository.py`
 - `modules/returns/service.py`
-- `modules/returns/controller.py`
-- `modules/returns/ui/*`
+- return-related UI/controller files.
 
 Behavior:
 
-- Returns create standalone `ReturnInvoice`.
-- Stock increases for returned quantity.
-- Customer effects depend on handling mode.
-- Delete/edit roll back return effects.
+- Return increases stock for returned products.
+- Customer debt/balance can be affected depending return mode/customer.
+- Return lines store snapshots.
+- Update/delete return must rollback/apply stock and debt.
 
-### 3. Customer debt/payment
+### 3. Customer debt/payment behavior
 
-Files:
+Key files:
 
 - `modules/customer/models.py`
 - `modules/customer/service.py`
 - `modules/customer/repository.py`
 - `modules/customer/ui/*`
 
-Important behavior:
+Behavior:
 
-- Customer balance changes are tracked by `CustomerBalanceLedger`.
-- Standalone debt payments use generated `ref_id`.
-- Generated invoice-payment/overpayment rows use `source_ref_type`, `source_ref_id`, `display_order`.
-- Balance recomputation occurs when ledger references are removed/updated.
-- Migration `migrate_customer_invoice_payments_to_debt_payment_v1(...)` backs up before transforming old invoice-payment rows.
+- Standalone debt payments produce ledger rows.
+- Invoice-generated payment rows are represented in ledger.
+- Balance recomputation uses ordered ledger.
+- Previous fixes addressed `ref_id`/ordering collisions for generated invoice payment rows.
 
 ### 4. History page
 
-Files:
+Key files:
 
-- `shell/history_page.py`
 - `modules/sales/ui/transaction_history_view.py`
-- `modules/sales/ui/invoice_list_view.py`
-- `modules/returns/ui/return_list_view.py`
-- `modules/customer/ui/debt_payment_list_view.py`
+- history page wiring in `shell/app_window.py`.
 
-Structure:
+History page shows:
 
-- Transaction history combined view.
-- Invoice list.
-- Return list.
-- Debt payment list.
+- Invoice history.
+- Return history.
+- Customer payment/debt history where applicable.
 
-Delete behavior:
+Important:
 
-- Single-row delete currently routes to correct controller/service:
-  - invoice -> `SalesController.delete_invoice(...)`;
-  - return -> `ReturnController.delete_return_invoice(...)`;
-  - debt payment -> `CustomerController.delete_debt_payment(...)`.
+- `TransactionHistoryView.reload()` queries `SalesController.list_transaction_history()` -> `SalesRepository.list_invoices()` -> `invoices`.
+- CI previously failed if UI smoke created this view before `init_db()`.
+- Fix strategy: tests/app startup must initialize DB schema before DB-backed UI pages.
 
-Why history multi-delete is deferred:
+Delete behavior in history is high risk because deleting invoice/return/payment can affect inventory and customer debt. Multi-delete for `Lịch sử` has been investigated but deliberately deferred.
 
-- Rows may affect stock and customer balances.
-- Mixed transaction types need ordered rollback.
-- Multiple rows for same customer/product may require careful recompute.
-- Needs separate design for atomicity and partial success.
+### 5. Important tests
 
-### 5. Tests
-
-- `tests/test_sales_service.py`
-- `tests/test_return_service.py`
-- `tests/test_customer_service.py`
-- `tests/test_history_delete_actions.py`
+- `tests/test_sales_*`
+- `tests/test_return_*`
+- `tests/test_customer_*`
 - `tests/test_customer_invoice_payment_migration.py`
-- `tests/test_overpayment_ordering_pipeline.py`
-- `tests/test_transaction_history_timestamps.py`
+- `tests/test_order_service.py`
+- `tests/test_order_ui.py`
+- `tests/test_smoke.py`
 
 ## F. Orders / Reports / History
 
 ### 1. Orders
 
-Files:
+Key files:
 
 - `modules/orders/models.py`
 - `modules/orders/service.py`
 - `modules/orders/controller.py`
-- `modules/orders/ui/page.py`
-- `modules/orders/ui/order_draft_page.py`
+- `modules/orders/ui/*`
 
-Behavior:
+Models:
 
-- Orders are requests, not stock mutations.
-- `OrderRequest` and `OrderRequestItem` store snapshots and requested quantity.
-- Creating an order does not touch inventory, invoices, or ledgers.
-- Order can later be opened as sales draft/editor flow.
+- `OrderRequest`
+- `OrderRequestItem`
+
+Current behavior:
+
+- Orders are requests/reservations/business workflow, not direct stock mutation like invoice/receipt.
+- `OrderRequest.source_invoice_id` can link converted/completed order to invoice.
+- Stock impact should remain in sales/inventory services unless explicitly designed otherwise.
 
 ### 2. Reports
 
-Files:
+Reporting module:
 
 - `modules/reporting/*`
-- Attendance reports separately in `modules/attendance/report_service.py` and `modules/attendance/ui/report_tab.py`.
 
-Business reporting reads main DB aggregates.
+Reports aggregate business data from main DB and are refreshed by shell events. Attendance reports are inside attendance module and covered later.
 
 ### 3. History
 
-- `HistoryPage.reload_all_views()` refreshes transaction/list views.
-- `AppWindow._handle_data_changed_from_pages()` refreshes history, customer list, inventory list, orders page, reporting dirty state.
-- Current limitation: no multi-delete in history.
+History is a shell-level page inserted by `AppWindow`, not a normal module tab from registry.
 
-## G. Attendance / Chấm Công Module Overview
+Known limitations:
 
-### Subtabs
+- Delete is service-specific and risky.
+- Multi-delete for history is not implemented.
+- Any future history delete work must inspect rollback effects for invoice/return/customer ledgers before adding selection UI.
 
-Main attendance page uses subtabs roughly:
+## G. Attendance / Chấm công module overview
 
-- Nhân viên
-- Chấm công
-- Báo cáo
+### 1. Main files and subtabs
 
-Attendance price settings are exposed through main `Cài đặt` page, not necessarily inside attendance tab.
+Key files:
 
-### Employee management
-
-Files:
-
-- `modules/attendance/ui/employee_tab.py`
+- `modules/attendance/models.py`
+- `modules/attendance/db.py`
+- `modules/attendance/repository.py`
 - `modules/attendance/service.py`
+- `modules/attendance/product_sync_service.py`
+- `modules/attendance/inventory_effect_service.py`
+- `modules/attendance/inventory_diagnostic_service.py`
+- `modules/attendance/ui/page.py`
+- `modules/attendance/ui/employee_tab.py`
+- `modules/attendance/ui/day_entry_tab.py`
+- `modules/attendance/ui/report_tab.py`
+- `modules/attendance/ui/settings_tab.py`
 
-Behavior:
+Attendance page/subtabs:
+
+- `Nhân viên`
+- `Chấm công`
+- `Báo cáo`
+- Attendance settings/price settings are exposed through Settings page and attendance UI components.
+
+### 2. Employee management
+
+`AttendanceEmployeeService`:
 
 - Create/update employees.
-- `Team.BLOW` and `Team.CUT`.
-- Delete:
-  - no `DailyRecord` -> hard delete;
-  - has `DailyRecord` -> `is_active=False`.
-- Multi-delete Batch 1 implemented:
-  - shared `TableSelectionModeController`;
-  - checkbox column;
-  - selected count;
-  - per-employee `AttendanceEmployeeService.delete_or_deactivate_employee(...)`;
-  - hard-delete/deactivate/failure summary;
-  - search/filter exits selection mode.
+- Delete behavior:
+  - hard-delete if no `DailyRecord`.
+  - deactivate if has `DailyRecord`.
 
-### Day entry
+UI:
 
-Files:
+- `modules/attendance/ui/employee_tab.py`
+- Multi-delete selection mode is implemented for employees.
+- Delete button enters checkbox selection mode.
+- Selected employees are processed one by one via `AttendanceEmployeeService.delete_or_deactivate_employee(employee_id)`.
+- Summary shows hard-deleted/deactivated/failed counts.
 
-- `modules/attendance/ui/day_entry_tab.py`
-- `modules/attendance/service.py`
-- `modules/attendance/repository.py`
-- DTOs in `modules/attendance/dto.py`.
+### 3. Day entry
 
-Behavior:
+Key service:
 
-- Select date/employee.
-- Load `DayEntryDTO`.
-- Supports `DRAFT` and `DONE`.
-- Absent day clears/ignores work lines.
-- `save_attendance(payload, finalize=False)` saves draft.
-- `save_attendance(payload, finalize=True)` finalizes to `DONE`.
-- Editing finalized records rebuilds logs and recalculates snapshots.
+- `AttendanceDayEntryService.save_attendance(payload, *, finalize)`
 
-Inventory effect integration:
+Concepts:
 
-- After logs are rebuilt and attendance session is flushed, `AttendanceDayEntryService` builds `AttendanceInventoryEffectSnapshot`.
-- Calls `AttendanceInventoryEffectService.reconcile_daily_record_effects(snapshot)`.
-- DRAFT/absent rollback any previous effects and apply none.
-- DONE applies current CUT/VK production to inventory.
+- Date selection.
+- Employee list/status.
+- `DRAFT` vs `DONE`.
+- `is_absent` handling.
+- BLOW team work logs.
+- CUT team product-linked work logs.
+- BLOW extra CUT/VK logs.
+- Decimal quantity for CUT/VK.
 
-### BLOW team day entry
+Save behavior:
 
-- Uses `WorkType` rows.
-- `WorkInputType.QUANTITY`: numeric quantity.
-- `WorkInputType.TICK`: checkbox/tick.
-- `Phụ găng 1 máy`, `Phụ găng 2 máy` have special handling in code/tests.
-- `Thừa máy` is the only quantity work using quota `-3` behavior in `calculate_blow_work_amount(...)`.
-- BLOW can optionally add extra CUT/VK work via “Có làm thêm việc cắt” / “Việc cắt làm thêm”.
+- `finalize=False`: record status `DRAFT`.
+- `finalize=True`: record status `DONE`.
+- Existing logs are cleared/rebuilt.
+- Session is flushed before inventory snapshot is built, so `CutLog.id` and `ExtraCutWorkLog.id` exist.
+- Inventory effect service is called after flush.
 
-### CUT team day entry
+### 4. DRAFT/DONE/absent inventory effects
 
-- Uses product-linked `BagType` rows.
-- CUT quantities are Decimal-capable.
-- Available list for new selection is filtered:
-  - `is_active == True`
-  - `is_product_linked == True`
-  - `is_excluded_from_attendance == False`
-  - `is_legacy == False`
-  - `quota_quantity > 0`
-  - `excess_unit_price > 0`
-- Historical existing rows can still reload even if now inactive/legacy/excluded/incomplete.
+Current integrated behavior:
 
-### Reports
+- DRAFT attendance saves attendance only and removes/rolls back prior inventory effects for that record.
+- DONE CUT increases linked product stock.
+- DONE BLOW extra CUT/VK also increases linked product stock.
+- Editing DONE rolls back old inventory effects and applies latest quantities.
+- DONE -> DRAFT rolls back inventory effects.
+- DONE -> absent rolls back inventory effects.
+- Removed CUT/VK lines are rolled back.
 
-Attendance reports:
+### 5. Attendance reports
+
+Reports include:
 
 - 10-day report.
 - 30-day report.
-- Decimal CUT quantities display cleanly.
-- Integer decimals display as integer text.
-- VK money totals aggregate decimal-derived amounts.
 
-### Attendance settings
+Known UI characteristics:
 
-File: `modules/attendance/ui/settings_tab.py`.
+- Table layout adjusted for flexible width.
+- Spacer between employee sections.
+- Total row.
+- Decimal CUT/VK quantities supported.
 
-Current status:
+Reports should continue using snapshots/current logic as implemented; do not change formula/reporting behavior without targeted tests.
 
-- `AttendancePriceSettingsTab` runs product-to-CUT sync on reload.
-- Dropdown section switcher implemented:
+### 6. Attendance settings
+
+Attendance price settings have been updated:
+
+- Top-left dropdown `Nhóm cài đặt`.
+- Options:
   - `Công việc tổ thổi`
   - `Loại bao tổ cắt`
-- Only one section/table shown at a time.
-- CUT manual add button removed/hidden from UI; BLOW add remains.
-- Product-linked CUT names are read-only.
-- Editable:
+- Only selected section/table visible at a time.
+- CUT manual `Thêm` button removed/hidden.
+- Product-linked CUT rows remain editable for:
   - `quota_quantity`
   - `excess_unit_price`
-  - `Không dùng cho chấm công`
-- Incomplete product-linked rows have light red highlight.
-- Sync warning banner shown for duplicate/conflict warnings.
+  - `is_excluded_from_attendance` / `Không dùng cho chấm công`
+- Product-linked names are read-only.
+- Incomplete linked rows highlighted red.
 
-### Important tests
+### 7. Important attendance tests
 
-- `tests/test_attendance_employee_management.py`
-- `tests/test_attendance_day_entry.py`
-- `tests/test_attendance_settings.py`
-- `tests/test_attendance_settings_ui.py`
-- `tests/test_attendance_report.py`
-- `tests/test_app_window_attendance_sync.py`
+- `tests/test_attendance_batch1.py`
 - `tests/test_attendance_product_sync.py`
+- `tests/test_attendance_settings_ui.py`
+- `tests/test_app_window_attendance_sync.py`
+- `tests/test_attendance_day_entry.py`
+- `tests/test_attendance_employee_management.py`
 - `tests/test_attendance_inventory_effect_service.py`
 - `tests/test_attendance_inventory_integration.py`
 - `tests/test_attendance_inventory_diagnostics.py`
 - `tests/test_attendance_inventory_diagnostics_ui.py`
 
-## H. BLOW Team / Tổ Thổi Business Rules
+## H. BLOW team / Tổ thổi business rules
 
 ### 1. WorkType types
 
-`WorkType.input_type`:
+`WorkType` supports:
 
-- `WorkInputType.QUANTITY`
-- `WorkInputType.TICK`
+- Numeric/quantity work.
+- Checkbox/tick work.
 
-### 2. Quota behavior
+Calculation logic lives in:
 
-File: `modules/attendance/blow_work.py`.
+- `modules/attendance/blow_work.py`
 
-Actual rule:
+### 2. Quota behavior correction
 
-- Constant: `BLOW_QUANTITY_WORK_QUOTA = 3`.
-- Work name constant: `BLOW_QUANTITY_QUOTA_WORK_NAME = "Thừa máy"` (source file may show mojibake in some terminal output; intended Vietnamese is “Thừa máy”).
-- Only `Thừa máy` applies `max(0, quantity - 3) * unit_price`.
-- Other quantity work uses `quantity * unit_price`.
-- Tick work pays `unit_price` if quantity/tick > 0, else 0.
+Important correction:
 
-Important correction: not all numeric machine work has `-3`; only `Thừa máy`.
+- Không phải tất cả numeric machine work đều trừ quota `-3`.
+- Current implemented rule: only work type named `Thừa máy` uses quota `3`.
+- Formula for `Thừa máy`:
+
+```text
+amount = max(0, quantity - 3) * unit_price
+```
+
+Other numeric work types use:
+
+```text
+amount = quantity * unit_price
+```
+
+Tick work types use fixed price when checked.
 
 ### 3. Quantity defaults
 
-- Normal BLOW quantity work uses integer quantity in `WorkLog.quantity`.
-- UI defaults are compact and no spinbox arrows where previously adjusted.
+Numeric inputs default theo UI/service hiện tại. Do not cast CUT/VK decimal quantity to int. BLOW regular `WorkLog.quantity` is still integer-like in model.
 
-### 4. Checkbox work
+### 4. Checkbox work like `Phụ găng`
 
-- Tick work like `Phụ găng` behaves as single checked/unchecked amount.
+Glove work names are tracked in service:
+
+```python
+GLOVE_WORK_NAMES = {"Phụ găng 1 máy", "Phụ găng 2 máy"}
+```
+
+These are checkbox/tick style work items.
 
 ### 5. BLOW extra CUT / VK
 
-- UI section: `Có làm thêm việc cắt` / `Việc cắt làm thêm`.
-- Uses product-linked configured `BagType` list.
-- Quantity can be Decimal.
+BLOW employees can have extra CUT/VK section:
+
+- UI lets user search/add product-linked CUT items.
+- Uses same filtered `BagType` list as CUT day-entry.
+- Quantity supports decimal.
 - Formula:
 
 ```text
 amount = quantity * excess_unit_price_snapshot
 ```
 
-- Does not apply CUT tiered formula.
-- Does not apply BLOW `Thừa máy -3` rule.
-- When record is `DONE`, quantity increases inventory for linked product.
+Do not apply CUT employee tiered quota formula to VK.
 
-### 6. Reports
+When `DailyRecord.status == DONE`, VK quantity also increases inventory stock through `AttendanceInventoryEffectService`.
 
-- VK money appears in BLOW reports.
-- Monthly/period totals include VK amount.
+### 6. Report representation
 
-## I. CUT Team / Tổ Cắt Business Rules
+VK/extra CUT appears in attendance reports as extra cut work. Totals include amount snapshots. Formula should remain:
 
-### 1. Product-linked CUT items
+```text
+quantity * excess_unit_price_snapshot
+```
 
-CUT work items are `BagType` rows linked from inventory products:
+## I. CUT team / Tổ cắt business rules
 
-- `BagType.is_product_linked = True`
-- `BagType.source_product_id = Product.id`
-- `BagType.name = Product.product_name`
+### 1. CUT items are product-linked
 
-### 2. Manual CUT item add
+CUT work items are no longer manually/randomly created as independent bag types. Source of truth is inventory product list:
 
-Manual CUT add from attendance price settings has been removed from UI. CUT items now come from inventory products.
+- `Product.product_name` -> `BagType.name`
+- `Product.id` -> `BagType.source_product_id`
 
-### 3. BagType config
+### 2. Manual CUT add removed
 
-Each product-linked `BagType` has:
+Attendance price settings no longer exposes CUT `Thêm` button. Existing product-linked rows are configured there, but creation comes from product sync.
+
+### 3. Product-linked `BagType` config
+
+Each linked CUT `BagType` has:
 
 - `quota_quantity`
 - `excess_unit_price`
 - `is_excluded_from_attendance`
-
-Checkbox label: `Không dùng cho chấm công`.
-
-Semantics:
-
-- checked -> intentionally not used for attendance.
-- unchecked -> expected to be configured and available.
+- `is_product_linked`
+- `source_product_id`
+- `source_product_name_snapshot`
+- `is_legacy`
 
 ### 4. Incomplete config
 
-Incomplete if:
+Incomplete condition:
 
 ```text
 is_product_linked == true
@@ -983,54 +1040,67 @@ AND (quota_quantity == 0 OR excess_unit_price == 0)
 
 Behavior:
 
-- warning popup when entering large `Chấm công` tab;
-- red highlight in price settings;
-- hidden from day-entry new selection until configured;
-- excluded rows do not trigger popup.
+- Warning popup appears when entering large `Chấm công` tab.
+- Settings rows get red highlight.
+- Day-entry hides incomplete rows from new selection.
+- If `Không dùng cho chấm công` is checked, row is not incomplete and does not trigger popup.
 
-### 5. CUT calculation
+### 5. CUT worker calculation
 
-File: `modules/attendance/cut_bonus.py`.
+Formula lives in:
 
-`calculate_cut_employee_bonus(items)`:
+- `modules/attendance/cut_bonus.py`
 
-- Converts quantity/quota/price to `Decimal`.
-- Ignores zero-quantity items.
-- If no active items -> 0.
-- Computes:
-  - `total_quantity`
-  - `quota_avg = sum(quota) / item_count`
-- If `total_quantity <= quota_avg` -> 0.
-- If any item reaches its own quota:
-  - for each item:
-    - if `quantity >= quota`: `(quantity - quota) * price`
-    - else: `quantity * price`
+Current multi-item logic:
+
+- Filter active items with quantity > 0.
+- Compute `total_quantity`.
+- Compute `quota_average = sum(quota_quantity) / number_of_items`.
+- If `total_quantity <= quota_average`: no bonus.
+- If any item quantity >= its quota:
+  - For item meeting quota: `(quantity - quota) * excess_unit_price`.
+  - For item below quota: `quantity * excess_unit_price`.
 - Otherwise:
-  - sum `max(0, quantity - quota/item_count) * price`.
-- Decimal quantities supported.
+  - Use distributed quota: `max(0, quantity - quota_average_per_item) * excess_unit_price`.
+
+Important:
+
+- Decimal quantity supported.
 - No penalty below quota.
+- Do not change this formula casually.
 
 ### 6. Inventory effect
 
-- DONE `CutLog.quantity` increases linked product stock.
-- DRAFT no effect.
-- Editing DONE uses rollback/apply.
-- DONE -> DRAFT/absent rolls back old effects.
+When `DailyRecord.status == DONE`:
+
+- `CutLog.quantity` increases linked product stock.
+- Unit mapping:
+  - Product `BAO_KG` -> inventory `UnitType.BAO`.
+  - Product `BICH` -> inventory `UnitType.BICH`.
+
+DRAFT/absent/edit behavior:
+
+- DRAFT: no effect, rollback prior effect.
+- DONE edit: rollback/apply latest.
+- DONE -> DRAFT/absent: rollback.
 
 ### 7. Reports
 
-- 10-day and 30-day reports display decimal quantities cleanly.
-- Monthly totals sum decimal quantities without float artifacts.
+10-day/30-day reports use attendance logs/snapshots. Old historical logs should remain readable even if `BagType` later becomes inactive/legacy/excluded.
 
-## J. Product ↔ Attendance Link Feature
+## J. Product ↔ Attendance link feature
 
 ### 1. Sync service
 
-File: `modules/attendance/product_sync_service.py`.
+File:
 
-Class: `AttendanceProductSyncService`.
+- `modules/attendance/product_sync_service.py`
 
-Fields added to `BagType`:
+Class:
+
+- `AttendanceProductSyncService`
+
+Key fields on `BagType`:
 
 - `is_product_linked`
 - `source_product_id`
@@ -1038,81 +1108,125 @@ Fields added to `BagType`:
 - `is_excluded_from_attendance`
 - `is_legacy`
 
-No cross-database FK. `source_product_id` is external reference to main DB `products.id`.
-
 ### 2. Sync triggers
 
-- Attendance price settings reload.
-- Entering large `Chấm công` tab.
-- Settings popup navigation reload/focus.
+Current triggers:
 
-There is no need to sync on every keystroke/search.
+- Attendance price settings reload runs `sync_products_to_cut_work()`.
+- Entering large `Chấm công` tab runs sync and incomplete warning.
+- Product changes are picked up at next sync/settings/attendance tab entry.
+
+Do not sync on every search keystroke.
 
 ### 3. Product create
 
-Active product without linked BagType creates:
+Active product creates linked `BagType`:
 
-- `name = product.product_name`
+- `name = Product.product_name`
 - `quota_quantity = 0`
 - `excess_unit_price = 0`
 - `is_active = True`
 - `is_product_linked = True`
-- `source_product_id = product.id`
-- `source_product_name_snapshot = product.product_name`
+- `source_product_id = Product.id`
+- `source_product_name_snapshot = Product.product_name`
 - `is_excluded_from_attendance = False`
 - `is_legacy = False`
 
 ### 4. Product rename
 
-Updates linked `BagType.name` and `source_product_name_snapshot`, preserving quota/price/exclusion/history.
+Product rename updates:
 
-### 5. Product inactive/delete
+- `BagType.name`
+- `BagType.source_product_name_snapshot`
 
-- Linked BagType deactivated.
-- If has history or missing product, mark `is_legacy=True`.
-- No hard delete of historical BagTypes.
+It preserves:
 
-### 6. Old manual BagType
+- `quota_quantity`
+- `excess_unit_price`
+- `is_excluded_from_attendance`
+- historical logs.
 
-- Manual non-product-linked active rows are deactivated by sync.
-- With history: mark legacy/inactive.
-- Without history: deactivate, no hard delete in sync service.
+### 5. Product inactive/delete/reactivate
 
-### 7. Conflict policy
+Inactive/missing product:
 
-- Duplicate active product names are warnings and skipped.
-- Product name conflict with existing manual `BagType.name` is warning and skipped.
-- Product rename conflict is warning and skipped.
-- No suffix auto-append.
+- Linked `BagType` is deactivated.
+- If has history, `is_legacy=True`.
+- No hard-delete of attendance history.
+
+Reactivated product:
+
+- Same `Product.id` remains valid.
+- Next product sync can reactivate/update linked CUT work if no conflict.
+
+### 6. Old manual `BagType`
+
+Manual/default old rows:
+
+- `is_product_linked=False`.
+- If history exists: set legacy/inactive.
+- If no history: deactivate, no hard-delete in sync batch.
+- Reports/history still readable.
+
+### 7. Duplicate product name conflict policy
+
+Because `BagType.name` is unique and product names may duplicate:
+
+- Do not append suffix silently.
+- Do not merge products by name.
+- Duplicate active product names generate warnings.
+- Name conflict with manual `BagType.name` generates warning.
+- Non-conflicting rows still sync.
 
 ### 8. Incomplete config popup
 
-`AppWindow._handle_enter_attendance_tab()`:
+Title:
 
-- Runs sync.
-- If `sync_result.incomplete_items` non-empty, show warning popup.
-- Buttons:
-  - `Đi tới cài đặt`
-  - `Để sau`
-- “Đi tới cài đặt” navigates to `Cài đặt` and focuses Attendance price settings/CUT row.
+- `Thiếu cấu hình việc cắt`
+
+Buttons:
+
+- `Đi tới cài đặt`
+- `Để sau`
+
+Behavior:
+
+- Shows when entering large `Chấm công` tab if incomplete linked rows exist.
+- Does not repeat while user remains in same Attendance tab.
+- Can show again after leaving/re-entering if unresolved.
+- `Đi tới cài đặt` opens Settings -> Attendance price settings and focuses/highlights first incomplete row if feasible.
 
 ### 9. Day-entry filtering
 
-New selection list only includes active/product-linked/not-excluded/not-legacy/configured BagTypes.
+New selection list includes only:
 
-Historical reload:
+```text
+is_active == true
+AND is_product_linked == true
+AND is_excluded_from_attendance == false
+AND is_legacy == false
+AND quota_quantity > 0
+AND excess_unit_price > 0
+```
 
-- Existing saved `bag_type_id`s are included for display/editing even if no longer valid for new selection.
+Historical reload behavior:
+
+- Existing saved records still include their old `bag_type_id` rows for display/edit, even if inactive/legacy/excluded/incomplete now.
+- Repository supports include selected ids for historical compatibility.
 
 ### 10. Save-time validation
 
-Batch 5 added service-level validation:
+`AttendanceDayEntryService.save_attendance(...)` rejects newly added invalid CUT/VK rows:
 
-- Newly added CUT/VK rows must satisfy configured product-linked rule.
-- Existing historical rows in original record may be saved again for compatibility.
-- Invalid new item raises `ValidationError` with user-friendly message.
+- inactive
+- not product-linked
+- excluded
+- legacy
+- quota or price zero
 
-### 11. Docs/tests
+Historical existing rows already in original record can be saved again for compatibility, but adding a different invalid old item is rejected.
+
+### 11. Tests and docs
 
 Docs:
 
@@ -1130,118 +1244,162 @@ Tests:
 - `tests/test_app_window_attendance_sync.py`
 - `tests/test_attendance_day_entry.py`
 
-## K. Attendance CUT/VK → Inventory Feature
+## K. Attendance CUT/VK → Inventory feature
 
 ### 1. Requirement
 
-Finalized attendance production should update inventory:
+When attendance record is finalized/DONE:
 
 - CUT employee `CutLog.quantity` increases linked product stock.
 - BLOW extra CUT/VK `ExtraCutWorkLog.quantity` also increases linked product stock.
 - DRAFT does not update stock.
-- Old historical DONE records are not auto-backfilled.
-- If user explicitly saves/finalizes an old record after feature exists, it reconciles from that save onward.
+- Old historical records are not automatically backfilled.
+- Admin can edit/finalize multiple times without double-counting.
 
 ### 2. `inventory_stock_effects`
 
-File: `modules/inventory/models.py`.
+File/model:
 
-Class/table:
-
+- `modules/inventory/models.py`
 - `InventoryStockEffect`
-- `inventory_stock_effects`
+- table `inventory_stock_effects`
 
-Constants from `modules/attendance/inventory_effect_service.py`:
-
-- `ATTENDANCE_DAILY_RECORD_SOURCE_TYPE = "ATTENDANCE_DAILY_RECORD"`
-- `CUT_LOG_SOURCE_LINE_TYPE = "CUT_LOG"`
-- `EXTRA_CUT_WORK_LOG_SOURCE_LINE_TYPE = "EXTRA_CUT_WORK_LOG"`
-
-Key fields:
+Important fields:
 
 - `source_type = ATTENDANCE_DAILY_RECORD`
 - `source_id = DailyRecord.id`
 - `source_line_type = CUT_LOG` or `EXTRA_CUT_WORK_LOG`
 - `source_line_id = CutLog.id` or `ExtraCutWorkLog.id`
+- `attendance_employee_id`
+- `attendance_work_date`
+- `attendance_bag_type_id`
 - `product_id`
 - `quantity_delta`
 - `unit_type`
-- attendance snapshots.
+- `movement_datetime`
+- `note`
 
-Hardening:
+Indexes/constraints:
 
-- `source_line_id` is required/non-null.
-- Duplicate `(source_type, source_id, source_line_type, source_line_id)` rejected.
-- Service validates unsupported `source_line_type`.
+- `(source_type, source_id)` index.
+- `product_id` index.
+- Unique `(source_type, source_id, source_line_type, source_line_id)`.
+
+`source_line_id` hardening:
+
+- Service rejects `None`.
+- Duplicate source lines in a snapshot are rejected.
+- Unsupported `source_line_type` is rejected.
 
 ### 3. `AttendanceInventoryEffectService`
 
-File: `modules/attendance/inventory_effect_service.py`.
+File:
+
+- `modules/attendance/inventory_effect_service.py`
+
+Class:
+
+- `AttendanceInventoryEffectService`
 
 DTOs:
 
-- `AttendanceInventoryEffectLine`
 - `AttendanceInventoryEffectSnapshot`
-- `AttendanceInventoryEffectResult`
-- `AttendanceInventoryEffectProductDelta`
+- `AttendanceInventoryEffectLine`
+- result/delta dataclasses.
 
-Method:
+Main method:
 
 - `reconcile_daily_record_effects(snapshot)`
 
 Behavior:
 
-1. Validate snapshot identity.
-2. Open main DB transaction.
-3. Validate lines before apply.
-4. Load old effects by `(source_type, source_id)`.
-5. Roll back old effects by decreasing stock and deleting old effect rows.
-6. If snapshot is not DONE or is absent: commit rollback only.
-7. If DONE/non-absent:
-   - increase stock for each prepared line;
-   - insert `InventoryStockEffect` rows.
-8. Return counts/deltas.
+1. Validate snapshot and lines before mutation.
+2. Load old effects by:
+
+```text
+source_type = ATTENDANCE_DAILY_RECORD
+source_id = snapshot.daily_record_id
+```
+
+3. Roll back old effects by applying inverse deltas to `InventoryBalance`.
+4. Delete old effect rows.
+5. If snapshot status is not DONE or `is_absent=True`, commit rollback only.
+6. If DONE/non-absent, apply current CUT/VK quantities and insert new effect rows.
 
 Unit mapping:
 
 - `Product.unit_mode == BAO_KG` -> `UnitType.BAO`.
 - `Product.unit_mode == BICH` -> `UnitType.BICH`.
-- No KG conversion is applied for attendance production.
+- Do not apply KG conversion for attendance.
 
-Decimal:
+Decimal support:
 
-- Uses `Decimal`, no float.
+- Uses `Decimal`/Numeric-compatible values.
+- Do not use float.
+
+Validation:
+
+- Missing `product_id`: error.
+- Missing main `Product`: error.
+- Unsupported unit mode: error.
+- Missing `source_line_id`: error.
+- Unsupported `source_line_type`: error.
 
 ### 4. Integration into `AttendanceDayEntryService.save_attendance`
 
-File: `modules/attendance/service.py`.
+File:
+
+- `modules/attendance/service.py`
+
+Class/method:
+
+- `AttendanceDayEntryService.save_attendance(payload, *, finalize)`
 
 Call order:
 
 1. Open attendance session/transaction.
 2. Load/create `DailyRecord`.
-3. Capture existing bag ids for historical validation.
-4. Clear/rebuild logs.
-5. Set `status` to `DONE` if finalize else `DRAFT`.
-6. Flush attendance session so `CutLog.id` and `ExtraCutWorkLog.id` exist.
-7. Build `AttendanceInventoryEffectSnapshot`.
+3. Capture existing/historical bag ids for validation compatibility.
+4. Clear/rebuild `work_logs`, `cut_logs`, `extra_cut_work_logs`.
+5. Set final record status:
+   - DONE if `finalize=True`.
+   - DRAFT if `finalize=False`.
+6. Flush attendance session.
+7. Build `AttendanceInventoryEffectSnapshot` from flushed objects.
 8. Call `AttendanceInventoryEffectService.reconcile_daily_record_effects(snapshot)`.
-9. Return success only if reconcile succeeds.
+9. Return `AttendanceSaveResult` only if reconciliation succeeds.
+
+Snapshot fields:
+
+- `daily_record_id = record.id`
+- `employee_id = record.employee_id`
+- `work_date = record.date`
+- `status = record.status`
+- `is_absent = record.is_absent`
+- CUT lines from current `CutLog`.
+- VK lines from current `ExtraCutWorkLog`.
+- `product_id = log.bag_type.source_product_id`.
 
 Error propagation:
 
-- Inventory effect failures propagate; UI should not claim save success.
-- Logs include `daily_record_id`, `employee_id`, date.
+- Inventory reconciliation errors are not swallowed.
+- UI should not show save success if inventory update failed.
 
 Cross-DB caveat:
 
-- Attendance and main DB are separate SQLite files.
-- Full atomicity across both DBs is not guaranteed.
-- Diagnostic/reconcile service mitigates stale/missing effects.
+- attendance DB and main DB are separate.
+- Full atomicity across both DB files is not guaranteed.
+- Diagnostics/reconcile service mitigates but does not remove theoretical partial-commit risk.
 
 ### 5. `AttendanceInventoryDiagnosticService`
 
-File: `modules/attendance/inventory_diagnostic_service.py`.
+File:
+
+- `modules/attendance/inventory_diagnostic_service.py`
+
+Class:
+
+- `AttendanceInventoryDiagnosticService`
 
 Methods:
 
@@ -1259,21 +1417,35 @@ Issue types:
 - `MISSING_PRODUCT_LINK`
 - `MISSING_MAIN_PRODUCT`
 
-Scan is read-only. Reconcile is explicit/manual, one selected daily record at a time. No automatic backfill.
+Behavior:
+
+- `list_issues()` is read-only.
+- Detects DONE records with missing effects.
+- Detects stale effects for DRAFT/absent/missing records.
+- Detects aggregate quantity/product mismatch.
+- `reconcile_daily_record()` explicitly rebuilds snapshot and calls effect service.
+- Does not auto-backfill.
+- Does not auto-run on startup.
 
 ### 6. Admin diagnostics UI
 
-Implemented in `modules/settings/ui/page.py`:
+File:
 
-- `AttendanceInventoryDiagnosticsPanel`.
-- Button to scan issues.
-- Table/list of issues with Vietnamese labels.
-- Selected issue can run `reconcile_daily_record(daily_record_id)` after confirmation.
-- Missing-source issues are not auto-cleaned.
+- `modules/settings/ui/page.py`
 
-Report: `docs/ATTENDANCE_CUT_TO_INVENTORY_BATCH4.md`.
+Panel:
 
-### 7. Docs/tests
+- `AttendanceInventoryDiagnosticsPanel`
+
+UI supports:
+
+- Scan issues.
+- Show Vietnamese labels for issue types.
+- Reconcile selected `daily_record_id` explicitly.
+- Refresh after reconcile.
+- Missing-source effects are not auto-cleaned.
+
+### 7. Reports/tests
 
 Docs:
 
@@ -1295,48 +1467,48 @@ Tests:
 
 ### 1. Settings page
 
-Files:
+Key file:
 
 - `modules/settings/ui/page.py`
-- `modules/settings/service.py`
 
-Settings has:
+Settings includes:
 
 - General settings.
-- UI scale preset.
-- Update check button/status.
+- UI scale/size settings.
+- Update check.
 - Backup button.
-- Open logs button.
-- Export diagnostics button.
+- Diagnostics export.
+- Attendance price settings.
 - Attendance inventory diagnostics panel.
-- Attendance price settings tab via `AttendancePriceSettingsTab`.
 
 ### 2. Backup
 
-File: `modules/settings/backup_service.py`.
+Backup service:
 
-`UserBackupService.create_user_backup()`:
+- likely under `modules/settings` or `core` backup services.
 
-- Creates zip in `settings.backup_dir`.
-- Includes `app.db` if present.
-- Includes `attendance.db` if present.
-- Adds `manifest.json` with included/missing files and source paths.
+Behavior:
 
-Caveat:
+- Creates zip in backup folder.
+- Includes main DB `app.db` if present.
+- Includes attendance DB `attendance.db` if present.
+- Includes manifest metadata.
 
-- Because product-attendance/inventory links span both DBs, restore both DBs together.
+Important:
+
+- Product-attendance and attendance-inventory features depend on both DBs.
+- Backup/restore should treat `app.db` and `attendance.db` as a pair.
+- Restoring only one DB can break external links or diagnostics.
 
 ### 3. Diagnostics
 
-File: `modules/diagnostics/service.py`.
+Diagnostics service exports:
 
-`DiagnosticsService.export_diagnostics()` creates zip under `exports/diagnostics` with:
+- app info.
+- UI environment.
+- recent logs.
 
-- `app_info.json`
-- `ui_environment.json`
-- `recent_log.txt`
-
-It does not include DB files.
+It generally does not include DBs, to avoid leaking data and large files. Attendance inventory diagnostic service is separate: it scans DB consistency and can reconcile selected records.
 
 ### 4. Auto-update
 
@@ -1344,10 +1516,7 @@ Files:
 
 - `core/version.py`
 - `version.json`
-- `modules/update/service.py`
-- `modules/update/ui/update_dialog.py`
-- `scripts/check_version.ps1`
-- GitHub release workflow.
+- update-related code in `core`/settings.
 
 Manifest fields:
 
@@ -1356,130 +1525,196 @@ Manifest fields:
 - `notes`
 - `min_required_version`
 
-Default manifest URL:
+Important release rule:
 
-- `core.config.DEFAULT_UPDATE_MANIFEST_URL`
-- currently `https://raw.githubusercontent.com/antongduy2307/QuanLyHangHoa/main/version.json`.
+- `installer_url` must be a direct `.exe` URL.
+- `version.json` does not magically update itself.
+- After release, manually verify raw GitHub URL points to current repo and current installer.
 
 Release flow:
 
 1. Update `core/version.py`.
 2. Update `version.json`.
-3. Build PyInstaller app.
-4. Build installer.
-5. Publish GitHub Release.
-6. Verify `installer_url` is direct `.exe` URL and matches release artifact.
-7. Commit/push `version.json`.
+3. Build/test locally if possible.
+4. Push/tag release.
+5. GitHub Actions builds installer.
+6. Verify Release asset URL.
+7. Verify `version.json` installer URL.
 
 Common failure:
 
-- `version.json` raw URL points to old repo/link or installer URL not direct `.exe`.
+- Raw URL still points to old repo/link/version.
 
 ### 5. Background image feature
 
-Current repo inspection did not find a central implemented app-background image helper via `rg` for `_MEIPASS`, `BACKGROUND`, or `image/`. There is a root `.jpg` file in the repo root, but no root `image/` folder in the current listing. Treat background image behavior as uncertain/not active unless verified in latest branch.
+There is a root `.jpg` file in repo, but no clearly confirmed production background-image feature was detected in the current code inspection. If future task involves background image:
 
-If reintroduced, requirement from prior prompts was:
+- Verify actual implementation first.
+- App should run if optional image missing.
+- Do not add required image dependency to PyInstaller without fallback.
 
-- root `image/*.jpg` optional;
-- no crash if missing/invalid;
-- PyInstaller optional data include if folder exists;
-- opacity around 20%;
-- broad containers semi-transparent enough for readability.
-
-## M. UI Changes Và Current UX State
+## M. UI changes and current UX state
 
 ### 1. Main tab order
 
-`HistoryPage` is inserted before `Chấm công` and `Cài đặt`, so `Lịch sử` appears before those tabs.
+Current effective order places `Lịch sử` before `Chấm công` and `Cài đặt`.
 
-### 2. Attendance reports
+### 2. Attendance report table
 
-Reports have 10-day and 30-day views. Prior UI work focused on flexible width, spacer behavior between employees, total rows, decimal quantity display, and readable tables.
+Current attendance report UI has:
+
+- 10-day / 30-day tabs.
+- Flexible width behavior.
+- Spacer between employee sections.
+- Total row.
+- Decimal CUT/VK display support.
 
 ### 3. Numeric input style
 
-- CUT and VK quantity inputs allow decimal.
-- Avoid float.
-- Compact line-edit style preferred over spinbox arrows for day-entry quantities.
-- Integer decimals display without `.0`.
+Recent UI direction:
 
-### 4. CUT/VK search/add behavior
+- Avoid spin button style where it causes row height/UX issues.
+- Use compact line edits similar to sales table.
+- CUT/VK quantity supports decimal.
 
-- Search lists configured product-linked CUT items.
-- Excluded/incomplete/legacy items hidden from new selection.
-- Existing saved rows reload even if later invalid.
+### 4. Search/add row behavior for CUT/VK
+
+Day-entry search/add:
+
+- Uses filtered product-linked `BagType` list.
+- Excluded/incomplete/legacy/manual rows hidden for new selection.
+- Existing historical rows still reload if already saved.
 
 ### 5. Multi-delete
 
-Shared helper:
+Investigation:
 
-- `shared/widgets/table_selection_mode.py`
-- Class: `TableSelectionModeController`.
+- `docs/MULTI_DELETE_UI_INVESTIGATION.md`
 
 Implemented:
 
-- Attendance employees: `docs/MULTI_DELETE_EMPLOYEE_BATCH1.md`.
-- Inventory products: `docs/MULTI_DELETE_PRODUCT_BATCH2.md`.
+- Shared helper `shared/widgets/table_selection_mode.py`.
+- Attendance employees multi-delete.
+- Inventory products multi-delete.
 
 Deferred:
 
-- `Lịch sử` multi-delete due high business risk.
+- `Lịch sử` multi-delete, because invoices/returns/payments have rollback effects on stock and customer debt.
 
 ### 6. Known UI caveats
 
-- Some source files have mojibake in Vietnamese string literals because earlier code already contained mojibake in places. Do not mass-normalize unrelated files casually; only fix strings in touched UI where tests/UX require it.
-- Existing dialogs can be modal; tests patch message boxes to avoid offscreen hangs.
+- Admin inventory diagnostics UI is intentionally small/manual, not automatic.
+- Some modules still use per-feature dialogs/message boxes; avoid modal dialogs in CI tests unless patched.
+- For UI tests, run with `QT_QPA_PLATFORM=offscreen`.
 
-## N. Testing Và CI/CD Status
+## N. Testing and CI/CD status
 
 ### 1. Test framework
 
-- `unittest`.
-- PyQt tests run with `QApplication` and `QT_QPA_PLATFORM=offscreen`.
+- Test framework: `unittest`.
+- Qt tests run offscreen.
+- CI uses Windows runner.
 
 ### 2. Important commands
+
+Canonical test discovery:
+
+```powershell
+python -m unittest discover -s tests -p "test*.py" -t .
+```
+
+Compile check:
+
+```powershell
+python -m compileall core modules tests shell
+```
+
+### Suggested focused test commands by area
+
+Attendance product sync:
+
+```powershell
+python -m unittest tests.test_attendance_product_sync tests.test_attendance_settings_ui tests.test_app_window_attendance_sync
+```
+
+Attendance day-entry/inventory:
+
+```powershell
+python -m unittest tests.test_attendance_day_entry tests.test_attendance_inventory_effect_service tests.test_attendance_inventory_integration tests.test_attendance_inventory_diagnostics
+```
+
+Attendance inventory diagnostics UI:
+
+```powershell
+python -m unittest tests.test_attendance_inventory_diagnostics_ui tests.test_attendance_inventory_diagnostics
+```
+
+Attendance employee management and multi-delete:
+
+```powershell
+python -m unittest tests.test_attendance_employee_management
+```
+
+Inventory/product:
+
+```powershell
+python -m unittest tests.test_inventory_service tests.test_inventory_transactions tests.test_product_search_ui
+```
+
+Sales/returns/customer:
+
+```powershell
+python -m unittest tests.test_sales_service tests.test_return_service tests.test_customer_service
+```
+
+Smoke/CI:
+
+```powershell
+python -m unittest tests.test_smoke
+python -m unittest discover -s tests -p "test*.py" -t .
+python -m compileall core modules tests shell
+```
+
+Các test files trong danh sách trên đang tồn tại ở thời điểm cập nhật tài liệu. Nếu một nhánh tương lai đổi tên test file, dùng command tương đương theo module hiện có.
+
+### 3. Current test count
+
+Latest known full discovery from recent work:
+
+```text
+Ran 489 tests OK
+```
+
+Treat this as a recent local baseline, not a permanent guarantee.
+
+### 4. GitHub Actions CI/CD
+
+Files:
+
+- `.github/workflows/ci.yml`
+- `.github/workflows/release.yml`
+
+Current CI checks:
+
+- Sets `QT_QPA_PLATFORM=offscreen`.
+- Sets `LOCALAPPDATA` to runner temp path.
+- Runs from repo root.
+- Runs:
 
 ```powershell
 python -m unittest discover -s tests -p "test*.py" -t .
 python -m compileall core modules tests shell
 ```
 
-With local venv:
+Release workflow:
 
-```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test*.py" -t .
-.\.venv\Scripts\python.exe -m compileall core modules tests shell
-```
-
-### 3. Current test count
-
-Most recent full discovery after product multi-delete Batch 2:
-
-- `Ran 489 tests`
-- `OK`
-
-### 4. CI/CD workflows
-
-`.github/workflows/ci.yml`:
-
-- Windows latest.
-- Sets `QT_QPA_PLATFORM=offscreen`.
-- Sets `LOCALAPPDATA=$RUNNER_TEMP\QuanLyHangHoaTest`.
-- Installs `requirements.txt`.
-- Runs:
-  - `python -m unittest discover -s tests -p "test*.py" -t .`
-  - `python -m compileall core modules tests shell`.
-
-`.github/workflows/release.yml`:
-
-- On tags `v*` or workflow dispatch.
-- Checks tag matches app version.
-- Runs tests/compileall.
+- Checks version/tag.
+- Installs requirements.
+- Runs unittest discovery.
+- Runs compileall.
 - Builds PyInstaller app.
-- Installs Inno Setup.
-- Builds installer.
-- Uploads artifacts and publishes GitHub Release.
+- Builds Inno installer.
+- Uploads installer/checksum to GitHub Release.
 
 ### 5. Previous CI issues fixed
 
@@ -1489,227 +1724,278 @@ Docs:
 - `docs/CI_NO_SUCH_TABLE_INVOICES_INVESTIGATION.md`
 - `docs/CI_TEST_RUNTIME_STABILITY_SECOND_PASS.md`
 
-Issues:
+Fixed/handled issues:
 
-- `ImportError: Start directory is not importable: 'tests'` fixed by making `tests/` importable and using `-s tests -p "test*.py" -t .`.
-- UI smoke DB init fixed: call `init_db()` before DB-backed UI construction.
-- Test temp dirs moved away from tracked repo where possible; ignore safety net for `tests/_tmp/`, `tests/_diagnostics_tmp/`.
-- Avoid modal hangs by patching `MessageBox` in UI tests.
+- `ImportError: Start directory is not importable: 'tests'`:
+  - ensured importable `tests` package and discovery command with `-s tests -p "test*.py" -t .`.
+- UI smoke DB init:
+  - schema must exist before constructing DB-backed pages like `TransactionHistoryView`.
+- Temp dirs under `tests/_tmp` / `tests/_diagnostics_tmp`:
+  - tests should use system temp and close DB engines/log handlers.
+- Offscreen Qt modal hangs:
+  - tests patch/avoid message boxes where needed.
 
 ### 6. Test helpers
 
-- `tests/helpers/runtime.py` exists for temp runtime/DB init patterns.
-- Many tests patch env `LOCALAPPDATA`, reset settings cache, reset DB engines, and use fake/no-op services.
-- Attendance report/day-entry tests often inject `_NoopInventoryEffectService` to avoid main DB effects when not under test.
+Important patterns:
+
+- Use temp runtime outside repo.
+- Set `LOCALAPPDATA` or supported env before loading settings.
+- Clear `core.config.get_settings` cache.
+- Reset `core.db` engine cache.
+- Reset `modules.attendance.db` engine cache if attendance DB involved.
+- Call `core.db.init_db()`.
+- Call `modules.attendance.db.init_attendance_db()` if attendance UI/DB involved.
+- Close/delete Qt widgets after tests.
 
 ### 7. Guidance
 
-- Always run focused tests for changed module.
+For future changes:
+
+- Run focused tests first.
 - Then run full discovery and compileall.
-- Do not let tests write long-lived temp DB/log dirs under repo.
-- Restore tracked generated `.pyc` if compileall touches tracked pycache files.
+- Do not create temp runtime directories under tracked `tests/`.
+- Do not skip/delete tests to pass CI.
 
-## O. Important Decisions / Design Rationale
+## O. Important decisions / design rationale
 
-1. Keep two DBs for now.
-   - Merging `app.db` and `attendance.db` is high-risk and needs dedicated migration.
+1. Keep two DBs for now; do not merge immediately.
+   - Main DB and attendance DB remain separate to reduce migration risk.
+   - Cross-DB features use explicit source references and diagnostics.
 
-2. Do not auto-backfill old attendance DONE records.
-   - Inventory effects apply going forward or on explicit save/reconcile.
+2. Do not auto-backfill old attendance records.
+   - Old DONE records may lack inventory effects.
+   - Diagnostics can list them.
+   - Backfill must be explicit/manual in a future feature.
 
-3. Product-linked `BagType` names come from `Product.product_name`.
-   - Attendance settings should not freely rename linked CUT work.
+3. Product-linked `BagType.name` comes from `Product.product_name`.
+   - Attendance settings cannot freely rename product-linked CUT work.
 
-4. CUT manual add removed.
-   - Source of truth is inventory product list.
+4. Manual CUT add removed.
+   - CUT work source is inventory products.
+   - Attendance settings only configures quota/price/exclusion.
 
-5. Use `inventory_stock_effects`, not blind stock increments.
-   - Enables rollback/apply and idempotence.
+5. Use `inventory_stock_effects` instead of blind stock increments.
+   - Enables rollback/apply/idempotence.
+   - Gives diagnostics source references.
 
-6. Rollback/apply by attendance daily record source.
-   - Attendance logs are cleared/recreated on edit; old line IDs can change.
+6. Use rollback/apply reconciliation.
+   - Re-saving same DONE record must not double count.
+   - Editing DONE must reflect latest quantities only.
 
 7. Defer `Lịch sử` multi-delete.
-   - Stock/debt rollback and ordering risks are nontrivial.
+   - Sales/returns/customer debt delete effects are high risk.
+   - Needs separate design and tests.
 
-8. Product recreate same code/name reactivates inactive product.
-   - Preserves product id, history, and attendance links.
+8. Product recreate same code/name should reactivate inactive product.
+   - Prevents `UNIQUE constraint failed: products.product_code_base`.
+   - Preserves history and attendance links.
 
 9. Backup/restore must treat both DBs together.
-   - Cross-DB external references exist.
+   - Product-attendance links and inventory effects cross DB boundary.
 
-10. `version.json` must be manually checked.
-    - Raw manifest and installer URLs are not automatically guaranteed correct.
+10. Release `version.json` must be manually checked.
+    - Update manifest URL and version before/after release.
 
-## P. Current Open Tasks / Next Steps
+## P. Current open tasks / next steps
 
 ### 1. Product reactivation on recreate same code/name
 
 Status: implemented.
 
-Report: `docs/PRODUCT_REACTIVATE_ON_RECREATE.md`.
+Docs:
 
-Keep tests around:
+- `docs/PRODUCT_REACTIVATE_ON_RECREATE.md`
 
-- inactive same code/name reactivates.
-- same code/different name rejects.
-- same code/name/different unit mode rejects.
-- attendance sync sees reactivated product.
+Behavior:
 
-### 2. Attendance price settings UI cleanup
+- Same inactive code/name reactivates existing product.
+- Same code/different name raises friendly validation.
+- Same code/name/different unit with history raises friendly validation.
+
+### 2. Attendance price settings UI
 
 Status: implemented.
 
-Report: `docs/ATTENDANCE_PRICE_SETTINGS_UI_BATCH1.md`.
+Docs:
+
+- `docs/ATTENDANCE_PRICE_SETTINGS_UI_BATCH1.md`
 
 Implemented:
 
-- Dropdown:
-  - `Công việc tổ thổi`
-  - `Loại bao tổ cắt`
-- Only one section visible at a time.
-- CUT add button removed from UI.
-- Product-linked CUT rows still editable for quota/price/exclusion.
+- Dropdown between `Công việc tổ thổi` and `Loại bao tổ cắt`.
+- CUT add button removed.
+- Product-linked CUT names read-only.
+- Quota/excess/exclusion editable.
+- Red incomplete highlight preserved.
 
 ### 3. Multi-delete
 
 Status:
 
-- Investigation done: `docs/MULTI_DELETE_UI_INVESTIGATION.md`.
-- Employee tab done: `docs/MULTI_DELETE_EMPLOYEE_BATCH1.md`.
-- Product list done: `docs/MULTI_DELETE_PRODUCT_BATCH2.md`.
-- History deferred.
+- Employees: implemented.
+- Products: implemented.
+- History: deferred.
+
+Docs:
+
+- `docs/MULTI_DELETE_UI_INVESTIGATION.md`
+- `docs/MULTI_DELETE_EMPLOYEE_BATCH1.md`
+- `docs/MULTI_DELETE_PRODUCT_BATCH2.md`
 
 Next if needed:
 
-- Dedicated investigation/design for history bulk delete atomicity and ordering.
+- Do not implement history multi-delete without dedicated rollback/debt/inventory design.
 
 ### 4. Admin UI for Attendance inventory diagnostics
 
-Status: implemented in settings page.
-
-Report: `docs/ATTENDANCE_CUT_TO_INVENTORY_BATCH4.md`.
+Status: implemented as small Settings panel.
 
 Current behavior:
 
-- manual scan;
-- issue table;
-- manual reconcile selected daily record;
-- no auto-backfill or missing-source cleanup.
+- Scan issues.
+- View issue list.
+- Reconcile selected daily record explicitly.
+- No auto-backfill.
+- No startup auto-reconcile.
 
 ### 5. Optional manual backfill tool
 
-Pending.
+Status: pending/future.
 
-Recommended design:
+Recommended future design:
 
-- Preview old DONE records without effects.
-- Show expected product deltas.
-- Manual apply only with confirmation.
-- No automatic startup backfill.
+- List old DONE records without effects.
+- Preview product deltas.
+- Require explicit confirmation.
+- Reconcile selected records or selected date range.
+- Produce audit report.
 
-### 6. Future DB unification
+### 6. Possible future DB unification
 
-Pending/not recommended now.
+Status: not recommended now.
 
-Needs dedicated migration plan:
+If ever needed:
 
-- copy attendance tables into main DB or attach DBs;
-- preserve IDs and snapshots;
-- verify backup/restore;
-- test all reports and inventory effects.
+- Treat as dedicated architecture migration.
+- Need backup/restore plan, migration scripts, rollback plan, and full test suite.
+- Do not combine with feature work.
 
 ### 7. Web/online attendance idea
 
-Discussed conceptually only.
+Status: not implemented.
 
-Potential future:
+Likely future approach:
 
-- separate backend/web app for employee QR attendance;
-- desktop remains admin/config/report app;
-- do not mix into current desktop code without new architecture plan.
+- Separate backend/web or API for employee QR/mobile attendance.
+- Desktop remains admin/master app for now.
+- Needs separate auth, sync, deployment, offline/online design.
 
-### 8. Known caveats
+### 8. Known bugs/caveats
 
-- Two DBs mean cross-DB partial commit risk remains.
-- `AttendanceInventoryDiagnosticService` mitigates but does not make transactions atomic.
-- Some older DBs may have gone through migrations; always test existing DB upgrade paths.
-- Some terminal output shows mojibake for Vietnamese; inspect files with UTF-8-capable editor.
-- Do not broad-catch DB errors to hide setup mistakes.
+- Cross-DB partial commit risk remains theoretical but mitigated by diagnostics/reconcile.
+- Existing local DBs created before preflight may have DB column nullable for `source_line_id`; service prevents inserting `NULL`.
+- Raw DB errors should not be surfaced to user; use validation errors/message boxes.
+- `version.json` update/release flow remains manual-risk.
+- Background image feature was not clearly confirmed in current code inspection.
 
-## Q. How To Continue In A New Chat Session
+## Q. How to continue in a new ChatGPT session
 
-### 1. Files to provide first
+### 1. Files to provide/read first
 
-If future assistant needs context, provide/read:
+Ask user or inspect:
 
 - `docs/PROJECT_HANDOFF_SUMMARY.md` first.
-- The latest feature report related to the task, e.g.:
-  - product-attendance: `docs/ATTENDANCE_PRODUCT_CUT_SYNC_*.md`
-  - CUT/VK inventory: `docs/ATTENDANCE_CUT_TO_INVENTORY_*.md`
-  - multi-delete: `docs/MULTI_DELETE_*.md`
-  - CI stability: `docs/CI_*.md`
-- Relevant screenshots/logs.
-- Latest failing command output.
+- Latest relevant `docs/*.md` report for the feature being continued.
+- Latest Codex output report from the previous batch.
+- Screenshots/logs if UI or CI issue.
+- Exact failing command output if tests fail.
+
+For attendance product sync:
+
+- `docs/ATTENDANCE_PRODUCT_CUT_SYNC_*.md`
+
+For attendance inventory effects:
+
+- `docs/ATTENDANCE_CUT_TO_INVENTORY_*.md`
+
+For multi-delete:
+
+- `docs/MULTI_DELETE_*.md`
+
+For CI:
+
+- `docs/CI_*.md`
 
 ### 2. What not to assume
 
-- Do not assume DB merge happened.
-- Do not assume old attendance DONE records are backfilled.
-- Do not assume `Lịch sử` multi-delete is safe.
-- Do not assume `version.json` updates automatically.
-- Do not assume product-linked BagTypes can be renamed in attendance.
-- Do not assume DRAFT attendance affects inventory.
+Do not assume:
 
-### 3. Prompting future Codex sessions
+- DB merge has happened.
+- Old attendance records are backfilled.
+- `Lịch sử` multi-delete is safe.
+- `version.json` updates automatically.
+- Attendance diagnostics auto-reconcile runs.
+- Product names are globally unique.
+- CUT manual BagTypes should be recreated.
+- UI tests can show modal dialogs in CI.
+
+### 3. How to propose future Codex prompts
 
 Prefer small batches:
 
-- Investigation/design batch first for risky work.
-- Implementation batch with narrow scope.
-- Require docs report output for each feature batch.
-- Require focused tests, full discovery, and compileall.
+- Investigation/design first for risky changes.
+- Implementation batch with clear scope.
+- Tests and compileall required.
+- Markdown report output required for major changes.
 
-Example pattern:
+Good prompt structure:
 
-```text
-Implement Batch N only.
-Do not change unrelated modules.
-Create docs/FEATURE_BATCH_N.md.
-Run focused tests, unittest discover, compileall.
-```
+- Goal.
+- In scope.
+- Out of scope.
+- Exact files likely involved.
+- Required tests.
+- Required docs/report.
+- Commands to run.
 
 ### 4. Commands before release
+
+Recommended:
 
 ```powershell
 python -m unittest discover -s tests -p "test*.py" -t .
 python -m compileall core modules tests shell
-.\scripts\check_version.ps1 -Tag v0.8.0
-.\scripts\build_exe.ps1
-.\scripts\build_installer.ps1
 ```
 
-Also manually verify:
+Also verify:
 
 - `core/version.py`
 - `version.json`
-- GitHub Release artifact name
-- direct installer URL.
+- `.github/workflows/release.yml`
+- `installer/QuanLyHangHoa.iss`
+- `desktop_app.spec`
+- release asset URL after GitHub Release.
 
 ### 5. Critical safety rules
 
-- Do not change attendance formulas casually.
-- Do not change sales/return/customer rollback logic casually.
-- Do not bulk mutate inventory without source reference.
-- Do not auto-backfill attendance inventory effects.
-- Do not skip/delete tests.
-- Do not hide DB errors with broad try/except.
-- Do not hard-delete historical products/employees/BagTypes.
-- Do not merge DBs without dedicated migration plan.
+Do not:
 
-## R. Appendix: Documents And Test Files Index
+- Change attendance formulas casually.
+- Bulk mutate inventory without source reference/effect rows.
+- Auto-backfill old attendance records.
+- Merge DBs as part of normal feature work.
+- Skip/delete tests.
+- Hide DB errors using broad `try/except` without diagnostics.
+- Use float for quantities/money.
+- Hard-delete historical products/employees/BagTypes.
+- Add direct SQL bulk delete for product/employee/history multi-delete.
 
-### Generated docs present
+## R. Appendix: documents and test files index
+
+### 1. Important docs present
+
+Attendance product-to-CUT sync:
 
 - `docs/ATTENDANCE_PRODUCT_CUT_SYNC_INVESTIGATION.md`
 - `docs/ATTENDANCE_PRODUCT_CUT_SYNC_BATCH1.md`
@@ -1717,64 +2003,283 @@ Also manually verify:
 - `docs/ATTENDANCE_PRODUCT_CUT_SYNC_BATCH3.md`
 - `docs/ATTENDANCE_PRODUCT_CUT_SYNC_BATCH4.md`
 - `docs/ATTENDANCE_PRODUCT_CUT_SYNC_BATCH5.md`
+
+Attendance CUT/VK to inventory:
+
 - `docs/ATTENDANCE_CUT_TO_INVENTORY_INVESTIGATION.md`
 - `docs/ATTENDANCE_CUT_TO_INVENTORY_BATCH1.md`
 - `docs/ATTENDANCE_CUT_TO_INVENTORY_PREFLIGHT.md`
 - `docs/ATTENDANCE_CUT_TO_INVENTORY_BATCH2.md`
 - `docs/ATTENDANCE_CUT_TO_INVENTORY_BATCH3.md`
 - `docs/ATTENDANCE_CUT_TO_INVENTORY_BATCH4.md`
+
+Attendance price settings:
+
 - `docs/ATTENDANCE_PRICE_SETTINGS_UI_BATCH1.md`
+
+Multi-delete:
+
 - `docs/MULTI_DELETE_UI_INVESTIGATION.md`
 - `docs/MULTI_DELETE_EMPLOYEE_BATCH1.md`
 - `docs/MULTI_DELETE_PRODUCT_BATCH2.md`
-- `docs/PRODUCT_REACTIVATE_ON_RECREATE.md`
+
+CI/runtime stability:
+
 - `docs/CI_DB_INIT_UI_RELOAD_FIX.md`
 - `docs/CI_NO_SUCH_TABLE_INVOICES_INVESTIGATION.md`
 - `docs/CI_TEST_RUNTIME_STABILITY_SECOND_PASS.md`
+
+Product recreation/reactivation:
+
+- `docs/PRODUCT_REACTIVATE_ON_RECREATE.md`
+
+This handoff:
+
 - `docs/PROJECT_HANDOFF_SUMMARY.md`
 
-### Important tests
+### 2. Important test files
 
-- `tests/test_smoke.py`
-- `tests/test_schema_invariants.py`
+Inventory/product:
+
 - `tests/test_inventory_service.py`
-- `tests/test_inventory_transactions.py`
 - `tests/test_product_search_ui.py`
-- `tests/test_sales_service.py`
-- `tests/test_return_service.py`
-- `tests/test_customer_service.py`
-- `tests/test_customer_ui.py`
-- `tests/test_customer_list_search.py`
-- `tests/test_customer_invoice_payment_migration.py`
-- `tests/test_history_delete_actions.py`
+- `tests/test_inventory_transactions.py`
+- `tests/test_schema_invariants.py`
+
+Sales/returns/customer/orders:
+
 - `tests/test_order_service.py`
 - `tests/test_order_ui.py`
 - `tests/test_sales_pos_layout.py`
-- `tests/test_reporting_service.py`
-- `tests/test_attendance_batch1.py`
-- `tests/test_attendance_employee_management.py`
-- `tests/test_attendance_day_entry.py`
-- `tests/test_attendance_settings.py`
-- `tests/test_attendance_settings_ui.py`
+- `tests/test_customer_list_search.py`
+- `tests/test_customer_ui.py`
+- `tests/test_customer_invoice_payment_migration.py`
+
+Attendance product sync/settings/day-entry:
+
 - `tests/test_attendance_product_sync.py`
+- `tests/test_attendance_settings_ui.py`
 - `tests/test_app_window_attendance_sync.py`
-- `tests/test_attendance_report.py`
+- `tests/test_attendance_day_entry.py`
+- `tests/test_attendance_employee_management.py`
+- `tests/test_attendance_batch1.py`
+
+Attendance inventory effects:
+
 - `tests/test_attendance_inventory_effect_service.py`
 - `tests/test_attendance_inventory_integration.py`
 - `tests/test_attendance_inventory_diagnostics.py`
 - `tests/test_attendance_inventory_diagnostics_ui.py`
-- `tests/test_settings_backup.py`
-- `tests/test_diagnostics_service.py`
-- `tests/test_update_service.py`
 
-### Recent verification snapshot
+CI/smoke/runtime:
 
-From latest multi-delete Batch 2 run:
+- `tests/test_smoke.py`
+- app-window/history/settings related tests if present.
 
-```text
-python -m unittest tests.test_inventory_service        # OK, 25 tests
-python -m unittest tests.test_product_search_ui        # OK, 8 tests
-python -m unittest tests.test_attendance_product_sync  # OK, 14 tests
-python -m unittest discover -s tests -p "test*.py" -t . # OK, 489 tests
-python -m compileall core modules tests shell          # OK
-```
+### 3. Important code files by area
+
+Shell/bootstrap:
+
+- `main.py`
+- `shell/bootstrap.py`
+- `shell/app_window.py`
+
+Core:
+
+- `core/config.py`
+- `core/paths.py`
+- `core/db.py`
+- `core/version.py`
+
+Inventory:
+
+- `modules/inventory/models.py`
+- `modules/inventory/repository.py`
+- `modules/inventory/service.py`
+- `modules/inventory/controller.py`
+- `modules/inventory/ui/product_list_view.py`
+
+Sales/history:
+
+- `modules/sales/models.py`
+- `modules/sales/repository.py`
+- `modules/sales/service.py`
+- `modules/sales/controller.py`
+- `modules/sales/ui/transaction_history_view.py`
+
+Returns/customer/orders:
+
+- `modules/returns/models.py`
+- `modules/customer/models.py`
+- `modules/orders/models.py`
+
+Attendance:
+
+- `modules/attendance/models.py`
+- `modules/attendance/db.py`
+- `modules/attendance/repository.py`
+- `modules/attendance/service.py`
+- `modules/attendance/blow_work.py`
+- `modules/attendance/cut_bonus.py`
+- `modules/attendance/product_sync_service.py`
+- `modules/attendance/inventory_effect_service.py`
+- `modules/attendance/inventory_diagnostic_service.py`
+- `modules/attendance/ui/employee_tab.py`
+- `modules/attendance/ui/day_entry_tab.py`
+- `modules/attendance/ui/report_tab.py`
+- `modules/attendance/ui/settings_tab.py`
+
+Settings/diagnostics:
+
+- `modules/settings/ui/page.py`
+
+Shared:
+
+- `shared/widgets/message_box.py`
+- `shared/widgets/table_selection_mode.py`
+
+Build/release:
+
+- `.github/workflows/ci.yml`
+- `.github/workflows/release.yml`
+- `scripts/build_exe.ps1`
+- `scripts/build_installer.ps1`
+- `scripts/check_version.ps1`
+- `desktop_app.spec`
+- `installer/QuanLyHangHoa.iss`
+- `version.json`
+
+## S. Latest manual verification and release state
+
+### 1. Current detected version
+
+Trạng thái detect từ repo tại lần cập nhật tài liệu này:
+
+- `core/version.py`: `APP_VERSION = "0.8.1"`.
+- `version.json`: `"version": "0.8.1"`.
+- Hai giá trị này đang khớp nhau.
+
+Nếu user đang chạy một bản đã cài ngoài máy, exact deployed user version không thể detect chắc chắn chỉ từ repo. Cần kiểm tra trực tiếp trong app đã cài hoặc installer/release đang dùng.
+
+### 2. Current update manifest
+
+`version.json` hiện có:
+
+- `version`: `0.8.1`
+- `installer_url`: `https://github.com/antongduy2307/QuanLyHangHoa/releases/download/v0.8.1/QuanLyHangHoa-Setup-v0.8.1.exe`
+- Repo trong URL: `antongduy2307/QuanLyHangHoa`
+- `min_required_version`: `0.8.0`
+
+Ghi nhớ khi release:
+
+- `installer_url` phải là link trực tiếp tới file `.exe`.
+- Không dùng link trang release HTML nếu update checker/download logic cần direct installer.
+- `version.json` không tự update sau khi GitHub Release build xong; phải kiểm tra thủ công.
+
+### 3. Release state
+
+- `.github/workflows/release.yml` tồn tại và có release workflow build PyInstaller/Inno installer.
+- `.github/workflows/ci.yml` tồn tại và chạy unittest discovery + compileall.
+- Latest known local test baseline trong tài liệu trước: `Ran 489 tests OK`.
+- CI/CD có vẻ được cấu hình đúng theo repo, nhưng tài liệu này không thể xác nhận trạng thái GitHub Actions live tại thời điểm đọc nếu không mở GitHub.
+- Exact deployed user version không detect được từ repo.
+
+### 4. Manual verification checklist
+
+| Area | Manual test | Expected result | Status |
+| --- | --- | --- | --- |
+| Product recreate/reactivation | Create product, create history, delete/deactivate product, recreate same code + same name | Old product is reactivated, same `Product.id`, no raw `IntegrityError` | Implemented; manual verification should be confirmed |
+| Attendance price settings | Open price settings, switch dropdown between `Công việc tổ thổi` and `Loại bao tổ cắt` | Only one table visible at a time; CUT add button absent | Implemented; manual verification should be confirmed |
+| CUT attendance to inventory | Product stock starts at 0, save CUT quantity as DRAFT, then finalize DONE | DRAFT leaves stock unchanged; DONE increases stock by quantity | Manually tested OK |
+| Edit finalized CUT | Change finalized quantity from 10.5 to 7 | Stock becomes 7, not 17.5 | Manually tested OK |
+| DONE to DRAFT / absent | Convert finalized record to draft or absent | Stock effect rolls back | Manually tested OK |
+| BLOW VK to inventory | Add extra CUT/VK quantity for BLOW employee and finalize | Linked product stock increases by VK quantity | Manually tested OK |
+| Attendance inventory diagnostics | Open diagnostics panel, scan issues, reconcile selected record explicitly if needed | Issues listed or no-issue message shown; reconcile only on explicit action | Implemented; manual verification should be confirmed |
+| Employee multi-delete | Enter selection mode, select multiple employees, delete | Hard-delete/deactivate summary appears | Implemented; manual verification should be confirmed |
+| Product multi-delete | Enter selection mode, select multiple products, delete | Hard-delete/deactivate summary appears | Implemented; manual verification should be confirmed |
+| Update flow | Open update check | App reads current `version.json` and downloads direct installer URL | Unknown / needs manual verification |
+
+## T. Danger zones / Không sửa nếu chưa xác nhận
+
+- Attendance formulas:
+  - BLOW `Thừa máy` quota `-3` chỉ áp dụng cho `Thừa máy`, không áp dụng cho toàn bộ numeric work.
+  - VK formula là `quantity * excess_unit_price_snapshot`.
+  - CUT multi-code quota/bonus logic rất nhạy; không đổi nếu chưa có xác nhận user/client và test cụ thể.
+- Inventory effects:
+  - Không update tồn kho từ attendance bằng direct blind increment.
+  - Phải dùng `inventory_stock_effects` source reference.
+  - Phải rollback/apply theo `source_type + source_id`.
+  - Không dùng float cho quantity/money.
+- Old attendance records:
+  - Không auto-backfill old DONE records.
+  - Backfill nếu có phải manual, preview-based, và được xác nhận.
+- Database architecture:
+  - Không merge `app.db` và `attendance.db` trong một feature bình thường.
+  - DB unification là migration project riêng.
+- History multi-delete:
+  - Không implement bulk delete cho `Lịch sử` một cách casual.
+  - Invoice/return/debt payment deletion ảnh hưởng stock và customer debt.
+- Product deletion:
+  - Không hard-delete products with history.
+  - Recreate same inactive code/name phải reactivate existing product.
+- Backup/restore:
+  - Treat `app.db` và `attendance.db` as a pair.
+  - Restore chỉ một DB có thể tạo mismatch.
+- CI/tests:
+  - Không skip/delete tests để pass CI.
+  - Không dùng broad `try/except` để che DB initialization errors.
+  - Không để tests tạo temp dirs dưới repo.
+- Release/update:
+  - `version.json` không update tự động.
+  - `installer_url` phải check thủ công.
+  - Old installed apps có thể vẫn đọc old repo manifest nếu chưa migrate/update manifest config.
+
+## U. Latest implemented vs pending status matrix
+
+| Feature / Area | Status | Main files | Main docs | Notes / Caveats |
+| --- | --- | --- | --- | --- |
+| Product reactivation on recreate same code/name | Implemented | `modules/inventory/service.py`, `modules/inventory/repository.py` | `docs/PRODUCT_REACTIVATE_ON_RECREATE.md` | Same inactive code/name reactivates; same code/different name or unsafe unit change raises validation. |
+| Attendance price settings dropdown + remove CUT add | Implemented; needs manual verification | `modules/attendance/ui/settings_tab.py` | `docs/ATTENDANCE_PRICE_SETTINGS_UI_BATCH1.md` | CUT rows still editable for quota/price/exclusion; CUT add button absent. |
+| Product-to-attendance CUT sync | Implemented | `modules/attendance/product_sync_service.py`, `modules/attendance/db.py`, `modules/attendance/models.py` | `docs/ATTENDANCE_PRODUCT_CUT_SYNC_*.md` | Keeps two DBs; syncs only product id/name/active state. |
+| Attendance CUT/VK to inventory effect | Implemented | `modules/attendance/service.py`, `modules/attendance/inventory_effect_service.py`, `modules/inventory/models.py` | `docs/ATTENDANCE_CUT_TO_INVENTORY_BATCH1.md`, `docs/ATTENDANCE_CUT_TO_INVENTORY_BATCH2.md`, `docs/ATTENDANCE_CUT_TO_INVENTORY_PREFLIGHT.md` | Manual logic testing was confirmed for DRAFT/DONE/edit/rollback cases. |
+| Attendance inventory diagnostics service | Implemented | `modules/attendance/inventory_diagnostic_service.py` | `docs/ATTENDANCE_CUT_TO_INVENTORY_BATCH3.md` | Scan is read-only; reconcile is explicit. |
+| Attendance inventory diagnostics UI | Implemented; needs manual verification | `modules/settings/ui/page.py` | `docs/ATTENDANCE_CUT_TO_INVENTORY_BATCH4.md` | Admin maintenance surface, no auto-backfill. |
+| Employee multi-delete | Implemented; needs manual verification | `modules/attendance/ui/employee_tab.py`, `shared/widgets/table_selection_mode.py` | `docs/MULTI_DELETE_EMPLOYEE_BATCH1.md` | Uses existing delete/deactivate service per selected employee. |
+| Product multi-delete | Implemented; needs manual verification | `modules/inventory/ui/product_list_view.py`, `shared/widgets/table_selection_mode.py` | `docs/MULTI_DELETE_PRODUCT_BATCH2.md` | Uses existing delete mode/delete service per product. |
+| History multi-delete | Deferred | `modules/sales/ui/transaction_history_view.py` and related sales/returns/customer services | `docs/MULTI_DELETE_UI_INVESTIGATION.md` | High risk due stock/debt rollback; do not implement without separate plan. |
+| Manual backfill for old DONE attendance | Pending | likely `modules/attendance/inventory_diagnostic_service.py` plus UI/service batch | `docs/ATTENDANCE_CUT_TO_INVENTORY_BATCH3.md`, `docs/ATTENDANCE_CUT_TO_INVENTORY_BATCH4.md` | Must be preview-based and manually confirmed. |
+| DB unification | Deferred | `core/db.py`, `modules/attendance/db.py`, all models/services | `docs/ATTENDANCE_PRODUCT_CUT_SYNC_INVESTIGATION.md`, `docs/ATTENDANCE_CUT_TO_INVENTORY_INVESTIGATION.md` | Future dedicated migration project only. |
+| Web/online QR attendance idea | Future idea | none confirmed | none confirmed | Not implemented; needs backend/auth/sync design. |
+| Background image feature | Unknown / inspect code | unknown; root contains image asset but no confirmed feature path | none confirmed | Inspect code before claiming implemented. |
+| Auto-update / `version.json` flow | Implemented; needs manual verification | `core/version.py`, `version.json`, update/settings code, `.github/workflows/release.yml` | release/update notes in this handoff | Must manually verify direct installer URL and old app manifest behavior. |
+
+## V. Future assistant startup checklist
+
+1. Read `docs/PROJECT_HANDOFF_SUMMARY.md`.
+2. Ask user what the latest branch/version is.
+3. Ask whether latest changes have been pushed/released.
+4. Ask for latest Codex report if continuing a recent batch.
+5. Ask for screenshot/log if UI or CI issue.
+6. Before proposing code:
+   - identify affected module;
+   - classify task as business logic, UI only, DB migration, release issue, CI/test issue, or documentation;
+   - decide whether an investigation `.md` report is needed first.
+7. For risky tasks, require:
+   - report in `docs/`;
+   - focused tests;
+   - full unittest discovery;
+   - compileall.
+8. For release tasks, verify:
+   - `core/version.py`;
+   - `version.json`;
+   - GitHub Release asset URL;
+   - direct installer URL.
+9. For attendance/inventory tasks, re-check:
+   - two-DB boundary;
+   - `inventory_stock_effects` source semantics;
+   - DRAFT/DONE/absent rollback behavior;
+   - old-record backfill policy.
+10. For UI tasks, confirm:
+   - existing widgets/signals;
+   - offscreen test strategy;
+   - no modal hang in CI.

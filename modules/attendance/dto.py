@@ -39,7 +39,7 @@ class BagTypeOption:
 @dataclass(frozen=True, slots=True)
 class WorkLogValue:
     work_type_id: int
-    quantity: int
+    quantity: Decimal
     unit_price_snapshot: int
     amount_snapshot: int
 
@@ -82,7 +82,7 @@ class DayEntryDTO:
 @dataclass(frozen=True, slots=True)
 class BlowWorkInput:
     work_type_id: int
-    quantity: int | None
+    quantity: Decimal | int | str | None
 
 
 @dataclass(frozen=True, slots=True)
