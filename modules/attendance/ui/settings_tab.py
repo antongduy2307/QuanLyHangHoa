@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 import logging
 
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -42,6 +43,13 @@ INPUT_TYPE_LABELS = {
 }
 
 
+def _format_decimal(value: object) -> str:
+    text = str(value)
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text
+
+
 @dataclass(frozen=True, slots=True)
 class WorkTypeFormValue:
     name: str
@@ -52,7 +60,7 @@ class WorkTypeFormValue:
 @dataclass(frozen=True, slots=True)
 class BagTypeFormValue:
     name: str
-    quota_quantity: int
+    quota_quantity: Decimal | int | str
     excess_unit_price: int
     is_excluded_from_attendance: bool = False
 
@@ -111,9 +119,9 @@ class BagTypeDialog(QDialog):
         self.setWindowTitle("Loại bao tổ cắt")
         self.bag_type_id = None if bag_type is None else bag_type.id
         self.name_edit = QLineEdit()
-        self.quota_spinbox = QSpinBox()
-        self.quota_spinbox.setRange(0, 1_000_000)
-        self.quota_spinbox.setGroupSeparatorShown(True)
+        self.quota_input = QLineEdit("0")
+        self.quota_input.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.quota_input.setPlaceholderText("0, 0.5, 1, 1.5...")
         self.excess_price_spinbox = QSpinBox()
         self.excess_price_spinbox.setRange(0, 1_000_000_000)
         self.excess_price_spinbox.setSingleStep(1000)
@@ -125,7 +133,7 @@ class BagTypeDialog(QDialog):
             if bag_type.is_product_linked:
                 self.name_edit.setReadOnly(True)
                 self.name_edit.setToolTip("Tên này được đồng bộ từ danh mục hàng hóa.")
-            self.quota_spinbox.setValue(int(bag_type.quota_quantity))
+            self.quota_input.setText(_format_decimal(bag_type.quota_quantity))
             self.excess_price_spinbox.setValue(int(bag_type.excess_unit_price))
             self.exclude_checkbox.setChecked(bool(bag_type.is_excluded_from_attendance))
 
@@ -139,7 +147,7 @@ class BagTypeDialog(QDialog):
 
         layout = QFormLayout(self)
         layout.addRow("Tên loại bao", self.name_edit)
-        layout.addRow("Số lượng khoán", self.quota_spinbox)
+        layout.addRow("Số lượng khoán", self.quota_input)
         layout.addRow("Thưởng mỗi bao vượt khoán", self.excess_price_spinbox)
         layout.addRow(self.exclude_checkbox)
         layout.addRow(buttons)
@@ -147,7 +155,7 @@ class BagTypeDialog(QDialog):
     def value(self) -> BagTypeFormValue:
         return BagTypeFormValue(
             name=self.name_edit.text(),
-            quota_quantity=self.quota_spinbox.value(),
+            quota_quantity=self.quota_input.text().strip() or "0",
             excess_unit_price=self.excess_price_spinbox.value(),
             is_excluded_from_attendance=self.exclude_checkbox.isChecked(),
         )

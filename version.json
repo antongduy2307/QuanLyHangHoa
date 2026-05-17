@@ -1,6 +1,6 @@
 {
-  "version": "0.8.2",
-  "installer_url": "https://github.com/antongduy2307/QuanLyHangHoa/releases/download/v0.8.2/QuanLyHangHoa-Setup-v0.8.2.exe",
+  "version": "0.8.3",
+  "installer_url": "https://github.com/antongduy2307/QuanLyHangHoa/releases/download/v0.8.3/QuanLyHangHoa-Setup-v0.8.3.exe",
   "notes": [
     "Support decimal for blow team work",
     ":3"

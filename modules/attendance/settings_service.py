@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -9,6 +9,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from core.exceptions import NotFoundError, ValidationError
 from modules.attendance.db import AttendanceSessionLocal
 from modules.attendance.models import BagType, Team, WorkInputType, WorkType
+
+
+CUT_QUOTA_HALF_STEP_ERROR = "Số lượng khoán của tổ cắt chỉ được nhập số nguyên hoặc .5."
 
 
 class AttendanceSettingsService:
@@ -81,13 +84,13 @@ class AttendanceSettingsService:
         self,
         *,
         name: str,
-        quota_quantity: int | Decimal,
+        quota_quantity: int | Decimal | str,
         excess_unit_price: int | Decimal,
         is_active: bool = True,
         is_excluded_from_attendance: bool = False,
     ) -> BagType:
         normalized_name = self._normalize_name(name)
-        normalized_quota = self._validate_non_negative_decimal(quota_quantity, "Số lượng khoán")
+        normalized_quota = self._validate_cut_quota_quantity(quota_quantity)
         normalized_excess_price = self._validate_non_negative_decimal(excess_unit_price, "Thưởng mỗi bao vượt khoán")
         with self._session_factory() as session:
             with session.begin():
@@ -110,13 +113,13 @@ class AttendanceSettingsService:
         bag_type_id: int,
         *,
         name: str,
-        quota_quantity: int | Decimal,
+        quota_quantity: int | Decimal | str,
         excess_unit_price: int | Decimal,
         is_active: bool,
         is_excluded_from_attendance: bool | None = None,
     ) -> BagType:
         normalized_name = self._normalize_name(name)
-        normalized_quota = self._validate_non_negative_decimal(quota_quantity, "Số lượng khoán")
+        normalized_quota = self._validate_cut_quota_quantity(quota_quantity)
         normalized_excess_price = self._validate_non_negative_decimal(excess_unit_price, "Thưởng mỗi bao vượt khoán")
         with self._session_factory() as session:
             with session.begin():
@@ -155,10 +158,22 @@ class AttendanceSettingsService:
             raise ValidationError("Đơn giá không được âm.")
         return price
 
-    def _validate_non_negative_decimal(self, value: int | Decimal, field_label: str) -> Decimal:
-        normalized = Decimal(str(value))
+    def _validate_non_negative_decimal(self, value: int | Decimal | str, field_label: str) -> Decimal:
+        try:
+            normalized = Decimal(str(value).strip())
+        except (InvalidOperation, ValueError) as exc:
+            raise ValidationError(f"{field_label} không hợp lệ.") from exc
+        if not normalized.is_finite():
+            raise ValidationError(f"{field_label} không hợp lệ.")
         if normalized < 0:
             raise ValidationError(f"{field_label} không được âm.")
+        return normalized
+
+    def _validate_cut_quota_quantity(self, value: int | Decimal | str) -> Decimal:
+        normalized = self._validate_non_negative_decimal(value, "Số lượng khoán")
+        doubled = normalized * Decimal("2")
+        if doubled != doubled.to_integral_value():
+            raise ValidationError(CUT_QUOTA_HALF_STEP_ERROR)
         return normalized
 
     def _decimal_money_to_int(self, value: Decimal) -> int:

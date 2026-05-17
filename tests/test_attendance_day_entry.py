@@ -127,6 +127,25 @@ class CutBonusCalculationTestCase(unittest.TestCase):
 
         self.assertEqual(bonus, Decimal("5000.0"))
 
+    def test_decimal_quota_reaching_quota_uses_decimal_excess(self) -> None:
+        bonus = calculate_cut_employee_bonus(
+            [
+                CutBonusItem(quantity=Decimal("20"), quota_quantity=Decimal("18.5"), excess_unit_price=10000),
+            ]
+        )
+
+        self.assertEqual(bonus, Decimal("15000.0"))
+
+    def test_decimal_quota_split_rule_keeps_existing_multi_code_logic(self) -> None:
+        bonus = calculate_cut_employee_bonus(
+            [
+                CutBonusItem(quantity=Decimal("10"), quota_quantity=Decimal("18.5"), excess_unit_price=10000),
+                CutBonusItem(quantity=Decimal("10"), quota_quantity=Decimal("20.5"), excess_unit_price=20000),
+            ]
+        )
+
+        self.assertEqual(bonus, Decimal("7500.00"))
+
 
 class BlowWorkCalculationTestCase(unittest.TestCase):
     def test_thua_may_below_quota_has_zero_amount(self) -> None:
@@ -266,7 +285,7 @@ class AttendanceDayEntryTestCase(unittest.TestCase):
             session.commit()
             return int(bag_type.id)
 
-    def _configure_bag_type(self, name: str, *, quota_quantity: int, excess_unit_price: int) -> int:
+    def _configure_bag_type(self, name: str, *, quota_quantity: Decimal | int, excess_unit_price: int) -> int:
         bag_id = self._bag_type_id(name)
         self.settings_service.update_bag_type(
             bag_id,
@@ -288,7 +307,7 @@ class AttendanceDayEntryTestCase(unittest.TestCase):
 
     def test_cut_day_entry_available_bag_types_use_product_linked_config_filter(self) -> None:
         employee = self.employee_service.create_employee(name="Cut Filter", team=Team.CUT)
-        visible_id = self._create_bag_type("Linked configured")
+        visible_id = self._create_bag_type("Linked configured", quota_quantity=Decimal("0.5"))
         excluded_id = self._create_bag_type("Linked excluded", is_excluded_from_attendance=True)
         zero_quota_id = self._create_bag_type("Linked zero quota", quota_quantity=0, excess_unit_price=3500)
         zero_price_id = self._create_bag_type("Linked zero price", quota_quantity=10, excess_unit_price=0)

@@ -5,6 +5,7 @@ import shutil
 import tempfile
 import unittest
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
@@ -17,7 +18,7 @@ from modules.attendance.dto import AttendanceSavePayload, BlowWorkInput, CutWork
 from modules.attendance.models import BagType, CutLog, DailyRecord, Period, Team, WorkInputType, WorkLog, WorkType
 from modules.attendance.report_service import AttendanceReportService
 from modules.attendance.service import AttendanceDayEntryService, AttendanceEmployeeService
-from modules.attendance.settings_service import AttendanceSettingsService
+from modules.attendance.settings_service import CUT_QUOTA_HALF_STEP_ERROR, AttendanceSettingsService
 from modules.attendance.ui.settings_tab import AttendancePriceSettingsTab, BagTypeFormValue, WorkTypeFormValue
 from modules.settings.service import SettingsService
 from modules.settings.ui.page import SettingsPage
@@ -74,7 +75,7 @@ class AttendanceSettingsTestCase(unittest.TestCase):
         with AttendanceSessionLocal() as session:
             return session.query(BagType).filter_by(name=name).one()
 
-    def _configure_bag_type(self, name: str, *, quota_quantity: int, excess_unit_price: int) -> BagType:
+    def _configure_bag_type(self, name: str, *, quota_quantity: Decimal | int, excess_unit_price: int) -> BagType:
         bag_type = self._bag_type(name)
         self.settings_service.update_bag_type(
             bag_type.id,
@@ -241,6 +242,53 @@ class AttendanceSettingsTestCase(unittest.TestCase):
             self.settings_service.update_bag_type(bag_25.id, name=bag_25.name, quota_quantity=-1, excess_unit_price=1000, is_active=True)
         with self.assertRaises(ValidationError):
             self.settings_service.update_bag_type(bag_25.id, name=bag_25.name, quota_quantity=0, excess_unit_price=-1, is_active=True)
+
+    def test_cut_quota_accepts_integer_and_half_step_decimals(self) -> None:
+        bag_25 = self._bag_type("Bao 25kg")
+
+        self.settings_service.update_bag_type(
+            bag_25.id,
+            name=bag_25.name,
+            quota_quantity="18",
+            excess_unit_price=1000,
+            is_active=True,
+        )
+        self.assertEqual(self._bag_type("Bao 25kg").quota_quantity, Decimal("18.00"))
+
+        self.settings_service.update_bag_type(
+            bag_25.id,
+            name=bag_25.name,
+            quota_quantity=Decimal("18.5"),
+            excess_unit_price=1000,
+            is_active=True,
+        )
+        self.assertEqual(self._bag_type("Bao 25kg").quota_quantity, Decimal("18.50"))
+
+    def test_cut_quota_rejects_non_half_step_decimals(self) -> None:
+        bag_25 = self._bag_type("Bao 25kg")
+
+        for quota in ("18.25", Decimal("2.7")):
+            with self.subTest(quota=quota):
+                with self.assertRaisesRegex(ValidationError, CUT_QUOTA_HALF_STEP_ERROR):
+                    self.settings_service.update_bag_type(
+                        bag_25.id,
+                        name=bag_25.name,
+                        quota_quantity=quota,
+                        excess_unit_price=1000,
+                        is_active=True,
+                    )
+
+    def test_cut_quota_rejects_negative_value(self) -> None:
+        bag_25 = self._bag_type("Bao 25kg")
+
+        with self.assertRaises(ValidationError):
+            self.settings_service.update_bag_type(
+                bag_25.id,
+                name=bag_25.name,
+                quota_quantity=Decimal("-0.5"),
+                excess_unit_price=1000,
+                is_active=True,
+            )
 
     def test_settings_page_has_general_and_attendance_price_tabs(self) -> None:
         page = SettingsPage(SettingsService())

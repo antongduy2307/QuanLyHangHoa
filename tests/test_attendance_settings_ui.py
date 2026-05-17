@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QApplication, QCheckBox, QDialog, QTableWidget
+from PyQt6.QtWidgets import QApplication, QCheckBox, QDialog, QLineEdit, QTableWidget
 
 import core.config
 import core.db
@@ -174,6 +174,23 @@ class AttendanceProductSettingsUiTestCase(unittest.TestCase):
                 is_active=True,
             )
 
+    def test_bag_type_dialog_uses_decimal_quota_input_and_formats_values(self) -> None:
+        product_id = self._create_product("P-SET-2D", "Bao decimal dialog")
+        AttendancePriceSettingsTab(AttendanceSettingsService())
+        self._set_bag_type_config(product_id, quota_quantity=Decimal("18.5"), excess_unit_price=5000)
+        bag_type = self._bag_type_for_product(product_id)
+
+        dialog = BagTypeDialog(bag_type=bag_type)
+
+        self.assertIsInstance(dialog.quota_input, QLineEdit)
+        self.assertEqual(dialog.quota_input.text(), "18.5")
+        self.assertEqual(dialog.value().quota_quantity, "18.5")
+
+        self._set_bag_type_config(product_id, quota_quantity=Decimal("18"), excess_unit_price=5000)
+        integer_dialog = BagTypeDialog(bag_type=self._bag_type_for_product(product_id))
+
+        self.assertEqual(integer_dialog.quota_input.text(), "18")
+
     def test_quota_price_edit_preserved_after_sync_rerun(self) -> None:
         product_id = self._create_product("P-SET-3", "Bao editable")
         tab = AttendancePriceSettingsTab(AttendanceSettingsService())
@@ -228,7 +245,7 @@ class AttendanceProductSettingsUiTestCase(unittest.TestCase):
         configured_id = self._create_product("P-SET-6", "Bao configured")
         excluded_id = self._create_product("P-SET-7", "Bao excluded")
         tab = AttendancePriceSettingsTab(AttendanceSettingsService())
-        self._set_bag_type_config(configured_id, quota_quantity=10, excess_unit_price=5000)
+        self._set_bag_type_config(configured_id, quota_quantity=Decimal("0.5"), excess_unit_price=5000)
         self._set_bag_type_config(excluded_id, quota_quantity=0, excess_unit_price=0, excluded=True)
         tab.reload()
 

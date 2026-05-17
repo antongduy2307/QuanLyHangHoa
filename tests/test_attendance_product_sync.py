@@ -184,7 +184,7 @@ class AttendanceProductSyncTestCase(unittest.TestCase):
         self.service.sync_products_to_cut_work()
         with AttendanceSessionLocal() as session:
             bag_type = session.scalars(select(BagType).where(BagType.source_product_id == product_id)).one()
-            bag_type.quota_quantity = Decimal("10")
+            bag_type.quota_quantity = Decimal("18.5")
             bag_type.excess_unit_price = Decimal("3500")
             bag_type.is_excluded_from_attendance = True
             session.commit()
@@ -192,7 +192,7 @@ class AttendanceProductSyncTestCase(unittest.TestCase):
         result = self.service.sync_products_to_cut_work()
 
         bag_type = self._linked_bag_type(product_id)
-        self.assertEqual(bag_type.quota_quantity, Decimal("10.00"))
+        self.assertEqual(bag_type.quota_quantity, Decimal("18.50"))
         self.assertEqual(bag_type.excess_unit_price, Decimal("3500.00"))
         self.assertTrue(bag_type.is_excluded_from_attendance)
         self.assertEqual(result.incomplete_items, [])
@@ -202,7 +202,7 @@ class AttendanceProductSyncTestCase(unittest.TestCase):
         self.service.sync_products_to_cut_work()
         with AttendanceSessionLocal() as session:
             bag_type = session.scalars(select(BagType).where(BagType.source_product_id == product_id)).one()
-            bag_type.quota_quantity = Decimal("12")
+            bag_type.quota_quantity = Decimal("12.5")
             bag_type.excess_unit_price = Decimal("4200")
             bag_type.is_excluded_from_attendance = True
             session.commit()
@@ -218,7 +218,7 @@ class AttendanceProductSyncTestCase(unittest.TestCase):
         bag_type = self._linked_bag_type(product_id)
         self.assertEqual(bag_type.name, "Bao new")
         self.assertEqual(bag_type.source_product_name_snapshot, "Bao new")
-        self.assertEqual(bag_type.quota_quantity, Decimal("12.00"))
+        self.assertEqual(bag_type.quota_quantity, Decimal("12.50"))
         self.assertEqual(bag_type.excess_unit_price, Decimal("4200.00"))
         self.assertTrue(bag_type.is_excluded_from_attendance)
 
@@ -343,7 +343,7 @@ class AttendanceProductSyncTestCase(unittest.TestCase):
             }
             rows[product_b].quota_quantity = Decimal("10")
             rows[product_c].excess_unit_price = Decimal("3500")
-            rows[product_d].quota_quantity = Decimal("10")
+            rows[product_d].quota_quantity = Decimal("0.5")
             rows[product_d].excess_unit_price = Decimal("3500")
             rows[product_e].is_excluded_from_attendance = True
             session.commit()
