@@ -75,7 +75,58 @@ class CutBonusCalculationTestCase(unittest.TestCase):
 
         self.assertEqual(bonus, Decimal("350000"))
 
-    def test_rule_2_multiple_bags_two_exceed_original_quota(self) -> None:
+    def test_two_reached_codes_charge_quota_to_lowest_price_code_at_quota(self) -> None:
+        bonus = calculate_cut_employee_bonus(
+            [
+                CutBonusItem(quantity=30, quota_quantity=30, excess_unit_price=10),
+                CutBonusItem(quantity=40, quota_quantity=30, excess_unit_price=15),
+            ]
+        )
+
+        self.assertEqual(bonus, Decimal("600"))
+
+    def test_two_reached_codes_charge_only_lowest_price_code_excess(self) -> None:
+        bonus = calculate_cut_employee_bonus(
+            [
+                CutBonusItem(quantity=35, quota_quantity=30, excess_unit_price=10),
+                CutBonusItem(quantity=40, quota_quantity=30, excess_unit_price=15),
+            ]
+        )
+
+        self.assertEqual(bonus, Decimal("650"))
+
+    def test_lowest_price_not_lowest_quantity_is_quota_charged_when_multiple_codes_reach(self) -> None:
+        bonus = calculate_cut_employee_bonus(
+            [
+                CutBonusItem(quantity=31, quota_quantity=30, excess_unit_price=20),
+                CutBonusItem(quantity=50, quota_quantity=30, excess_unit_price=10),
+            ]
+        )
+
+        self.assertEqual(bonus, Decimal("820"))
+
+    def test_three_reached_codes_charge_quota_to_lowest_price_code_only(self) -> None:
+        bonus = calculate_cut_employee_bonus(
+            [
+                CutBonusItem(quantity=35, quota_quantity=30, excess_unit_price=10),
+                CutBonusItem(quantity=40, quota_quantity=30, excess_unit_price=15),
+                CutBonusItem(quantity=50, quota_quantity=30, excess_unit_price=20),
+            ]
+        )
+
+        self.assertEqual(bonus, Decimal("1650"))
+
+    def test_tied_lowest_price_charges_first_reached_input_item(self) -> None:
+        bonus = calculate_cut_employee_bonus(
+            [
+                CutBonusItem(quantity=35, quota_quantity=30, excess_unit_price=10),
+                CutBonusItem(quantity=40, quota_quantity=30, excess_unit_price=10),
+            ]
+        )
+
+        self.assertEqual(bonus, Decimal("450"))
+
+    def test_rule_2_multiple_bags_two_exceed_original_quota_uses_lowest_price_quota_charge(self) -> None:
         bonus = calculate_cut_employee_bonus(
             [
                 CutBonusItem(quantity=25, quota_quantity=20, excess_unit_price=10000),
@@ -84,7 +135,7 @@ class CutBonusCalculationTestCase(unittest.TestCase):
             ]
         )
 
-        self.assertEqual(bonus, Decimal("145000"))
+        self.assertEqual(bonus, Decimal("370000"))
 
     def test_rule_3_split_quota_when_no_bag_reaches_original_quota(self) -> None:
         bonus = calculate_cut_employee_bonus(
@@ -135,6 +186,16 @@ class CutBonusCalculationTestCase(unittest.TestCase):
         )
 
         self.assertEqual(bonus, Decimal("15000.0"))
+
+    def test_decimal_quota_multiple_reached_codes_charge_lowest_price(self) -> None:
+        bonus = calculate_cut_employee_bonus(
+            [
+                CutBonusItem(quantity=Decimal("20"), quota_quantity=Decimal("18.5"), excess_unit_price=10),
+                CutBonusItem(quantity=40, quota_quantity=30, excess_unit_price=15),
+            ]
+        )
+
+        self.assertEqual(bonus, Decimal("615.0"))
 
     def test_decimal_quota_split_rule_keeps_existing_multi_code_logic(self) -> None:
         bonus = calculate_cut_employee_bonus(

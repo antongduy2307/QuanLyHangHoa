@@ -31,7 +31,24 @@ def calculate_cut_employee_bonus(items: Iterable[CutBonusItem]) -> Decimal:
     if total_quantity <= quota_avg:
         return Decimal("0")
 
-    if any(quantity >= quota for quantity, quota, _price in active_items):
+    reached_indices = [
+        index
+        for index, (quantity, quota, _price) in enumerate(active_items)
+        if quantity >= quota
+    ]
+
+    if len(reached_indices) >= 2:
+        quota_charged_index = min(reached_indices, key=lambda index: active_items[index][2])
+        return sum(
+            (
+                max(Decimal("0"), quantity - quota) * price
+                if index == quota_charged_index
+                else quantity * price
+            )
+            for index, (quantity, quota, price) in enumerate(active_items)
+        )
+
+    if reached_indices:
         return sum(
             (
                 max(Decimal("0"), quantity - quota) * price
