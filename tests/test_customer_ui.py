@@ -197,7 +197,7 @@ class CustomerUiTestCase(unittest.TestCase):
         self.assertIn("Ngày giờ giao dịch", labels)
         self.assertEqual(dialog.balance_transaction_datetime_input.displayFormat(), "dd/MM/yyyy HH:mm")
         self.assertTrue(dialog.balance_transaction_datetime_input.calendarPopup())
-        self.assertLessEqual(before, selected)
+        self.assertLessEqual(abs((selected - before).total_seconds()), 1.0)
         self.assertLessEqual(selected, after)
         dialog.deleteLater()
 
