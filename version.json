@@ -1,8 +1,8 @@
 {
-  "version": "0.8.4",
-  "installer_url": "https://github.com/antongduy2307/QuanLyHangHoa/releases/download/v0.8.4/QuanLyHangHoa-Setup-v0.8.4.exe",
+  "version": "0.8.5",
+  "installer_url": "https://github.com/antongduy2307/QuanLyHangHoa/releases/download/v0.8.5/QuanLyHangHoa-Setup-v0.8.5.exe",
   "notes": [
-    "Change logic in cutting team",
+    "Add change date to ",
     ":3"
   ],
   "min_required_version": "0.8.0"

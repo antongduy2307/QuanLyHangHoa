@@ -190,6 +190,7 @@ QPushButton {{
                     address=payload["address"],
                     note=payload["note"],
                     current_balance=Decimal(payload["current_balance"]),
+                    balance_transaction_datetime=payload["balance_transaction_datetime"],
                 )
                 self._handle_updated()
                 MessageBox.info(self, "Thành công", "Đã cập nhật khách hàng.")

@@ -115,12 +115,18 @@ class CustomerService:
         note: str | None = None,
         target_balance: Decimal | int | str | None = None,
         balance_note: str | None = None,
+        balance_transaction_datetime: datetime | None = None,
     ) -> Customer:
         session = self._repository.session
         normalized_name = self._require_text(customer_name, "customer_name")
         normalized_phone = self._normalize_optional_text(phone)
         normalized_address = self._normalize_optional_text(address)
         normalized_note = self._normalize_optional_text(note)
+        normalized_balance_transaction_datetime = None
+        if balance_transaction_datetime is not None:
+            if not isinstance(balance_transaction_datetime, datetime):
+                raise ValidationError("Vui lòng chọn ngày giờ giao dịch công nợ.")
+            normalized_balance_transaction_datetime = balance_transaction_datetime
         transaction_context = nullcontext() if session.in_transaction() else session.begin()
 
         with transaction_context:
@@ -134,9 +140,9 @@ class CustomerService:
                 normalized_target_balance = self._to_decimal(target_balance)
                 delta = normalized_target_balance - customer.current_balance
                 if delta != Decimal("0"):
-                    transaction_datetime = None
+                    transaction_datetime = normalized_balance_transaction_datetime
                     event_type = "BALANCE_ADJUSTMENT"
-                    if not self._repository.has_trade_or_debt_history(customer_id):
+                    if transaction_datetime is None and not self._repository.has_trade_or_debt_history(customer_id):
                         transaction_datetime = OPENING_BALANCE_DATETIME
                     ledger = self._append_balance_ledger(
                         customer,

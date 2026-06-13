@@ -129,6 +129,85 @@ class CustomerServiceTestCase(unittest.TestCase):
         self.assertEqual(ledgers[0].balance_after, Decimal("80"))
         self.assertEqual(ledgers[0].ref_type, "BALANCE_ADJUSTMENT")
 
+    def test_balance_adjustment_uses_selected_transaction_datetime_and_recomputes_later_rows(self) -> None:
+        invoice_datetime = datetime(2026, 5, 10, 9, 0, 0)
+        selected_datetime = datetime(2026, 5, 11, 10, 30, 0)
+        later_datetime = datetime(2026, 5, 12, 11, 0, 0)
+        first = self.service.adjust_balance(
+            self.customer_id,
+            Decimal("100"),
+            "INVOICE",
+            1,
+            transaction_datetime=invoice_datetime,
+        )
+        later = self.service.adjust_balance(
+            self.customer_id,
+            Decimal("50"),
+            "INVOICE",
+            2,
+            transaction_datetime=later_datetime,
+        )
+
+        self.service.update_customer(
+            self.customer_id,
+            customer_name="Khach A",
+            phone=None,
+            address=None,
+            target_balance=Decimal("120"),
+            balance_transaction_datetime=selected_datetime,
+        )
+
+        adjustment = self.repository.list_ledgers_by_event_type(
+            self.customer_id,
+            "BALANCE_ADJUSTMENT",
+        )[0]
+        ordered_ledgers = list(self.repository.list_balance_ledgers_by_customer(self.customer_id))
+
+        self.assertEqual(adjustment.transaction_datetime, selected_datetime)
+        self.assertEqual([ledger.id for ledger in ordered_ledgers], [first.id, adjustment.id, later.id])
+        self.assertEqual(first.balance_after, Decimal("100"))
+        self.assertEqual(adjustment.balance_after, Decimal("70"))
+        self.assertEqual(later.balance_after, Decimal("120"))
+        self.assertEqual(self.service.get_customer(self.customer_id).current_balance, Decimal("120"))
+
+    def test_balance_adjustment_without_explicit_datetime_remains_backward_compatible(self) -> None:
+        self.service.adjust_balance(
+            self.customer_id,
+            Decimal("100"),
+            "INVOICE",
+            1,
+            transaction_datetime=datetime(2026, 5, 10, 9, 0, 0),
+        )
+
+        updated = self.service.update_customer(
+            self.customer_id,
+            customer_name="Khach A",
+            phone=None,
+            address=None,
+            target_balance=Decimal("80"),
+        )
+        adjustment = self.repository.list_ledgers_by_event_type(
+            self.customer_id,
+            "BALANCE_ADJUSTMENT",
+        )[0]
+
+        self.assertEqual(updated.current_balance, Decimal("80"))
+        self.assertIsInstance(adjustment.transaction_datetime, datetime)
+
+    def test_balance_adjustment_rejects_invalid_transaction_datetime(self) -> None:
+        with self.assertRaisesRegex(
+            ValidationError,
+            "Vui lòng chọn ngày giờ giao dịch công nợ",
+        ):
+            self.service.update_customer(
+                self.customer_id,
+                customer_name="Khach A",
+                phone=None,
+                address=None,
+                target_balance=Decimal("80"),
+                balance_transaction_datetime="2026-05-11",  # type: ignore[arg-type]
+            )
+
     def test_balance_adjustment_does_not_change_total_sales(self) -> None:
         self.service.increase_sales(self.customer_id, Decimal("120"))
         self.service.update_customer(

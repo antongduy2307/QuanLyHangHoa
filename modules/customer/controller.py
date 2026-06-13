@@ -141,6 +141,7 @@ class CustomerController:
         address: str | None,
         note: str | None,
         current_balance: Decimal,
+        balance_transaction_datetime: datetime | None = None,
     ) -> CustomerDTO:
         service = CustomerService(CustomerRepository(self._session_factory))
         customer = service.update_customer(
@@ -150,6 +151,7 @@ class CustomerController:
             address=address,
             note=note,
             target_balance=current_balance,
+            balance_transaction_datetime=balance_transaction_datetime,
         )
         dto = to_dto(customer)
         service._repository.session.close()

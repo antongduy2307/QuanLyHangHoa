@@ -8,10 +8,11 @@ from unittest.mock import patch
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QApplication, QDateTimeEdit, QDialog, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from modules.customer.controller import CustomerDebtEntry, CustomerDetailData, CustomerHistoryEntry
 from modules.customer.dto import CustomerDTO
+from modules.customer.ui.customer_dialog import CustomerDialog
 from modules.customer.ui.customer_detail_popup import CustomerDetailPopup
 from modules.customer.ui.customer_list_view import _DebtHistorySection
 from modules.returns.ui.return_detail_popup import ReturnDetailPopup
@@ -22,11 +23,13 @@ from modules.sales.ui.customer_picker_widget import CustomerPickerWidget
 class _CustomerControllerStub:
     def __init__(self) -> None:
         self.updated_calls: list[tuple[int, str]] = []
+        self.updated_payloads: list[dict[str, object]] = []
         self.deleted_ids: list[int] = []
         self.debt_calls: list[tuple[int, Decimal]] = []
 
     def update_customer(self, customer_id: int, **payload: object) -> None:
         self.updated_calls.append((customer_id, str(payload["customer_name"])))
+        self.updated_payloads.append(dict(payload))
 
     def get_delete_mode(self, customer_id: int) -> str:
         del customer_id
@@ -176,6 +179,65 @@ class CustomerUiTestCase(unittest.TestCase):
         self.assertEqual(popup._history_table.item(0, 2).text(), "Gạo ST25, Nước mắm")
         popup.deleteLater()
 
+    def test_customer_edit_dialog_has_transaction_datetime_defaulting_to_now(self) -> None:
+        before = datetime.now()
+        dialog = CustomerDialog(
+            title="Sửa khách hàng",
+            customer_name="Khách A",
+            current_balance=Decimal("100"),
+            edit_mode=True,
+        )
+        after = datetime.now()
+
+        self.assertIsInstance(dialog.balance_transaction_datetime_input, QDateTimeEdit)
+        assert dialog.balance_transaction_datetime_input is not None
+        selected = dialog.balance_transaction_datetime_input.dateTime().toPyDateTime()
+        labels = [label.text() for label in dialog.findChildren(QLabel)]
+
+        self.assertIn("Ngày giờ giao dịch", labels)
+        self.assertEqual(dialog.balance_transaction_datetime_input.displayFormat(), "dd/MM/yyyy HH:mm")
+        self.assertTrue(dialog.balance_transaction_datetime_input.calendarPopup())
+        self.assertLessEqual(before, selected)
+        self.assertLessEqual(selected, after)
+        dialog.deleteLater()
+
+    def test_customer_detail_edit_passes_selected_balance_transaction_datetime(self) -> None:
+        controller = _CustomerControllerStub()
+        selected_datetime = datetime(2026, 5, 11, 9, 30, 0)
+        popup = CustomerDetailPopup(
+            CustomerDetailData(customer=self.customers[0], recent_history=()),
+            controller=controller,
+        )
+
+        class FakeCustomerDialog:
+            def __init__(self, *_args: object, **_kwargs: object) -> None:
+                return
+
+            def exec(self) -> QDialog.DialogCode:
+                return QDialog.DialogCode.Accepted
+
+            def payload(self) -> dict[str, object]:
+                return {
+                    "customer_name": "Nguyen Van An",
+                    "phone": "0901000001",
+                    "address": "123 Le Loi",
+                    "note": "Khach than thiet",
+                    "current_balance": Decimal("125000"),
+                    "balance_transaction_datetime": selected_datetime,
+                }
+
+        with (
+            patch("modules.customer.ui.customer_detail_popup.CustomerDialog", FakeCustomerDialog),
+            patch("modules.customer.ui.customer_detail_popup.MessageBox.info"),
+        ):
+            popup._edit_customer()
+
+        self.assertEqual(
+            controller.updated_payloads[0]["balance_transaction_datetime"],
+            selected_datetime,
+        )
+        popup.deleteLater()
+
     def test_customer_detail_popup_double_click_routes_to_history_tab(self) -> None:
         controller = _CustomerControllerStub()
         main_window = _FakeMainWindow()
@@ -223,6 +285,7 @@ class CustomerUiTestCase(unittest.TestCase):
         self._app.processEvents()
 
         self.assertEqual(widget.table.rowCount(), 7)
+        self.assertEqual(widget.table.item(0, 0).text(), "10/04/2026 12:00:00")
         self.assertEqual(widget.table.item(0, 2).text(), "8,000 VND")
         self.assertEqual(widget.table.item(6, 2).text(), "2,000 VND")
 

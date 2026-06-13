@@ -182,6 +182,35 @@ class CustomerHistoryTestCase(unittest.TestCase):
             ],
         )
 
+    def test_customer_debt_history_uses_selected_balance_adjustment_datetime(self) -> None:
+        selected_datetime = datetime(2026, 5, 11, 9, 30, 0)
+        self.customer_service.adjust_balance(
+            self.customer_id,
+            Decimal("100"),
+            "MANUAL",
+            90,
+            transaction_datetime=datetime(2026, 5, 10, 8, 0, 0),
+        )
+        self.customer_service.update_customer(
+            self.customer_id,
+            customer_name="Khach lich su",
+            phone="0909",
+            address="123",
+            note=None,
+            target_balance=Decimal("80"),
+            balance_transaction_datetime=selected_datetime,
+        )
+
+        debt_entries = self.customer_controller.list_customer_debt_history(self.customer_id)
+        adjustment = next(
+            entry
+            for entry in debt_entries
+            if entry.transaction_kind == "BALANCE_ADJUSTMENT"
+        )
+
+        self.assertEqual(adjustment.transaction_datetime, selected_datetime)
+        self.assertEqual(adjustment.balance_after, Decimal("80"))
+
     def test_customer_debt_history_continues_from_initial_debt_across_following_invoices(self) -> None:
         self.customer_service.update_customer(
             self.customer_id,
