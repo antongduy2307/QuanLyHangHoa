@@ -1,9 +1,10 @@
 {
-  "version": "0.8.7",
-  "installer_url": "https://github.com/antongduy2307/QuanLyHangHoa/releases/download/v0.8.7/QuanLyHangHoa-Setup-v0.8.7.exe",
+  "version": "0.8.8",
+  "installer_url": "https://github.com/antongduy2307/QuanLyHangHoa/releases/download/v0.8.8/QuanLyHangHoa-Setup-v0.8.8.exe",
   "notes": [
-    "Add change date to ",
-    ":3"
+    "Hóa đơn chung: một hóa đơn có cả dòng bán và dòng trả (F2 hoặc nút Bán/Trả để chuyển).",
+    "Dòng bán nền xanh, dòng trả nền đỏ; tiền trả trừ thẳng vào hóa đơn.",
+    "Đặt hàng: đơn đang mở lên đầu, tổng cần làm chỉ tính đơn đang mở, thêm tab Đã bán."
   ],
   "min_required_version": "0.8.0"
 }
