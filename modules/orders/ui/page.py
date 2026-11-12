@@ -24,6 +24,7 @@ class OrdersPage(QWidget):
         self._controller = OrderController(service._repository._session_factory)
         self._orders: list[OrderRequest] = []
         self._summary_rows: list[OrderQuantitySummary] = []
+        self._converted_orders: list[OrderRequest] = []
 
         self._table = QTableWidget(0, 5)
         self._table.setHorizontalHeaderLabels(["Ngày đặt", "Tên khách hàng", "Ngày cần giao", "Ghi chú", "Trạng thái"])
@@ -61,9 +62,21 @@ class OrdersPage(QWidget):
         summary_layout.addLayout(summary_controls)
         summary_layout.addWidget(self._summary_table, 1)
 
+        self._converted_table = QTableWidget(0, 5)
+        self._converted_table.setHorizontalHeaderLabels(["Ngày bán", "Tên khách hàng", "Ngày đặt", "Mã hóa đơn", "Ghi chú"])
+        self._converted_table.setProperty("column_minimum_widths", {0: 160, 1: 220, 2: 160, 3: 160, 4: 260})
+        configure_table_widget(self._converted_table, "orders.converted_list")
+        self._converted_table.itemDoubleClicked.connect(self._open_converted_detail)
+
+        converted_tab = QWidget()
+        converted_layout = QVBoxLayout(converted_tab)
+        converted_layout.setContentsMargins(0, 0, 0, 0)
+        converted_layout.addWidget(self._converted_table, 1)
+
         self._tabs = QTabWidget()
         self._tabs.addTab(customer_tab, "Khách hàng")
         self._tabs.addTab(summary_tab, "Tổng số lượng hàng cần làm")
+        self._tabs.addTab(converted_tab, "Đã bán")
 
         layout = QVBoxLayout(self)
         layout.addWidget(self._tabs, 1)
@@ -74,8 +87,10 @@ class OrdersPage(QWidget):
         try:
             self._orders = list(self._controller.list_active_orders())
             self._summary_rows = list(self._controller.list_active_quantity_summary())
+            self._converted_orders = list(self._controller.list_converted_orders())
             self._render_rows()
             self._render_summary_rows()
+            self._render_converted_rows()
         except Exception as exc:
             MessageBox.error(self, "Không tải được đơn đặt hàng", str(exc))
 
@@ -125,15 +140,42 @@ class OrdersPage(QWidget):
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self._summary_table.setItem(row_index, column, item)
 
-    def _selected_order_id(self) -> int | None:
-        row = self._table.currentRow()
+    def _render_converted_rows(self) -> None:
+        self._converted_table.setRowCount(len(self._converted_orders))
+        for row, order in enumerate(self._converted_orders):
+            invoice = order.source_invoice
+            values = [
+                format_datetime(order.completed_at) if order.completed_at is not None else "-",
+                order.customer_name_snapshot,
+                format_datetime(order.order_datetime),
+                invoice.invoice_code if invoice is not None else "-",
+                order.note or "",
+            ]
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                if column in {0, 2, 3}:
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self._converted_table.setItem(row, column, item)
+            self._converted_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, order.id)
+
+    @staticmethod
+    def _selected_id_in(table: QTableWidget) -> int | None:
+        row = table.currentRow()
         if row < 0:
             return None
-        item = self._table.item(row, 0)
+        item = table.item(row, 0)
         return None if item is None else item.data(Qt.ItemDataRole.UserRole)
 
+    def _selected_order_id(self) -> int | None:
+        return self._selected_id_in(self._table)
+
+    def _open_converted_detail(self, *_args: object) -> None:
+        self._open_order_popup(self._selected_id_in(self._converted_table))
+
     def _open_detail(self, *_args: object) -> None:
-        order_id = self._selected_order_id()
+        self._open_order_popup(self._selected_order_id())
+
+    def _open_order_popup(self, order_id: int | None) -> None:
         if order_id is None:
             return
         try:

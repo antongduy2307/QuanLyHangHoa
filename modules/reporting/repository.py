@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -6,6 +6,8 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import func, select
+
+from core.enums import InvoiceLineType
 from sqlalchemy.orm import Session, sessionmaker
 
 from modules.customer.models import Customer
@@ -59,6 +61,14 @@ class ReportingRepository:
             gross_sales_amount = session.scalar(
                 select(func.coalesce(func.sum(InvoiceItem.line_total), 0))
                 .join(Invoice, Invoice.id == InvoiceItem.invoice_id)
+                .where(InvoiceItem.line_type == InvoiceLineType.SALE)
+                .where(Invoice.invoice_datetime >= start_datetime)
+                .where(Invoice.invoice_datetime <= end_datetime)
+            ) or 0
+            invoice_return_amount = session.scalar(
+                select(func.coalesce(func.sum(InvoiceItem.line_total), 0))
+                .join(Invoice, Invoice.id == InvoiceItem.invoice_id)
+                .where(InvoiceItem.line_type == InvoiceLineType.RETURN)
                 .where(Invoice.invoice_datetime >= start_datetime)
                 .where(Invoice.invoice_datetime <= end_datetime)
             ) or 0
@@ -80,7 +90,7 @@ class ReportingRepository:
             ) or 0
             return SalesSummaryAggregate(
                 gross_sales_amount=Decimal(str(gross_sales_amount)),
-                return_amount=Decimal(str(return_amount)),
+                return_amount=Decimal(str(return_amount)) + Decimal(str(invoice_return_amount)),
                 invoice_count=int(invoice_count),
                 return_count=int(return_count),
             )
@@ -97,6 +107,7 @@ class ReportingRepository:
                     func.coalesce(func.sum(InvoiceItem.line_total), 0),
                 )
                 .join(Invoice, Invoice.id == InvoiceItem.invoice_id)
+                .where(InvoiceItem.line_type == InvoiceLineType.SALE)
                 .where(Invoice.invoice_datetime >= start_datetime)
                 .where(Invoice.invoice_datetime <= end_datetime)
                 .group_by(
@@ -140,17 +151,44 @@ class ReportingRepository:
                     ReturnInvoiceItem.unit_type,
                 )
             )
-            rows = session.execute(statement).all()
+            rows = list(session.execute(statement).all())
+            invoice_return_statement = (
+                select(
+                    InvoiceItem.product_id,
+                    InvoiceItem.product_code_snapshot,
+                    InvoiceItem.product_name_snapshot,
+                    InvoiceItem.unit_type,
+                    func.coalesce(func.sum(InvoiceItem.quantity), 0),
+                    func.coalesce(func.sum(InvoiceItem.line_total), 0),
+                )
+                .join(Invoice, Invoice.id == InvoiceItem.invoice_id)
+                .where(InvoiceItem.line_type == InvoiceLineType.RETURN)
+                .where(Invoice.invoice_datetime >= start_datetime)
+                .where(Invoice.invoice_datetime <= end_datetime)
+                .group_by(
+                    InvoiceItem.product_id,
+                    InvoiceItem.product_code_snapshot,
+                    InvoiceItem.product_name_snapshot,
+                    InvoiceItem.unit_type,
+                )
+            )
+            rows.extend(session.execute(invoice_return_statement).all())
+            merged: dict[tuple[int, str, str, str], list[Decimal]] = {}
+            for row in rows:
+                key = (int(row[0]), str(row[1]), str(row[2]), str(row[3].value if hasattr(row[3], "value") else row[3]))
+                totals = merged.setdefault(key, [Decimal("0"), Decimal("0")])
+                totals[0] += Decimal(str(row[4]))
+                totals[1] += Decimal(str(row[5]))
             return [
                 ProductAggregateRow(
-                    product_id=int(row[0]),
-                    product_code=str(row[1]),
-                    product_name=str(row[2]),
-                    unit_type=str(row[3].value if hasattr(row[3], "value") else row[3]),
-                    quantity=Decimal(str(row[4])),
-                    amount=Decimal(str(row[5])),
+                    product_id=key[0],
+                    product_code=key[1],
+                    product_name=key[2],
+                    unit_type=key[3],
+                    quantity=totals[0],
+                    amount=totals[1],
                 )
-                for row in rows
+                for key, totals in merged.items()
             ]
 
     def get_daily_sales_rows(self, start_datetime: datetime, end_datetime: datetime) -> Sequence[DailyAggregateRow]:
@@ -158,6 +196,7 @@ class ReportingRepository:
             statement = (
                 select(func.date(Invoice.invoice_datetime), func.coalesce(func.sum(InvoiceItem.line_total), 0))
                 .join(InvoiceItem, Invoice.id == InvoiceItem.invoice_id)
+                .where(InvoiceItem.line_type == InvoiceLineType.SALE)
                 .where(Invoice.invoice_datetime >= start_datetime)
                 .where(Invoice.invoice_datetime <= end_datetime)
                 .group_by(func.date(Invoice.invoice_datetime))
@@ -176,5 +215,16 @@ class ReportingRepository:
                 .group_by(func.date(ReturnInvoice.return_datetime))
                 .order_by(func.date(ReturnInvoice.return_datetime))
             )
-            rows = session.execute(statement).all()
-            return [DailyAggregateRow(bucket_date=str(row[0]), amount=Decimal(str(row[1]))) for row in rows]
+            invoice_return_statement = (
+                select(func.date(Invoice.invoice_datetime), func.coalesce(func.sum(InvoiceItem.line_total), 0))
+                .join(InvoiceItem, Invoice.id == InvoiceItem.invoice_id)
+                .where(InvoiceItem.line_type == InvoiceLineType.RETURN)
+                .where(Invoice.invoice_datetime >= start_datetime)
+                .where(Invoice.invoice_datetime <= end_datetime)
+                .group_by(func.date(Invoice.invoice_datetime))
+            )
+            merged: dict[str, Decimal] = {}
+            for row in list(session.execute(statement).all()) + list(session.execute(invoice_return_statement).all()):
+                bucket = str(row[0])
+                merged[bucket] = merged.get(bucket, Decimal("0")) + Decimal(str(row[1]))
+            return [DailyAggregateRow(bucket_date=bucket, amount=amount) for bucket, amount in sorted(merged.items())]

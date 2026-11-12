@@ -3,9 +3,12 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Callable
 
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QDialog, QGridLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 
 from core.db import SessionFactory
+from core.enums import InvoiceLineType
+from modules.sales.ui.invoice_items_table import LINE_TYPE_LABELS, RETURN_ROW_BACKGROUND, SALE_ROW_BACKGROUND, unit_type_label
 from modules.sales.controller import SalesController
 from modules.sales.models import Invoice
 from shared.formatting.dates import format_datetime
@@ -41,17 +44,28 @@ class InvoiceDetailPopup(QDialog):
 
         header_widget = self._build_header(balance_after)
 
-        items_table = QTableWidget(0, 5)
-        items_table.setHorizontalHeaderLabels(["Tên hàng", "Đơn vị", "Số lượng", "Đơn giá", "Thành tiền"])
-        configure_table_widget(items_table, "customer.invoice_detail.items")
+        items_table = QTableWidget(0, 6)
+        items_table.setHorizontalHeaderLabels(["Loại", "Tên hàng", "Đơn vị", "Số lượng", "Đơn giá", "Thành tiền"])
+        configure_table_widget(items_table, "customer.invoice_detail.items.v2")
+        items_table.setAlternatingRowColors(False)
         items_table.setMinimumHeight(320)
         for row_index, item in enumerate(invoice.items):
+            is_return = getattr(item, "line_type", InvoiceLineType.SALE) == InvoiceLineType.RETURN
             items_table.insertRow(row_index)
-            items_table.setItem(row_index, 0, QTableWidgetItem(item.product_name_snapshot))
-            items_table.setItem(row_index, 1, QTableWidgetItem(item.unit_type.value))
-            items_table.setItem(row_index, 2, QTableWidgetItem(format_quantity(item.quantity)))
-            items_table.setItem(row_index, 3, QTableWidgetItem(format_money_precise(item.unit_price)))
-            items_table.setItem(row_index, 4, QTableWidgetItem(format_money_precise(item.line_total)))
+            line_total_text = format_money_precise(item.line_total)
+            values = [
+                LINE_TYPE_LABELS[InvoiceLineType.RETURN if is_return else InvoiceLineType.SALE],
+                item.product_name_snapshot,
+                unit_type_label(item.unit_type),
+                format_quantity(item.quantity),
+                format_money_precise(item.unit_price),
+                f"-{line_total_text}" if is_return else line_total_text,
+            ]
+            background = QColor(RETURN_ROW_BACKGROUND if is_return else SALE_ROW_BACKGROUND)
+            for column, value in enumerate(values):
+                cell = QTableWidgetItem(value)
+                cell.setBackground(background)
+                items_table.setItem(row_index, column, cell)
 
         self._open_record_button = QPushButton("Mở phiếu")
         self._open_record_button.clicked.connect(self._open_record)
@@ -137,7 +151,13 @@ QTableWidget {{
         middle_col = QVBoxLayout()
         middle_col.setSpacing(4)
         middle_col.addWidget(middle_title)
-        middle_col.addWidget(QLabel(f"Tổng tiền đơn hàng: {format_money_precise(self._invoice.total_amount)}"))
+        return_amount = Decimal(str(getattr(self._invoice, "return_amount", 0) or 0))
+        if return_amount > Decimal("0"):
+            middle_col.addWidget(QLabel(f"Tiền hàng bán: {format_money_precise(self._invoice.total_amount)}"))
+            middle_col.addWidget(QLabel(f"Tiền hàng trả: -{format_money_precise(return_amount)}"))
+            middle_col.addWidget(QLabel(f"Tổng tiền hóa đơn: {format_money_precise(self._invoice.net_amount)}"))
+        else:
+            middle_col.addWidget(QLabel(f"Tổng tiền đơn hàng: {format_money_precise(self._invoice.total_amount)}"))
         middle_col.addWidget(QLabel(f"Khách đã trả: {format_money_precise(self._invoice.paid_amount or 0)}"))
         middle_col.addWidget(self._build_balance_after_label(balance_after))
 

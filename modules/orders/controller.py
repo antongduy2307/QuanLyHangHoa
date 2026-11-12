@@ -25,6 +25,12 @@ class OrderController:
         repository.session.close()
         return orders
 
+    def list_converted_orders(self) -> Sequence[OrderRequest]:
+        repository = OrderRepository(self._session_factory)
+        orders = repository.list_converted_orders()
+        repository.session.close()
+        return orders
+
     def list_active_quantity_summary(self) -> list[OrderQuantitySummary]:
         service = OrderService(OrderRepository(self._session_factory))
         rows = service.list_active_quantity_summary()

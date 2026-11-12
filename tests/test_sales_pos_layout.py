@@ -98,19 +98,19 @@ class SalesPosLayoutTestCase(unittest.TestCase):
 
         self.assertEqual(
             [self.workspace._workspace_tab_bar.tabText(index) for index in range(self.workspace._workspace_tab_bar.count())],
-            ["Bán hàng 1", "Trả hàng 1", "Bán hàng 2", "Bán hàng 3", "Trả hàng 2", "Đặt hàng 1"],
+            ["Hóa đơn 1", "Hóa đơn 2", "Hóa đơn 3", "Trả hàng 1", "Đặt hàng 1"],
         )
 
         self.workspace._close_workspace_tab(0)
         self.assertEqual(
             [self.workspace._workspace_tab_bar.tabText(index) for index in range(self.workspace._workspace_tab_bar.count())],
-            ["Trả hàng 1", "Bán hàng 1", "Bán hàng 2", "Trả hàng 2", "Đặt hàng 1"],
+            ["Hóa đơn 1", "Hóa đơn 2", "Trả hàng 1", "Đặt hàng 1"],
         )
 
-        self.workspace._close_workspace_tab(0)
+        self.workspace._close_workspace_tab(2)
         self.assertEqual(
             [self.workspace._workspace_tab_bar.tabText(index) for index in range(self.workspace._workspace_tab_bar.count())],
-            ["Bán hàng 1", "Bán hàng 2", "Trả hàng 1", "Đặt hàng 1"],
+            ["Hóa đơn 1", "Hóa đơn 2", "Đặt hàng 1"],
         )
 
     def test_return_tab_creation_supports_both_modes(self) -> None:
@@ -122,12 +122,12 @@ class SalesPosLayoutTestCase(unittest.TestCase):
             for index in range(self.workspace._workspace_tabs.count())
             if self.workspace._workspace_tabs.widget(index).property("workspace_mode") == "return"
         ]
-        self.assertEqual(modes, ["invoice", "invoice", "quick"])
+        self.assertEqual(modes, ["invoice", "quick"])
 
     def test_shared_search_placeholder_switches_with_active_tab_mode(self) -> None:
-        self.assertEqual(self.workspace._shared_search_input.placeholderText(), "Tìm theo tên hàng")
+        self.assertEqual(self.workspace._shared_search_input.placeholderText(), "Tìm hàng để bán")
 
-        self.workspace._workspace_tab_bar.setCurrentIndex(1)
+        self.workspace._add_return_tab(make_current=True, mode="invoice")
         self._app.processEvents()
         self.assertEqual(self.workspace._shared_search_input.placeholderText(), "Nhập mã hóa đơn nguồn")
 
@@ -138,6 +138,52 @@ class SalesPosLayoutTestCase(unittest.TestCase):
         self.workspace._add_order_tab(make_current=True)
         self._app.processEvents()
         self.assertEqual(self.workspace._shared_search_input.placeholderText(), "Tìm theo tên hàng")
+
+    def test_plus_menu_only_offers_invoice_and_order(self) -> None:
+        actions = [action.text() for action in self.workspace._new_tab_button.menu().actions()]
+        self.assertEqual(actions, ["Hóa đơn mới", "Đặt hàng"])
+        self.assertEqual(self.workspace._workspace_tabs.count(), 1)
+        self.assertEqual(self.workspace._workspace_tab_bar.tabText(0), "Hóa đơn 1")
+
+    def test_line_mode_toggle_adds_sale_and_return_lines(self) -> None:
+        from core.enums import InvoiceLineType
+
+        sales_view = self.workspace._workspace_tabs.currentWidget()
+        self.assertTrue(self.workspace._line_mode_toggle.isVisible())
+        self.assertEqual(self.workspace.line_entry_mode(), InvoiceLineType.SALE)
+
+        self.workspace._shared_search_input.setText("gao")
+        self.workspace._activate_shared_search_best_match()
+        self.workspace.toggle_line_entry_mode()
+        self.assertEqual(self.workspace.line_entry_mode(), InvoiceLineType.RETURN)
+        self.assertEqual(self.workspace._shared_search_input.placeholderText(), "Tìm hàng khách trả")
+        self.workspace._shared_search_input.setText("gao")
+        self.workspace._activate_shared_search_best_match()
+
+        self.assertEqual(sales_view._items_table.line_types(), [InvoiceLineType.SALE, InvoiceLineType.RETURN])
+        self.assertEqual(sales_view._items_table.total_amount(), Decimal("0"))
+
+        sales_view._items_table.toggle_line_type_at(1)
+        self.assertEqual(sales_view._items_table.rowCount(), 1)
+        self.assertEqual(sales_view._total_label.text(), "200 VND")
+
+    def test_negative_invoice_shows_refund_for_walk_in(self) -> None:
+        from core.enums import InvoiceLineType
+
+        sales_view = self.workspace._workspace_tabs.currentWidget()
+        self.workspace.set_line_entry_mode(InvoiceLineType.RETURN)
+        self.workspace._shared_search_input.setText("gao")
+        self.workspace._activate_shared_search_best_match()
+
+        self.assertEqual(sales_view._return_total_label.text(), "-100 VND")
+        self.assertEqual(sales_view._amount_due_label.text(), "0 VND")
+        self.assertEqual(sales_view._change_caption_label.text(), "Hoàn tiền khách")
+        self.assertEqual(sales_view._change_label.text(), "100 VND")
+
+    def test_line_mode_toggle_hidden_on_order_tab(self) -> None:
+        self.workspace._add_order_tab(make_current=True)
+        self._app.processEvents()
+        self.assertFalse(self.workspace._line_mode_toggle.isVisible())
 
     def test_order_sales_draft_does_not_convert_until_invoice_is_paid(self) -> None:
         order = self.order_service.create_order(

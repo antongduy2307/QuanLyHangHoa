@@ -56,6 +56,11 @@ class OrderDetailPopup(QDialog):
         layout.addWidget(self._items_table, 1)
         layout.addLayout(footer)
 
+        if order.status == "CONVERTED":
+            # Sold orders are read-only: only the close button stays available.
+            for widget in (self._prepared_checkbox, self._edit_button, self._delete_button, self._sell_button):
+                widget.setVisible(False)
+
     def _summary_text(self, order: OrderRequest) -> str:
         delivery = format_datetime(order.required_delivery_datetime) if order.required_delivery_datetime is not None else "-"
         note = order.note or "-"
@@ -65,7 +70,17 @@ class OrderDetailPopup(QDialog):
             f"Khách hàng: {order.customer_name_snapshot}\n"
             f"Ngày cần giao: {delivery}\n"
             f"Ghi chú: {note}"
+            f"{self._converted_text(order)}"
         )
+
+    @staticmethod
+    def _converted_text(order: OrderRequest) -> str:
+        if order.status != "CONVERTED":
+            return ""
+        invoice = getattr(order, "source_invoice", None)
+        invoice_code = invoice.invoice_code if invoice is not None else "-"
+        sold_at = format_datetime(order.completed_at) if order.completed_at is not None else "-"
+        return f"\nĐã bán: hóa đơn {invoice_code} lúc {sold_at}"
 
     def _render_items(self, order: OrderRequest) -> None:
         self._items_table.setRowCount(len(order.items))

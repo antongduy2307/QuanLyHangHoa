@@ -41,7 +41,7 @@ class OrderUiTestCase(unittest.TestCase):
         self.repository.session.close()
         self.engine.dispose()
 
-    def test_prepared_order_rows_are_green_and_sorted_first(self) -> None:
+    def test_prepared_order_rows_are_green_and_sorted_after_open(self) -> None:
         open_order = self._create_order(datetime(2026, 4, 10, 8, 0, 0))
         prepared_order = self._create_order(datetime(2026, 4, 10, 9, 0, 0))
         self.service.mark_prepared(prepared_order.id, True)
@@ -51,10 +51,11 @@ class OrderUiTestCase(unittest.TestCase):
 
         first_order_id = self.page._table.item(0, 0).data(0x0100)
         second_order_id = self.page._table.item(1, 0).data(0x0100)
-        self.assertEqual(first_order_id, prepared_order.id)
-        self.assertEqual(second_order_id, open_order.id)
-        self.assertEqual(self.page._table.item(0, 4).text(), "Đã hoàn thành")
-        self.assertTrue(self.page._table.item(0, 0).background().color().isValid())
+        self.assertEqual(first_order_id, open_order.id)
+        self.assertEqual(second_order_id, prepared_order.id)
+        self.assertEqual(self.page._table.item(0, 4).text(), "Đang mở")
+        self.assertEqual(self.page._table.item(1, 4).text(), "Đã hoàn thành")
+        self.assertTrue(self.page._table.item(1, 0).background().color().isValid())
 
     def test_order_page_has_sub_tabs_and_no_manual_view_refresh_buttons(self) -> None:
         button_texts = [button.text() for button in self.page.findChildren(QPushButton)]
@@ -62,6 +63,7 @@ class OrderUiTestCase(unittest.TestCase):
         self.assertNotIn("Làm mới", button_texts)
         self.assertEqual(self.page._tabs.tabText(0), "Khách hàng")
         self.assertEqual(self.page._tabs.tabText(1), "Tổng số lượng hàng cần làm")
+        self.assertEqual(self.page._tabs.tabText(2), "Đã bán")
 
     def test_quantity_summary_groups_same_product_and_unit(self) -> None:
         self._set_stock(self.product_id, Decimal("12.5"))
@@ -97,16 +99,39 @@ class OrderUiTestCase(unittest.TestCase):
         }
         self.assertEqual(rows, {"BAO": "10", "KG": "5"})
 
-    def test_quantity_summary_excludes_converted_and_includes_prepared(self) -> None:
+    def test_quantity_summary_counts_only_open_orders(self) -> None:
         converted = self._create_order(datetime(2026, 4, 10, 8, 0, 0), quantity=Decimal("10"))
         prepared = self._create_order(datetime(2026, 4, 10, 9, 0, 0), quantity=Decimal("4"))
+        self._create_order(datetime(2026, 4, 10, 10, 0, 0), quantity=Decimal("3"))
         self.service.mark_converted(converted.id, 999)
         self.service.mark_prepared(prepared.id, True)
 
         self.page.reload()
 
         self.assertEqual(self.page._summary_table.rowCount(), 1)
-        self.assertEqual(self.page._summary_table.item(0, 3).text(), "4")
+        self.assertEqual(self.page._summary_table.item(0, 3).text(), "3")
+
+    def test_converted_orders_listed_in_sold_tab_and_read_only(self) -> None:
+        from modules.orders.ui.order_detail_popup import OrderDetailPopup
+
+        open_order = self._create_order(datetime(2026, 4, 10, 8, 0, 0))
+        converted = self._create_order(datetime(2026, 4, 10, 9, 0, 0))
+        self.service.mark_converted(converted.id, 999)
+
+        self.page.reload()
+
+        self.assertEqual(self.page._table.rowCount(), 1)
+        self.assertEqual(self.page._table.item(0, 0).data(0x0100), open_order.id)
+        self.assertEqual(self.page._converted_table.rowCount(), 1)
+        self.assertEqual(self.page._converted_table.item(0, 0).data(0x0100), converted.id)
+        self.assertEqual(self.page._converted_table.item(0, 1).text(), "Khach A")
+
+        popup = OrderDetailPopup(self.page._controller.get_order(converted.id), self.page._controller, self.page)
+        self.assertTrue(popup._edit_button.isHidden())
+        self.assertTrue(popup._delete_button.isHidden())
+        self.assertTrue(popup._sell_button.isHidden())
+        self.assertTrue(popup._prepared_checkbox.isHidden())
+        popup.deleteLater()
 
     def test_quantity_summary_search_filters_by_product_name_and_clear_restores(self) -> None:
         second_product_id = self._create_product(code="P002", name="Bot")

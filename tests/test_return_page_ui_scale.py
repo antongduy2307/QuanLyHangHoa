@@ -28,6 +28,8 @@ class ReturnPageUiScaleTestCase(unittest.TestCase):
         self.engine.dispose()
 
     def test_sales_page_forwards_ui_scale_to_return_tab(self) -> None:
+        # Return tabs are no longer opened by default; they only appear when editing a legacy return.
+        self.sales_page._add_return_tab(make_current=False, mode="invoice")
         self.sales_page.apply_ui_scale_preset("standard")
         standard_stylesheet = self.sales_page._return_page_view.styleSheet()
 

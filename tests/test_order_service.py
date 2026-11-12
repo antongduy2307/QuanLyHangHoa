@@ -75,15 +75,23 @@ class OrderServiceTestCase(unittest.TestCase):
         self.assertEqual(summary[0].stock_available, Decimal("0"))
         self.assertEqual(self.inventory_service.get_available_quantity(self.product_id, UnitType.BAO), Decimal("0"))
 
-    def test_prepared_orders_stay_active_and_sort_before_open_orders(self) -> None:
+    def test_prepared_orders_stay_active_and_sort_after_open_orders(self) -> None:
         open_order = self._create_order(code_suffix_time=datetime(2026, 4, 10, 9, 0, 0))
         prepared_order = self._create_order(code_suffix_time=datetime(2026, 4, 10, 10, 0, 0))
 
         self.order_service.mark_prepared(prepared_order.id, True)
 
         rows = list(self.order_service.list_active_orders())
-        self.assertEqual([row.id for row in rows], [prepared_order.id, open_order.id])
-        self.assertEqual(rows[0].status, "PREPARED")
+        self.assertEqual([row.id for row in rows], [open_order.id, prepared_order.id])
+        self.assertEqual(rows[1].status, "PREPARED")
+
+    def test_quantity_summary_counts_only_open_orders(self) -> None:
+        self._create_order(quantity=Decimal("3"), code_suffix_time=datetime(2026, 4, 10, 9, 0, 0))
+        prepared_order = self._create_order(quantity=Decimal("5"), code_suffix_time=datetime(2026, 4, 10, 10, 0, 0))
+        self.order_service.mark_prepared(prepared_order.id, True)
+
+        summary = self.order_service.list_active_quantity_summary()
+        self.assertEqual([row.quantity for row in summary], [Decimal("3")])
 
     def test_convert_order_after_sales_invoice_hides_order_and_applies_sales_effects(self) -> None:
         order = self._create_order(quantity=Decimal("2"))
@@ -107,6 +115,11 @@ class OrderServiceTestCase(unittest.TestCase):
         converted = self.order_service.get_order(order.id)
         self.assertEqual(converted.status, "CONVERTED")
         self.assertEqual(converted.source_invoice_id, invoice.id)
+
+        sold = list(self.order_service.list_converted_orders())
+        self.assertEqual([row.id for row in sold], [order.id])
+        self.assertEqual(sold[0].source_invoice.invoice_code, invoice.invoice_code)
+        self.assertIsNotNone(sold[0].completed_at)
 
     def test_update_order_changes_items_without_business_effects(self) -> None:
         order = self._create_order(quantity=Decimal("2"))

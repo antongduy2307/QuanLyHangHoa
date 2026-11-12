@@ -1,7 +1,20 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QMenu, QStackedWidget, QTabBar, QToolButton, QVBoxLayout, QWidget
+from PyQt6.QtGui import QKeySequence, QShortcut
+from PyQt6.QtWidgets import (
+    QButtonGroup,
+    QHBoxLayout,
+    QMenu,
+    QPushButton,
+    QStackedWidget,
+    QTabBar,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from core.enums import InvoiceLineType
 
 from modules.orders.controller import OrderController
 from modules.orders.ui.order_draft_page import OrderDraftPage
@@ -28,6 +41,27 @@ class SalesPage(QWidget):
         self._shared_search_input.suggestion_selected.connect(self._activate_shared_search_selection)
         self._shared_search_input.returnPressed.connect(self._activate_shared_search_best_match)
 
+        self._line_entry_mode = InvoiceLineType.SALE
+        self._sale_mode_button = QPushButton("Bán")
+        self._return_mode_button = QPushButton("Trả")
+        self._line_mode_group = QButtonGroup(self)
+        self._line_mode_group.setExclusive(True)
+        for button, mode in ((self._sale_mode_button, InvoiceLineType.SALE), (self._return_mode_button, InvoiceLineType.RETURN)):
+            button.setCheckable(True)
+            button.setToolTip("Chọn loại dòng sẽ thêm vào hóa đơn (F2 để đổi)")
+            button.clicked.connect(lambda _checked=False, line_mode=mode: self.set_line_entry_mode(line_mode))
+            self._line_mode_group.addButton(button)
+        self._sale_mode_button.setChecked(True)
+        self._line_mode_toggle = QWidget()
+        toggle_layout = QHBoxLayout(self._line_mode_toggle)
+        toggle_layout.setContentsMargins(0, 0, 0, 0)
+        toggle_layout.setSpacing(0)
+        toggle_layout.addWidget(self._sale_mode_button)
+        toggle_layout.addWidget(self._return_mode_button)
+        self._toggle_shortcut = QShortcut(QKeySequence("F2"), self)
+        self._toggle_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._toggle_shortcut.activated.connect(self.toggle_line_entry_mode)
+
         self._workspace_tab_bar = QTabBar()
         self._workspace_tab_bar.setMovable(False)
         self._workspace_tab_bar.setTabsClosable(True)
@@ -43,14 +77,9 @@ class SalesPage(QWidget):
         self._new_tab_button.setAutoRaise(False)
 
         new_tab_menu = QMenu(self._new_tab_button)
-        new_sale_action = new_tab_menu.addAction("Bán hàng mới")
-        return_menu = new_tab_menu.addMenu("Trả hàng mới")
-        new_return_invoice_action = return_menu.addAction("Trả theo hóa đơn")
-        new_return_quick_action = return_menu.addAction("Trả nhanh")
+        new_sale_action = new_tab_menu.addAction("Hóa đơn mới")
         new_order_action = new_tab_menu.addAction("Đặt hàng")
         new_sale_action.triggered.connect(lambda: self._add_sales_tab(make_current=True))
-        new_return_invoice_action.triggered.connect(lambda: self._add_return_tab(make_current=True, mode="invoice"))
-        new_return_quick_action.triggered.connect(lambda: self._add_return_tab(make_current=True, mode="quick"))
         new_order_action.triggered.connect(lambda: self._add_order_tab(make_current=True))
         self._new_tab_button.setMenu(new_tab_menu)
 
@@ -60,6 +89,7 @@ class SalesPage(QWidget):
         top_row = QHBoxLayout()
         top_row.setContentsMargins(0, 0, 0, 0)
         top_row.setSpacing(10)
+        top_row.addWidget(self._line_mode_toggle, 0, Qt.AlignmentFlag.AlignLeft)
         top_row.addWidget(self._shared_search_input, 0, Qt.AlignmentFlag.AlignLeft)
         top_row.addWidget(self._workspace_tab_bar, 1)
         top_row.addWidget(self._new_tab_button, 0, Qt.AlignmentFlag.AlignRight)
@@ -71,7 +101,7 @@ class SalesPage(QWidget):
         layout.addWidget(self._workspace_tabs, 1)
 
         self._add_sales_tab(make_current=True)
-        self._add_return_tab(make_current=False, mode="invoice")
+        self._apply_line_mode_style()
         self._sync_top_row_state()
 
     def apply_ui_scale_preset(self, preset: str) -> None:
@@ -178,7 +208,7 @@ class SalesPage(QWidget):
             mode = self._workspace_mode_at(index)
             if mode == "sales":
                 sales_counter += 1
-                label = f"Bán hàng {sales_counter}"
+                label = f"Hóa đơn {sales_counter}"
             elif mode == "return":
                 return_counter += 1
                 label = f"Trả hàng {return_counter}"
@@ -205,8 +235,43 @@ class SalesPage(QWidget):
         suggestions = widget.shared_search_suggestions(text)
         self._shared_search_input.set_suggestions(suggestions)
 
+    def line_entry_mode(self) -> InvoiceLineType:
+        return self._line_entry_mode
+
+    def set_line_entry_mode(self, mode: InvoiceLineType | str) -> None:
+        self._line_entry_mode = InvoiceLineType(str(mode.value if hasattr(mode, "value") else mode))
+        (self._return_mode_button if self._line_entry_mode == InvoiceLineType.RETURN else self._sale_mode_button).setChecked(True)
+        self._push_line_mode_to_workspace()
+        self._apply_line_mode_style()
+        widget = self._current_workspace()
+        if widget is not None and hasattr(widget, "shared_search_placeholder") and self._shared_search_input.isEnabled():
+            self._shared_search_input.setPlaceholderText(widget.shared_search_placeholder())
+
+    def toggle_line_entry_mode(self) -> None:
+        if not self._line_mode_toggle.isVisibleTo(self):
+            return
+        next_mode = InvoiceLineType.SALE if self._line_entry_mode == InvoiceLineType.RETURN else InvoiceLineType.RETURN
+        self.set_line_entry_mode(next_mode)
+
+    def _push_line_mode_to_workspace(self) -> None:
+        widget = self._current_workspace()
+        if widget is not None and hasattr(widget, "set_line_entry_mode"):
+            widget.set_line_entry_mode(self._line_entry_mode)
+
+    def _apply_line_mode_style(self) -> None:
+        is_return = self._line_entry_mode == InvoiceLineType.RETURN
+        accent = "#C62828" if is_return else "#2E7D32"
+        soft = "#FDECEA" if is_return else "#E8F5E9"
+        for button, active in ((self._sale_mode_button, not is_return), (self._return_mode_button, is_return)):
+            if active:
+                button.setStyleSheet(f"background: {soft}; color: {accent}; border: 2px solid {accent}; font-weight: 700;")
+            else:
+                button.setStyleSheet("")
+        self._shared_search_input.setStyleSheet(f"border: 2px solid {accent};")
+
     def _activate_shared_search_selection(self, payload: object) -> None:
         widget = self._current_workspace()
+        self._push_line_mode_to_workspace()
         if widget is not None and hasattr(widget, "activate_shared_search_selection"):
             widget.activate_shared_search_selection(payload)
             self._shared_search_input.clear()
@@ -214,6 +279,7 @@ class SalesPage(QWidget):
 
     def _activate_shared_search_best_match(self) -> None:
         widget = self._current_workspace()
+        self._push_line_mode_to_workspace()
         if widget is not None and hasattr(widget, "activate_shared_search_best_match"):
             widget.activate_shared_search_best_match(self._shared_search_input.text())
             self._shared_search_input.clear()
@@ -267,6 +333,10 @@ class SalesPage(QWidget):
 
     def _sync_top_row_state(self) -> None:
         widget = self._current_workspace()
+        supports_line_mode = widget is not None and hasattr(widget, "supports_line_entry_mode")
+        self._line_mode_toggle.setVisible(supports_line_mode)
+        if supports_line_mode:
+            self._push_line_mode_to_workspace()
         if widget is not None and hasattr(widget, "shared_search_placeholder"):
             placeholder = widget.shared_search_placeholder()
             self._shared_search_input.setEnabled(bool(placeholder))

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.orm import Session, selectinload, sessionmaker
 
 from core.exceptions import NotFoundError
@@ -39,7 +39,7 @@ class OrderRepository:
     def get_order(self, order_id: int) -> OrderRequest:
         statement = (
             select(OrderRequest)
-            .options(selectinload(OrderRequest.items))
+            .options(selectinload(OrderRequest.items), selectinload(OrderRequest.source_invoice))
             .where(OrderRequest.id == order_id)
         )
         order = self.session.scalars(statement).one_or_none()
@@ -53,10 +53,20 @@ class OrderRepository:
             .options(selectinload(OrderRequest.items))
             .where(OrderRequest.status.in_(("OPEN", "PREPARED")))
             .order_by(
-                OrderRequest.status.desc(),
+                case((OrderRequest.status == "OPEN", 0), else_=1),
                 OrderRequest.required_delivery_datetime.asc().nulls_last(),
                 OrderRequest.order_datetime.asc(),
                 OrderRequest.id.asc(),
             )
+        )
+        return self.session.scalars(statement).all()
+
+    def list_converted_orders(self, limit: int = 500) -> Sequence[OrderRequest]:
+        statement = (
+            select(OrderRequest)
+            .options(selectinload(OrderRequest.items), selectinload(OrderRequest.source_invoice))
+            .where(OrderRequest.status == "CONVERTED")
+            .order_by(OrderRequest.completed_at.desc().nulls_last(), OrderRequest.id.desc())
+            .limit(limit)
         )
         return self.session.scalars(statement).all()

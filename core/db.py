@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
@@ -152,6 +152,23 @@ def _ensure_customer_balance_ledger_ordering_columns() -> None:
 
 
 
+def _ensure_invoice_mixed_sale_return_columns(engine: object | None = None) -> None:
+    """Add columns that let one invoice carry both SALE and RETURN lines (idempotent)."""
+    with (engine or ENGINE).begin() as connection:
+        invoice_columns = {str(row["name"]) for row in connection.execute(text("PRAGMA table_info(invoices)")).mappings().all()}
+        item_columns = {str(row["name"]) for row in connection.execute(text("PRAGMA table_info(invoice_items)")).mappings().all()}
+        try:
+            if "return_amount" not in invoice_columns:
+                connection.execute(text("ALTER TABLE invoices ADD COLUMN return_amount NUMERIC(14, 2) NOT NULL DEFAULT 0"))
+            if "sales_delta_applied" not in invoice_columns:
+                connection.execute(text("ALTER TABLE invoices ADD COLUMN sales_delta_applied NUMERIC(14, 2)"))
+            if "line_type" not in item_columns:
+                connection.execute(text("ALTER TABLE invoice_items ADD COLUMN line_type VARCHAR(6) NOT NULL DEFAULT 'SALE'"))
+        except OperationalError as exc:
+            if "readonly" not in str(exc).lower():
+                raise
+
+
 def init_db() -> None:
     settings = get_settings()
     ensure_directories(
@@ -170,6 +187,7 @@ def init_db() -> None:
     _ensure_customer_active_column()
     _ensure_customer_balance_ledger_transaction_datetime_column()
     _ensure_customer_balance_ledger_ordering_columns()
+    _ensure_invoice_mixed_sale_return_columns()
     migrate_customer_invoice_payments_to_debt_payment_v1(
         ENGINE,
         db_path=settings.db_path,

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from modules.sales.dto import InvoiceDTO
 from modules.sales.models import Invoice
@@ -13,4 +13,5 @@ def to_dto(model: Invoice) -> InvoiceDTO:
         total_amount=model.total_amount,
         status=model.status.value,
         invoice_datetime=model.invoice_datetime,
+        return_amount=model.return_amount or 0,
     )

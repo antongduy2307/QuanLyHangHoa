@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.config import MAX_MONEY_INPUT
+from core.enums import InvoiceLineType
 from core.exceptions import ValidationError
 from modules.customer.dto import CustomerDTO
 from modules.sales.controller import SalesController
@@ -55,7 +56,8 @@ class SalesPage(QWidget):
         self._order_controller = order_controller
         self._on_edit_completed = on_edit_completed
 
-        self._items_table = InvoiceItemsTable()
+        self._line_entry_mode = InvoiceLineType.SALE
+        self._items_table = InvoiceItemsTable("sales.invoice_items.mixed", show_line_type=True)
         self._items_table.setMinimumHeight(420)
         self._items_table.setColumnHidden(0, True)
         self._items_table.horizontalHeaderItem(1).setText("Tên hàng")
@@ -77,11 +79,13 @@ class SalesPage(QWidget):
         self._invoice_datetime_input.setDisplayFormat("dd/MM/yyyy HH:mm")
 
         self._total_label = QLabel(format_money(Decimal("0")))
+        self._return_total_label = QLabel(format_money(Decimal("0")))
         self._amount_due_label = QLabel(format_money(Decimal("0")))
         self._paid_amount_input = SelectAllSpinBox()
         self._paid_amount_input.setRange(0, MAX_MONEY_INPUT)
         self._paid_amount_input.valueChanged.connect(self._refresh_amounts)
         self._change_label = QLabel("")
+        self._change_caption_label = QLabel("Tiền thừa")
         self._create_button = QPushButton("Thanh toán")
         self._create_button.clicked.connect(self._submit_invoice)
 
@@ -94,10 +98,11 @@ class SalesPage(QWidget):
         summary_form = QFormLayout()
         summary_form.setContentsMargins(0, 0, 0, 0)
         summary_form.setSpacing(10)
-        summary_form.addRow("Tổng tiền hàng", self._total_label)
+        summary_form.addRow("Tiền hàng bán", self._total_label)
+        summary_form.addRow("Tiền hàng trả", self._return_total_label)
         summary_form.addRow("Khách cần trả", self._amount_due_label)
         summary_form.addRow("Khách thanh toán", self._paid_amount_input)
-        summary_form.addRow("Tiền thừa", self._change_label)
+        summary_form.addRow(self._change_caption_label, self._change_label)
 
         self._right_top_panel = QWidget()
         right_top_layout = QVBoxLayout(self._right_top_panel)
@@ -160,6 +165,9 @@ class SalesPage(QWidget):
             f"font-size: {scaled_font(16, factor)}px; padding: {scaled(6, factor)}px {scaled(10, factor)}px;"
         )
         self._total_label.setStyleSheet(f"font-size: {scaled_font(24, factor)}px; font-weight: 700;")
+        self._return_total_label.setStyleSheet(
+            f"font-size: {scaled_font(18, factor)}px; font-weight: 600; color: #C62828;"
+        )
         self._amount_due_label.setStyleSheet(f"font-size: {scaled_font(20, factor)}px; font-weight: 600;")
         self._paid_amount_input.setMinimumHeight(scaled(44, factor))
         self._paid_amount_input.setStyleSheet(
@@ -201,7 +209,18 @@ class SalesPage(QWidget):
         self._items_table.add_or_merge_item(dict(item))
 
     def shared_search_placeholder(self) -> str:
-        return "Tìm theo tên hàng"
+        if self._line_entry_mode == InvoiceLineType.RETURN:
+            return "Tìm hàng khách trả"
+        return "Tìm hàng để bán"
+
+    def supports_line_entry_mode(self) -> bool:
+        return True
+
+    def line_entry_mode(self) -> InvoiceLineType:
+        return self._line_entry_mode
+
+    def set_line_entry_mode(self, mode: InvoiceLineType | str) -> None:
+        self._line_entry_mode = InvoiceLineType(str(mode.value if hasattr(mode, "value") else mode))
 
     def shared_search_suggestions(self, query: str) -> list[tuple[str, object]]:
         normalized_query = query.strip().lower()
@@ -226,8 +245,7 @@ class SalesPage(QWidget):
         if product is not None:
             self.add_product_payload(self._build_shared_search_payload(product))
 
-    @staticmethod
-    def _build_shared_search_payload(product: SellableProductOption) -> dict[str, object]:
+    def _build_shared_search_payload(self, product: SellableProductOption) -> dict[str, object]:
         unit_type = next(iter(product.enabled_prices), None)
         if unit_type is None:
             return {}
@@ -244,16 +262,32 @@ class SalesPage(QWidget):
             "stock_available": product.stock_by_unit.get(unit_type, Decimal("0")),
             "enabled_prices": dict(product.enabled_prices),
             "stock_by_unit": dict(product.stock_by_unit),
+            "line_type": self._line_entry_mode,
         }
 
     def _refresh_amounts(self) -> None:
-        total_amount = self._items_table.total_amount()
-        self._total_label.setText(format_money(total_amount))
-        self._amount_due_label.setText(format_money(total_amount))
+        sale_total = self._items_table.sale_total()
+        return_total = self._items_table.return_total()
+        net_amount = sale_total - return_total
+        self._total_label.setText(format_money(sale_total))
+        self._return_total_label.setText(f"-{format_money(return_total)}" if return_total > Decimal("0") else format_money(Decimal("0")))
+        self._amount_due_label.setText(format_money(max(net_amount, Decimal("0"))))
         paid_amount = Decimal(self._paid_amount_input.value())
-        overpayment = max(paid_amount - total_amount, Decimal("0"))
-        self._change_label.setText(format_money(overpayment) if overpayment > Decimal("0") else "-")
+        if net_amount < Decimal("0"):
+            refund = -net_amount
+            is_walk_in = self._is_walk_in_invoice()
+            self._change_caption_label.setText("Hoàn tiền khách" if is_walk_in else "Trừ vào công nợ")
+            self._change_label.setText(format_money(refund))
+        else:
+            self._change_caption_label.setText("Tiền thừa")
+            overpayment = max(paid_amount - net_amount, Decimal("0"))
+            self._change_label.setText(format_money(overpayment) if overpayment > Decimal("0") else "-")
         self._create_button.setVisible(True)
+
+    def _is_walk_in_invoice(self) -> bool:
+        if self._editing_invoice_id is not None:
+            return self._editing_walk_in
+        return self._customer_picker.selected_customer_id() is None
 
     def _submit_invoice(self) -> None:
         if self._editing_invoice_id is not None:
@@ -269,8 +303,10 @@ class SalesPage(QWidget):
             customer_id = self._customer_picker.selected_customer_id()
             paid_amount = Decimal(self._paid_amount_input.value())
             total_amount = self._items_table.total_amount()
-            if customer_id is None and paid_amount < total_amount:
+            if customer_id is None and total_amount > Decimal("0") and paid_amount < total_amount:
                 raise ValidationError("Khách lẻ phải trả đủ tiền hóa đơn.")
+            if customer_id is None and total_amount <= Decimal("0") and paid_amount > Decimal("0"):
+                raise ValidationError("Tiền trả hàng lớn hơn tiền bán: cửa hàng hoàn tiền cho khách, để ô 'Khách thanh toán' bằng 0.")
 
             invoice = self._controller.create_invoice(
                 customer_id=customer_id,
@@ -300,8 +336,10 @@ class SalesPage(QWidget):
                 raise ValidationError("Phải có ít nhất 1 dòng hàng hóa.")
             paid_amount = Decimal(self._paid_amount_input.value())
             total_amount = self._items_table.total_amount()
-            if self._editing_walk_in and paid_amount < total_amount:
+            if self._editing_walk_in and total_amount > Decimal("0") and paid_amount < total_amount:
                 raise ValidationError("Khách lẻ phải trả đủ tiền hóa đơn.")
+            if self._editing_walk_in and total_amount <= Decimal("0") and paid_amount > Decimal("0"):
+                raise ValidationError("Tiền trả hàng lớn hơn tiền bán: cửa hàng hoàn tiền cho khách, để ô 'Khách thanh toán' bằng 0.")
 
             invoice = self._controller.update_invoice(
                 self._editing_invoice_id,
@@ -340,6 +378,7 @@ class SalesPage(QWidget):
                     "quantity": item.quantity,
                     "unit_price": item.unit_price,
                     "line_total": item.line_total,
+                    "line_type": item.line_type,
                 }
             )
         self._note_input.setText(invoice.note or "")

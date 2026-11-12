@@ -109,7 +109,7 @@ class InvoiceListView(QWidget):
         self._table.setRowCount(len(invoices))
         for row_index, invoice in enumerate(invoices):
             self._table.setItem(row_index, 0, QTableWidgetItem(invoice.customer_snapshot_name))
-            self._table.setItem(row_index, 1, QTableWidgetItem(format_money(invoice.total_amount)))
+            self._table.setItem(row_index, 1, QTableWidgetItem(format_money(getattr(invoice, "net_amount", invoice.total_amount))))
             self._table.setItem(row_index, 2, QTableWidgetItem(format_money(invoice.paid_amount or 0)))
             self._table.setItem(row_index, 3, QTableWidgetItem(invoice.payment_method.value if invoice.payment_method else "-"))
             self._table.setItem(row_index, 4, QTableWidgetItem(str(len(invoice.items))))

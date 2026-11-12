@@ -43,12 +43,18 @@ class OrderService:
     def list_active_orders(self) -> Sequence[OrderRequest]:
         return self._repository.list_active_orders()
 
+    def list_converted_orders(self) -> Sequence[OrderRequest]:
+        return self._repository.list_converted_orders()
+
     def list_active_quantity_summary(self) -> list[OrderQuantitySummary]:
         totals: dict[tuple[int, UnitType], OrderQuantitySummary] = {}
         inventory_repository = InventoryRepository(self._repository._session_factory)
         inventory_repository.use_session(self._repository.session)
         inventory_service = InventoryService(inventory_repository)
         for order in self._repository.list_active_orders():
+            # Prepared orders are already made; only open orders still need work.
+            if order.status != "OPEN":
+                continue
             for item in order.items:
                 key = (item.product_id, item.unit_type)
                 existing = totals.get(key)
@@ -166,6 +172,8 @@ class OrderService:
             order.source_invoice_id = int(invoice_id)
             order.completed_at = datetime.now()
             session.flush()
+            # Relationship may have been loaded as None earlier; reload it from the new FK.
+            session.expire(order, ["source_invoice"])
             return order
 
     def delete_order(self, order_id: int) -> None:

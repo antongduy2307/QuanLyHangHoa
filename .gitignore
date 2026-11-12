@@ -84,3 +84,8 @@ data/update-downloads/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Personal docs (local only)
+/notes/
+/reports/
+/plans/

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
@@ -8,7 +8,7 @@ from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, Numeric, 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.db import Base
-from core.enums import InvoiceStatus, PaymentMethod, UnitType, build_enum
+from core.enums import InvoiceLineType, InvoiceStatus, PaymentMethod, UnitType, build_enum
 from modules.inventory.models import Product
 
 if TYPE_CHECKING:
@@ -39,6 +39,7 @@ class Invoice(Base):
         CheckConstraint("length(trim(customer_snapshot_name)) > 0", name="ck_invoices_customer_snapshot_not_blank"),
         CheckConstraint("total_amount >= 0", name="ck_invoices_total_amount_non_negative"),
         CheckConstraint("paid_amount IS NULL OR paid_amount >= 0", name="ck_invoices_paid_amount_non_negative"),
+        CheckConstraint("return_amount >= 0", name="ck_invoices_return_amount_non_negative"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -51,10 +52,22 @@ class Invoice(Base):
     payment_method: Mapped[PaymentMethod | None] = mapped_column(build_enum(PaymentMethod, "invoice_payment_method"), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[InvoiceStatus] = mapped_column(build_enum(InvoiceStatus, "invoice_status"), default=InvoiceStatus.DRAFT, server_default=InvoiceStatus.DRAFT.value)
+    # Sum of RETURN lines. `total_amount` keeps meaning "sum of SALE lines" so legacy reports stay valid.
+    return_amount: Mapped[Decimal] = mapped_column(Numeric(AMOUNT_PRECISION, AMOUNT_SCALE), default=Decimal("0"), server_default="0")
+    # Signed change applied to Customer.total_sales; NULL for legacy invoices (then total_amount was applied).
+    sales_delta_applied: Mapped[Decimal | None] = mapped_column(Numeric(AMOUNT_PRECISION, AMOUNT_SCALE), nullable=True)
 
     customer: Mapped[Customer | None] = relationship(back_populates="invoices")
     items: Mapped[list[InvoiceItem]] = relationship(back_populates="invoice", cascade="all, delete-orphan")
     source_returns: Mapped[list[ReturnInvoice]] = relationship(back_populates="source_invoice")
+
+    @property
+    def net_amount(self) -> Decimal:
+        return Decimal(str(self.total_amount or 0)) - Decimal(str(self.return_amount or 0))
+
+    @property
+    def has_return_lines(self) -> bool:
+        return any(item.line_type == InvoiceLineType.RETURN for item in self.items)
 
 
 class InvoiceItem(Base):
@@ -83,6 +96,11 @@ class InvoiceItem(Base):
     line_total: Mapped[Decimal] = mapped_column(Numeric(AMOUNT_PRECISION, AMOUNT_SCALE))
     product_code_snapshot: Mapped[str] = mapped_column(String(64))
     product_name_snapshot: Mapped[str] = mapped_column(String(255))
+    line_type: Mapped[InvoiceLineType] = mapped_column(
+        build_enum(InvoiceLineType, "invoice_item_line_type"),
+        default=InvoiceLineType.SALE,
+        server_default=InvoiceLineType.SALE.value,
+    )
 
     invoice: Mapped[Invoice] = relationship(back_populates="items")
     product: Mapped[Product] = relationship(back_populates="invoice_items")

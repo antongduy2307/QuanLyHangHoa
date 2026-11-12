@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -239,9 +239,9 @@ class CustomerController:
                 transaction_id=invoice.id,
                 transaction_kind="INVOICE",
                 transaction_datetime=invoice.invoice_datetime,
-                transaction_type="Bán hàng",
+                transaction_type="Bán + trả hàng" if getattr(invoice, "has_return_lines", False) else "Bán hàng",
                 item_summary=self._join_item_names(invoice.items),
-                amount=invoice.total_amount,
+                amount=getattr(invoice, "net_amount", invoice.total_amount),
                 display_order=self._DEFAULT_DISPLAY_ORDER["INVOICE"],
                 source_ref_type="INVOICE",
                 source_ref_id=invoice.id,
@@ -317,8 +317,8 @@ class CustomerController:
                 transaction_id=invoice.id,
                 transaction_kind="INVOICE",
                 transaction_datetime=invoice_timeline_datetimes[invoice.id],
-                transaction_type="Bán hàng",
-                amount=invoice.total_amount,
+                transaction_type="Bán + trả hàng" if getattr(invoice, "has_return_lines", False) else "Bán hàng",
+                amount=getattr(invoice, "net_amount", invoice.total_amount),
                 balance_after=invoice_balances[invoice.id],
                 display_order=self._DEFAULT_DISPLAY_ORDER["INVOICE"],
                 source_ref_type="INVOICE",
@@ -424,9 +424,9 @@ class CustomerController:
                 transaction_id=invoice.id,
                 transaction_kind="INVOICE",
                 transaction_datetime=invoice.invoice_datetime,
-                transaction_type="Bán hàng",
+                transaction_type="Bán + trả hàng" if getattr(invoice, "has_return_lines", False) else "Bán hàng",
                 item_summary=self._join_item_names(invoice.items),
-                amount=invoice.total_amount,
+                amount=getattr(invoice, "net_amount", invoice.total_amount),
                 display_order=self._DEFAULT_DISPLAY_ORDER["INVOICE"],
                 source_ref_type="INVOICE",
                 source_ref_id=invoice.id,

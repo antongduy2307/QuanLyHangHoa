@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -13,3 +13,8 @@ class InvoiceDTO:
     total_amount: Decimal
     status: str
     invoice_datetime: datetime
+    return_amount: Decimal = Decimal("0")
+
+    @property
+    def net_amount(self) -> Decimal:
+        return self.total_amount - self.return_amount

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -157,7 +157,7 @@ class SalesController:
                     invoice.invoice_datetime,
                     invoice.invoice_code,
                     invoice.customer_snapshot_name,
-                    invoice.total_amount,
+                    getattr(invoice, "net_amount", invoice.total_amount),
                     self._DEFAULT_DISPLAY_ORDER["INVOICE"],
                     "INVOICE",
                     invoice.id,

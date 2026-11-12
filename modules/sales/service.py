@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 
-from core.enums import InvoiceStatus, PaymentMethod, UnitType
+from core.enums import InvoiceLineType, InvoiceStatus, PaymentMethod, UnitType
 from core.exceptions import ValidationError
 from modules.customer.repository import CustomerRepository
 from modules.customer.service import CustomerService
@@ -25,6 +25,7 @@ class SalesLineInput:
     quantity: Decimal
     unit_price: Decimal | None
     line_total: Decimal | None
+    line_type: InvoiceLineType = InvoiceLineType.SALE
 
 
 class SalesService:
@@ -149,7 +150,8 @@ class SalesService:
         *,
         note_override: str | None,
     ) -> None:
-        total_amount = Decimal("0")
+        sale_total = Decimal("0")
+        return_total = Decimal("0")
         for line in normalized_items:
             product = self._inventory_service.get_product(line.product_id)
             if not product.is_active:
@@ -167,8 +169,12 @@ class SalesService:
 
             resolved_unit_price = self._resolve_unit_price(line, price_row.price)
             resolved_line_total = self._resolve_line_total(line, resolved_unit_price)
-            total_amount += resolved_line_total
-            self._inventory_service.decrease_stock(product.id, line.quantity, line.unit_type)
+            if line.line_type == InvoiceLineType.RETURN:
+                return_total += resolved_line_total
+                self._inventory_service.increase_stock(product.id, line.quantity, line.unit_type)
+            else:
+                sale_total += resolved_line_total
+                self._inventory_service.decrease_stock(product.id, line.quantity, line.unit_type)
 
             invoice.items.append(
                 InvoiceItem(
@@ -179,30 +185,40 @@ class SalesService:
                     line_total=resolved_line_total,
                     product_code_snapshot=product.product_code_base,
                     product_name_snapshot=product.product_name,
+                    line_type=line.line_type,
                 )
             )
 
-        if invoice.customer_id is None and actual_paid_amount < total_amount:
-            raise ValidationError("Khách lẻ phải trả đủ tiền hóa đơn.")
+        net_amount = sale_total - return_total
+        if invoice.customer_id is None:
+            if net_amount > Decimal("0") and actual_paid_amount < net_amount:
+                raise ValidationError("Khách lẻ phải trả đủ tiền hóa đơn.")
+            if net_amount <= Decimal("0") and actual_paid_amount > Decimal("0"):
+                raise ValidationError(
+                    "Hóa đơn khách lẻ có tiền trả hàng lớn hơn hoặc bằng tiền bán: cửa hàng hoàn tiền, khách không cần thanh toán."
+                )
 
-        invoice.total_amount = total_amount
+        invoice.total_amount = sale_total
+        invoice.return_amount = return_total
         invoice.paid_amount = actual_paid_amount
+        invoice.sales_delta_applied = Decimal("0")
         if note_override is not None:
             invoice.note = note_override
 
         if invoice.customer_id is not None:
-            self._customer_service.adjust_balance(
-                invoice.customer_id,
-                total_amount,
-                "INVOICE",
-                invoice.id,
-                note=f"Invoice charge {invoice.invoice_code}",
-                event_type="INVOICE_CHARGE",
-                transaction_datetime=invoice.invoice_datetime,
-                source_ref_type="INVOICE",
-                source_ref_id=invoice.id,
-                display_order=10,
-            )
+            if net_amount != Decimal("0"):
+                self._customer_service.adjust_balance(
+                    invoice.customer_id,
+                    net_amount,
+                    "INVOICE",
+                    invoice.id,
+                    note=f"Invoice charge {invoice.invoice_code}",
+                    event_type="INVOICE_CHARGE",
+                    transaction_datetime=invoice.invoice_datetime,
+                    source_ref_type="INVOICE",
+                    source_ref_id=invoice.id,
+                    display_order=10,
+                )
             if actual_paid_amount > Decimal("0"):
                 self._customer_service.pay_debt(
                     invoice.customer_id,
@@ -213,11 +229,27 @@ class SalesService:
                     source_ref_id=invoice.id,
                     display_order=20,
                 )
-            self._customer_service.increase_sales(invoice.customer_id, total_amount)
+            invoice.sales_delta_applied = self._apply_customer_sales_delta(invoice.customer_id, net_amount)
+
+    def _apply_customer_sales_delta(self, customer_id: int, net_amount: Decimal) -> Decimal:
+        """Apply net invoice amount to Customer.total_sales; return the signed delta actually applied."""
+        if net_amount > Decimal("0"):
+            self._customer_service.increase_sales(customer_id, net_amount)
+            return net_amount
+        if net_amount < Decimal("0"):
+            current_total = Decimal(str(self._customer_service.get_customer(customer_id).total_sales or 0))
+            decrease = min(-net_amount, current_total)
+            if decrease > Decimal("0"):
+                self._customer_service.decrease_sales(customer_id, decrease)
+            return -decrease
+        return Decimal("0")
 
     def _rollback_invoice_effects(self, invoice: Invoice) -> None:
         for item in list(invoice.items):
-            self._inventory_service.increase_stock(item.product_id, item.quantity, item.unit_type)
+            if item.line_type == InvoiceLineType.RETURN:
+                self._inventory_service.decrease_stock(item.product_id, item.quantity, item.unit_type)
+            else:
+                self._inventory_service.increase_stock(item.product_id, item.quantity, item.unit_type)
 
         if invoice.customer_id is not None:
             self._customer_service.remove_source_debt_payments(
@@ -226,8 +258,14 @@ class SalesService:
                 invoice.id,
                 legacy_note=f"Overpayment from invoice {invoice.invoice_code}",
             )
-            self._customer_service.remove_reference_balance_effect(invoice.customer_id, "INVOICE", invoice.id)
-            self._customer_service.decrease_sales(invoice.customer_id, invoice.total_amount)
+            if list(self._customer_service.list_reference_ledgers(invoice.customer_id, "INVOICE", invoice.id)):
+                self._customer_service.remove_reference_balance_effect(invoice.customer_id, "INVOICE", invoice.id)
+            applied = invoice.sales_delta_applied
+            applied = Decimal(str(invoice.total_amount if applied is None else applied))
+            if applied > Decimal("0"):
+                self._customer_service.decrease_sales(invoice.customer_id, applied)
+            elif applied < Decimal("0"):
+                self._customer_service.increase_sales(invoice.customer_id, -applied)
 
     def _bind_shared_session(self, session: object) -> None:
         self._repository.use_session(session)
@@ -245,6 +283,7 @@ class SalesService:
             quantity = self._require_positive_decimal(item.get("quantity"), "quantity")
             unit_price = self._require_optional_non_negative_decimal(item.get("unit_price"), "unit_price")
             line_total = self._require_optional_non_negative_decimal(item.get("line_total"), "line_total")
+            line_type = self._normalize_line_type(item.get("line_type"))
             normalized.append(
                 SalesLineInput(
                     product_id=product_id,
@@ -252,9 +291,21 @@ class SalesService:
                     quantity=quantity,
                     unit_price=unit_price,
                     line_total=line_total,
+                    line_type=line_type,
                 )
             )
         return normalized
+
+    @staticmethod
+    def _normalize_line_type(value: object) -> InvoiceLineType:
+        if value is None or value == "":
+            return InvoiceLineType.SALE
+        if isinstance(value, InvoiceLineType):
+            return value
+        try:
+            return InvoiceLineType(str(value))
+        except ValueError as exc:
+            raise ValidationError("Loại dòng hóa đơn không hợp lệ.") from exc
 
     def _resolve_unit_price(self, line: SalesLineInput, default_price: Decimal) -> Decimal:
         if line.unit_price is not None:
