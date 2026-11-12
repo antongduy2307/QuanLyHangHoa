@@ -169,6 +169,20 @@ def _ensure_invoice_mixed_sale_return_columns(engine: object | None = None) -> N
                 raise
 
 
+def _ensure_order_item_done_columns(engine: object | None = None) -> None:
+    """Add per-line completion tracking to order items (idempotent)."""
+    with (engine or ENGINE).begin() as connection:
+        item_columns = {str(row["name"]) for row in connection.execute(text("PRAGMA table_info(order_request_items)")).mappings().all()}
+        try:
+            if "is_done" not in item_columns:
+                connection.execute(text("ALTER TABLE order_request_items ADD COLUMN is_done BOOLEAN NOT NULL DEFAULT 0"))
+            if "done_at" not in item_columns:
+                connection.execute(text("ALTER TABLE order_request_items ADD COLUMN done_at DATETIME"))
+        except OperationalError as exc:
+            if "readonly" not in str(exc).lower():
+                raise
+
+
 def init_db() -> None:
     settings = get_settings()
     ensure_directories(
@@ -188,6 +202,7 @@ def init_db() -> None:
     _ensure_customer_balance_ledger_transaction_datetime_column()
     _ensure_customer_balance_ledger_ordering_columns()
     _ensure_invoice_mixed_sale_return_columns()
+    _ensure_order_item_done_columns()
     migrate_customer_invoice_payments_to_debt_payment_v1(
         ENGINE,
         db_path=settings.db_path,

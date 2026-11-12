@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QCheckBox, QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout
 
 from modules.orders.controller import OrderController
@@ -9,6 +10,9 @@ from shared.formatting.dates import format_datetime
 from shared.formatting.quantity import format_quantity
 from shared.widgets.message_box import MessageBox
 from shared.widgets.table_helpers import configure_table_widget
+
+
+DONE_ROW_BACKGROUND = "#d1fae5"
 
 
 class OrderDetailPopup(QDialog):
@@ -28,11 +32,14 @@ class OrderDetailPopup(QDialog):
         header = QLabel(self._summary_text(order))
         header.setWordWrap(True)
 
-        self._items_table = QTableWidget(0, 3)
-        self._items_table.setHorizontalHeaderLabels(["Tên hàng", "Đơn vị", "Số lượng"])
-        self._items_table.setProperty("column_minimum_widths", {0: 320, 1: 120, 2: 120})
-        configure_table_widget(self._items_table, "orders.detail_items")
+        self._progress_label = QLabel()
+
+        self._items_table = QTableWidget(0, 4)
+        self._items_table.setHorizontalHeaderLabels(["Xong", "Tên hàng", "Đơn vị", "Số lượng"])
+        self._items_table.setProperty("column_minimum_widths", {0: 70, 1: 320, 2: 120, 3: 120})
+        configure_table_widget(self._items_table, "orders.detail_items.v2")
         self._render_items(order)
+        self._items_table.itemChanged.connect(self._handle_item_changed)
 
         self._sell_button = QPushButton("Bán hàng")
         self._sell_button.clicked.connect(self._open_sales_draft)
@@ -53,6 +60,7 @@ class OrderDetailPopup(QDialog):
 
         layout = QVBoxLayout(self)
         layout.addWidget(header)
+        layout.addWidget(self._progress_label)
         layout.addWidget(self._items_table, 1)
         layout.addLayout(footer)
 
@@ -83,13 +91,61 @@ class OrderDetailPopup(QDialog):
         return f"\nĐã bán: hóa đơn {invoice_code} lúc {sold_at}"
 
     def _render_items(self, order: OrderRequest) -> None:
+        editable = order.status != "CONVERTED"
+        self._items_table.blockSignals(True)
         self._items_table.setRowCount(len(order.items))
         for row, item in enumerate(order.items):
-            self._items_table.setItem(row, 0, QTableWidgetItem(item.product_name_snapshot))
-            self._items_table.setItem(row, 1, QTableWidgetItem(item.unit_type.value))
+            done_item = QTableWidgetItem()
+            flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+            if editable:
+                flags |= Qt.ItemFlag.ItemIsUserCheckable
+            done_item.setFlags(flags)
+            done_item.setCheckState(Qt.CheckState.Checked if item.is_done else Qt.CheckState.Unchecked)
+            done_item.setData(Qt.ItemDataRole.UserRole, item.id)
+            self._items_table.setItem(row, 0, done_item)
+            self._items_table.setItem(row, 1, QTableWidgetItem(item.product_name_snapshot))
+            self._items_table.setItem(row, 2, QTableWidgetItem(item.unit_type.value))
             quantity_item = QTableWidgetItem(format_quantity(item.quantity))
             quantity_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            self._items_table.setItem(row, 2, quantity_item)
+            self._items_table.setItem(row, 3, quantity_item)
+            self._apply_done_style(row, bool(item.is_done))
+        self._items_table.blockSignals(False)
+        self._update_progress_label()
+
+    def _apply_done_style(self, row: int, done: bool) -> None:
+        background = QColor(DONE_ROW_BACKGROUND) if done else QColor(0, 0, 0, 0)
+        for column in range(self._items_table.columnCount()):
+            cell = self._items_table.item(row, column)
+            if cell is not None:
+                cell.setBackground(background)
+
+    def _update_progress_label(self) -> None:
+        total = len(self._order.items)
+        done = sum(1 for item in self._order.items if item.is_done)
+        self._progress_label.setText(f"Đã làm xong {done}/{total} dòng hàng")
+
+    def _handle_item_changed(self, cell: QTableWidgetItem) -> None:
+        if cell.column() != 0:
+            return
+        row = cell.row()
+        item = self._order.items[row]
+        done = cell.checkState() == Qt.CheckState.Checked
+        if bool(item.is_done) == done:
+            return
+        try:
+            self._controller.mark_item_done(item.id, done)
+        except Exception as exc:
+            self._items_table.blockSignals(True)
+            cell.setCheckState(Qt.CheckState.Checked if item.is_done else Qt.CheckState.Unchecked)
+            self._items_table.blockSignals(False)
+            MessageBox.error(self, "Không cập nhật được dòng hàng", str(exc))
+            return
+        item.is_done = done
+        self._items_table.blockSignals(True)
+        self._apply_done_style(row, done)
+        self._items_table.blockSignals(False)
+        self._update_progress_label()
+        self.order_changed.emit()
 
     def _toggle_prepared(self, checked: bool) -> None:
         try:

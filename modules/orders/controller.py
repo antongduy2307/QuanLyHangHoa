@@ -98,6 +98,13 @@ class OrderController:
         service = OrderService(OrderRepository(self._session_factory))
         return service.mark_prepared(order_id, prepared)
 
+    def mark_item_done(self, item_id: int, done: bool) -> None:
+        service = OrderService(OrderRepository(self._session_factory))
+        try:
+            service.mark_item_done(item_id, done)
+        finally:
+            service._repository.session.close()
+
     def mark_converted(self, order_id: int, invoice_id: int) -> OrderRequest:
         service = OrderService(OrderRepository(self._session_factory))
         return service.mark_converted(order_id, invoice_id)

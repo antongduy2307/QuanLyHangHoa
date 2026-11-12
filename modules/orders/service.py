@@ -56,6 +56,8 @@ class OrderService:
             if order.status != "OPEN":
                 continue
             for item in order.items:
+                if item.is_done:
+                    continue
                 key = (item.product_id, item.unit_type)
                 existing = totals.get(key)
                 if existing is None:
@@ -163,6 +165,18 @@ class OrderService:
             session.flush()
             return order
 
+    def mark_item_done(self, item_id: int, done: bool) -> OrderRequestItem:
+        session = self._repository.session
+        transaction_context = nullcontext() if session.in_transaction() else session.begin()
+        with transaction_context:
+            item = self._repository.get_order_item(item_id)
+            if item.order.status == "CONVERTED":
+                raise ValidationError("Đơn đặt hàng đã chuyển sang hóa đơn.")
+            item.is_done = bool(done)
+            item.done_at = datetime.now() if done else None
+            session.flush()
+            return item
+
     def mark_converted(self, order_id: int, invoice_id: int) -> OrderRequest:
         session = self._repository.session
         transaction_context = nullcontext() if session.in_transaction() else session.begin()
@@ -189,16 +203,26 @@ class OrderService:
     def _replace_items(self, order: OrderRequest, items: list[OrderLineInput]) -> None:
         inventory_repository = InventoryRepository(self._repository._session_factory)
         inventory_repository.use_session(self._repository.session)
+        # Keep the done flag of lines whose product, unit and quantity did not change.
+        previous_done = {
+            (item.product_id, item.unit_type, Decimal(str(item.quantity))): item.done_at
+            for item in order.items
+            if item.is_done
+        }
         order.items.clear()
         for line in items:
             product = inventory_repository.get_product(line.product_id)
             product.validate_price_unit_type(line.unit_type)
+            done_key = (product.id, line.unit_type, Decimal(str(line.quantity)))
+            is_done = done_key in previous_done
             order.items.append(
                 OrderRequestItem(
                     product_id=product.id,
                     product_name_snapshot=product.product_name,
                     unit_type=line.unit_type,
                     quantity=line.quantity,
+                    is_done=is_done,
+                    done_at=previous_done.pop(done_key) if is_done else None,
                 )
             )
 

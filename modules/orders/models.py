@@ -4,7 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.db import Base
@@ -58,6 +58,8 @@ class OrderRequestItem(Base):
     product_name_snapshot: Mapped[str] = mapped_column(String(255))
     unit_type: Mapped[UnitType] = mapped_column(build_enum(UnitType, "order_request_item_unit_type"))
     quantity: Mapped[Decimal] = mapped_column(Numeric(QUANTITY_PRECISION, QUANTITY_SCALE))
+    is_done: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    done_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     order: Mapped[OrderRequest] = relationship(back_populates="items")

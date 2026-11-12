@@ -103,7 +103,7 @@ class OrdersPage(QWidget):
                 order.customer_name_snapshot,
                 format_datetime(order.required_delivery_datetime) if order.required_delivery_datetime is not None else "-",
                 order.note or "",
-                "Đã hoàn thành" if order.status == "PREPARED" else "Đang mở",
+                self._status_text(order),
             ]
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
@@ -113,6 +113,16 @@ class OrdersPage(QWidget):
                     item.setBackground(prepared_color)
                 self._table.setItem(row, column, item)
             self._table.item(row, 0).setData(Qt.ItemDataRole.UserRole, order.id)
+
+    @staticmethod
+    def _status_text(order: OrderRequest) -> str:
+        if order.status == "PREPARED":
+            return "Đã hoàn thành"
+        total = len(order.items)
+        done = sum(1 for item in order.items if item.is_done)
+        if done == 0 or total == 0:
+            return "Đang mở"
+        return f"Đang mở · xong {done}/{total}"
 
     def _render_summary_rows(self) -> None:
         query = self._summary_search_input.text().strip().lower()

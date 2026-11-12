@@ -7,7 +7,7 @@ from sqlalchemy import case, select
 from sqlalchemy.orm import Session, selectinload, sessionmaker
 
 from core.exceptions import NotFoundError
-from modules.orders.models import OrderRequest
+from modules.orders.models import OrderRequest, OrderRequestItem
 
 
 class OrderRepository:
@@ -46,6 +46,12 @@ class OrderRepository:
         if order is None:
             raise NotFoundError(f"Không tìm thấy đơn đặt hàng {order_id}.")
         return order
+
+    def get_order_item(self, item_id: int) -> OrderRequestItem:
+        item = self.session.get(OrderRequestItem, item_id)
+        if item is None:
+            raise NotFoundError(f"Không tìm thấy dòng hàng {item_id} trong đơn đặt.")
+        return item
 
     def list_active_orders(self) -> Sequence[OrderRequest]:
         statement = (
